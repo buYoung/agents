@@ -1,4 +1,5 @@
 export { orchestratorAgent } from "./orchestrator";
+export { intentCheckerAgent } from "./intent-checker";
 export { workerAgent } from "./worker";
 export { plannerAgent } from "./planner";
 export { researchAgent } from "./research";

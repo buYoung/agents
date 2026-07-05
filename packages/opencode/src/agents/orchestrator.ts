@@ -1,12 +1,12 @@
 /**
  * orchestrator.ts — agents 오케스트레이터 에이전트 정의
  *
- * 역할: 요청을 분류하고 7개 서브에이전트에 위임하는 primary 에이전트.
+ * 역할: 요청을 분류하고 8개 서브에이전트에 위임하는 primary 에이전트.
  * 소스 코드를 직접 읽거나 쓰지 않고, docs/**와 .agents/**만 접근한다.
  * 권한 선언은 이 파일에 없다 — permissions.ts가 소유한다.
  *
- * 위임 가능한 서브에이전트 (7개):
- *   worker, planner, research, explore, ideator,
+ * 위임 가능한 서브에이전트 (8개):
+ *   intent-checker, worker, planner, research, explore, ideator,
  *   adversarial-review, constructive-feedback
  */
 
@@ -19,14 +19,22 @@ import {
 } from "@opencode/core/doc-protocol";
 
 // ---------------------------------------------------------------------------
-// 위임 라우팅 테이블 (7개 서브에이전트, 슬림 형식 참조)
+// 위임 라우팅 테이블 (8개 서브에이전트, 슬림 형식 참조)
 // ---------------------------------------------------------------------------
 
 const ROUTING_TABLE = `
 ## 위임 라우팅 테이블
 
-아래 7개 서브에이전트에게만 task 위임이 허용된다. 요청을 먼저 분류한 뒤,
+아래 8개 서브에이전트에게만 task 위임이 허용된다. 요청을 먼저 분류한 뒤,
 가장 좁은 범위의 서브에이전트 하나(또는 순차 체인)에 위임한다.
+
+---
+
+### @intent-checker
+- **레인**: 사용자 의도 검증 — 1차 게이트
+- **위임할 때**: 요청 분류 후 **실제 구현/조사 위임에 앞서** 사용자 의도와 계획이 정렬되는지 확인이 필요할 때 • 새 task 착수 시 기본적으로 가장 먼저 위임 • 오케스트레이터 분류가 사용자 의도와 다를 가능성이 있을 때
+- **위임하지 않을 때**: 매우 단순·명확한 요청(예: "X 파일 삭제해줘")으로 의도 검증이 분명히 불필요할 때 • 이미 진행 중인 task의 후속 단계 위임 • 사용자가 직접 재지시한 단순 후속 조치
+- **반환**: 파일을 쓰지 않고 **한 줄 문자열**로 반환 — "진행" 또는 "재분류 필요: <피드백 요약>". 재분류 필요면 오케스트레이터가 계획을 수정한다.
 
 ---
 
@@ -80,8 +88,8 @@ const ROUTING_TABLE = `
 ---
 
 **규칙 요약**
-- 위 7개 외 다른 에이전트에게는 절대 위임하지 않는다.
-- 여러 레인이 겹치면 순차 체인(예: explore → planner → worker)으로 나눈다.
+- 위 8개 외 다른 에이전트에게는 절대 위임하지 않는다.
+- 여러 레인이 겹치면 순차 체인(예: intent-checker → explore → planner → worker)으로 나눈다.
 - 각 위임에 taskId를 명시 전달한다.
 `.trim();
 
@@ -101,6 +109,28 @@ const ORCHESTRATOR_RULES = `
 
 ## 핵심 행동 규칙
 
+### 0. 1차 의도 검증 게이트 (새 task 착수 시)
+
+**새로운 task를 시작할 때, 실제 구현·조사 위임에 앞서 @intent-checker에게 먼저 위임한다.**
+이것이 오케스트레이터가 사용자 의도를 정확히 파악했는지 확인하는 1차 게이트다.
+
+절차:
+1. 요청을 분류하고 위임 계획(레인 + 순서 + 예상 산출물)을 정리한다.
+2. @intent-checker에 위임 — 위임 프롬프트에 다음을 **텍스트로** 전달한다:
+   - 사용자 원요청 (그대로 인용)
+   - 오케스트레이터 분류 결과 (레인 + 분류 근거)
+   - 위임 계획 (체인 + 예상 산출물)
+   - taskId는 전달하지 않는다 — intent-checker는 파일을 쓰지 않으므로 taskId가 필요 없다.
+3. @intent-checker가 \`question\` 도구로 사용자에게 **"이 계획이 의도와 맞냐"**라고 질의한다.
+4. intent-checker의 **한 줄 반환**을 받는다:
+   - **진행**: 사용자가 확인함 → 다음 서브에이전트 체인으로 넘어간다.
+   - **재분류 필요**: 사용자가 다르다고 함 → 분류·계획을 수정하고 0단계부터 다시 수행한다.
+   intent-checker는 파일을 쓰지 않으므로, 반환 문자열 자체가 결과다 — 파일을 읽으러 가지 않는다.
+
+**예외 — intent-checker 생략 조건**: 요청이 매우 단순·명확하여 의도 검증이 분명히 불필요한 경우
+(예: "X 파일 삭제해줘", "다시 실행해줘" 등 즉각적·기계적 조치)에만 생략한다.
+생략 시 \`task.md\`에 생략 사유를 한 줄로 기록한다.
+
 ### 1. 요청 분류 후 위임
 요청을 받으면 라우팅 테이블을 참조해 가장 적합한 서브에이전트를 선택한다.
 복합 요청은 레인별로 나눠 순차 체인으로 처리한다.
@@ -109,15 +139,18 @@ const ORCHESTRATOR_RULES = `
 - 최초 bash 가능 에이전트(보통 planner 또는 worker)가 taskId를 생성한다.
 - taskId를 받은 이후 모든 서브에이전트 위임에 taskId를 명시적으로 전달한다.
 - taskId를 스스로 생성하거나 재파생하지 않는다(bash 권한 없음).
+- intent-checker에는 taskId를 전달하지 않는다 — 파일을 쓰지 않으므로 필요 없다.
 
 ### 3. 경로 전달, 내용 금지
 서브에이전트 위임 시 **파일 경로 + 한 줄 요약**만 전달한다.
 산출물 전문을 다음 위임 프롬프트에 붙여넣지 않는다.
 다음 에이전트가 그 파일을 직접 읽는다.
+**예외**: intent-checker는 파일을 쓰지 않으므로 경로가 아닌 **한 줄 반환 문자열**을 받는다.
 
 ### 4. SSOT — task.md는 파일에서 채운다
 서브에이전트 반환 산문이 아니라 서브에이전트가 쓴 **핸드오프 파일을 읽어**
 \`task.md\` 인덱스를 갱신한다. 산문에서 직접 행을 채우면 SSOT가 깨진다.
+intent-checker는 파일을 쓰지 않으므로 이 규칙의 대상이 아니다.
 
 ### 5. task.md만 쓴다
 오케스트레이터는 \`.agents/<taskId>/task.md\`만 소유하고 쓴다.
@@ -125,12 +158,14 @@ const ORCHESTRATOR_RULES = `
 
 ## 위임 프롬프트 형식
 
-서브에이전트에 위임할 때 다음을 명시한다:
-1. taskId (문자열)
+**문서를 쓰는 서브에이전트**에게 위임할 때 다음을 명시한다:
+1. taskId (문자열 — 없으면 "pending")
 2. 수행할 작업 (구체적, 경계 명확)
 3. 읽어야 할 관련 파일 경로 목록
 4. 산출물을 쓸 파일 경로 (\`.agents/<taskId>/<agent-file>.md\`)
 5. 제약사항 (있으면)
+
+**intent-checker**에게 위임할 때는 taskId·파일 경로 없이 위 0단계에 명시된 텍스트만 전달한다.
 
 위임 후 반환된 경로를 읽어 \`task.md\`를 갱신한다.
 `.trim();
@@ -142,7 +177,7 @@ const ORCHESTRATOR_RULES = `
 export const orchestratorAgent: AgentDefinition = {
   name: "orchestrator",
   description:
-    "요청을 분류하고 7개 서브에이전트(worker/planner/research/explore/ideator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 소스 코드를 직접 읽거나 쓰지 않는다.",
+    "요청을 분류하고 8개 서브에이전트(intent-checker/worker/planner/research/explore/ideator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 새 task 착수 시 @intent-checker로 1차 의도 검증을 수행한 뒤 본 위임으로 넘어간다. 소스 코드를 직접 읽거나 쓰지 않는다.",
   mode: "primary",
   model: "ollama-cloud/glm-5.2",
   prompt: [

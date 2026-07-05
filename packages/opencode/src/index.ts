@@ -20,6 +20,7 @@ import type { Hooks, Config, Plugin } from "@opencode-ai/plugin";
 import type { AgentDefinition } from "@opencode/core/types";
 import {
   orchestratorAgent,
+  intentCheckerAgent,
   workerAgent,
   plannerAgent,
   researchAgent,
@@ -32,6 +33,7 @@ import {
 // 에이전트 정의를 named export로도 노출 (cli에서 import)
 export {
   orchestratorAgent,
+  intentCheckerAgent,
   workerAgent,
   plannerAgent,
   researchAgent,
@@ -78,6 +80,7 @@ type ConfigProviderMap = Record<string, Record<string, unknown>>;
 // ---------------------------------------------------------------------------
 const ALL_AGENTS: AgentDefinition[] = [
   orchestratorAgent,
+  intentCheckerAgent,
   workerAgent,
   plannerAgent,
   researchAgent,

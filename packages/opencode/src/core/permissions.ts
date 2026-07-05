@@ -69,7 +69,7 @@ export const SUBAGENT_NAMES: readonly AgentName[] = AGENT_NAMES_IMPL.filter(
 // ---------------------------------------------------------------------------
 
 /**
- * 전체 8개 에이전트 권한 정책 테이블.
+ * 전체 9개 에이전트 권한 정책 테이블.
  * 권한 변경은 이 테이블만 수정한다.
  *
  * 베이스라인 (모든 에이전트 공통):
@@ -82,7 +82,15 @@ export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
     bash: "deny",
     sourceEdit: "deny",
     webfetch: "deny",
-    task: "to-subagents", // 7개 서브에이전트에게만 위임 가능
+    task: "to-subagents", // 8개 서브에이전트에게만 위임 가능
+  },
+  {
+    agent: "intent-checker",
+    sourceRead: "deny", // 게이트 에이전트 — 읽기 불필요 (오케스트레이터가 텍스트로 넘겨줌)
+    bash: "deny",
+    sourceEdit: "deny",
+    webfetch: "deny",
+    task: "deny", // 재위임 금지
   },
   {
     agent: "worker",

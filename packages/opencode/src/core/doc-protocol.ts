@@ -25,14 +25,14 @@ export const RUN_DIR_ROOT = ".agents" as const;
 // ---------------------------------------------------------------------------
 
 /**
- * Canonical names for all 8 agents in the agents plugin.
- * Each name maps to exactly one writable file (1:1, no duplicate writer).
+ * Canonical names for all 9 agents in the agents plugin.
  *
  * SSOT: this is the single source of truth for agent names.
  * `permissions.ts` imports this type — do NOT redeclare it elsewhere.
  */
 export type AgentName =
   | "orchestrator"
+  | "intent-checker"
   | "worker"
   | "planner"
   | "ideator"
@@ -42,11 +42,21 @@ export type AgentName =
   | "constructive-feedback";
 
 /**
+ * Agents that own a handoff file inside `.agents/<taskId>/`.
+ * Each documented agent maps 1:1 to exactly one writable file.
+ *
+ * `intent-checker` is excluded — it is a stateless gate that returns
+ * a one-line answer to the orchestrator and writes no file.
+ */
+export type DocumentedAgent = Exclude<AgentName, "intent-checker">;
+
+/**
  * Ordered list of all agent names.
  * Used by `permissions.ts` to build `AGENT_NAMES` / `SUBAGENT_NAMES`.
  */
 export const AGENT_NAMES: readonly AgentName[] = [
   "orchestrator",
+  "intent-checker",
   "worker",
   "planner",
   "ideator",
@@ -56,18 +66,28 @@ export const AGENT_NAMES: readonly AgentName[] = [
   "constructive-feedback",
 ] as const;
 
+/**
+ * Agents that own a handoff file (subset of {@link AGENT_NAMES}).
+ * Used by `runDocPath` and the append-only / SSOT rule tables.
+ */
+export const DOCUMENTED_AGENTS: readonly DocumentedAgent[] = (
+  AGENT_NAMES as readonly AgentName[]
+).filter((name): name is DocumentedAgent => name !== "intent-checker");
+
 // ---------------------------------------------------------------------------
-// 1:1 agent → filename map
+// 1:1 documented-agent → filename map
 // ---------------------------------------------------------------------------
 
 /**
- * Maps each agent to the bare filename it **owns and appends to**.
+ * Maps each **documented** agent to the bare filename it owns and appends to.
  * No two agents share a file — one writer per file, enforced by prompt rules.
+ *
+ * `intent-checker` is intentionally absent: it writes no file.
  *
  * Full path for any given taskId: `.agents/<taskId>/<filename>`
  * Use `runDocPath(taskId, agent)` to build the complete path.
  */
-export const AGENT_DOC_MAP: Record<AgentName, string> = {
+export const AGENT_DOC_MAP: Record<DocumentedAgent, string> = {
   orchestrator: "task.md",
   worker: "work.md",
   planner: "plan.md",
@@ -83,11 +103,11 @@ export const AGENT_DOC_MAP: Record<AgentName, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the full relative path for an agent's handoff file.
+ * Returns the full relative path for a documented agent's handoff file.
  *
  * @param taskId  Task identifier in `YYYYMMDD-<slug>` format,
  *                e.g. `"20260702-agents-plugin"`.
- * @param agent   One of the 8 canonical `AgentName` values.
+ * @param agent   One of the {@link DocumentedAgent} values (not `intent-checker`).
  * @returns       `.agents/<taskId>/<filename>` — consistent with the
  *                `.agents/**` scope the permission layer enforces.
  *
@@ -95,7 +115,7 @@ export const AGENT_DOC_MAP: Record<AgentName, string> = {
  *   runDocPath("20260702-auth-login", "planner")
  *   // → ".agents/20260702-auth-login/plan.md"
  */
-export function runDocPath(taskId: string, agent: AgentName): string {
+export function runDocPath(taskId: string, agent: DocumentedAgent): string {
   return `${RUN_DIR_ROOT}/${taskId}/${AGENT_DOC_MAP[agent]}`;
 }
 
@@ -153,6 +173,8 @@ Your file is listed in the table below — write ONLY to that file.
 | explore                | explore.md                   |
 | adversarial-review     | adversarial-review.md        |
 | constructive-feedback  | constructive-feedback.md     |
+
+> \`intent-checker\` owns no file — it is a stateless gate and is not bound by this rule.
 
 Rules:
 1. **ALWAYS APPEND** — never overwrite, never use the Edit tool to replace
