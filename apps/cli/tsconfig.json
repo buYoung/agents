@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "paths": {
+      "@cli/*": ["./src/*"],
+      "@opencode/core/*": ["../../packages/opencode/src/core/*"],
+      "@opencode/agents/*": ["../../packages/opencode/src/agents/*"],
+      "@opencode/*": ["../../packages/opencode/src/*"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

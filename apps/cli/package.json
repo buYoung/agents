@@ -1,0 +1,25 @@
+{
+  "name": "cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "agents": "./bin/agents"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "opencode": "workspace:*",
+    "smol-toml": "^1.7.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.17.13",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.9"
+  }
+}

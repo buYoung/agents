@@ -1,0 +1,24 @@
+{
+  "name": "opencode",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "smol-toml": "^1.7.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.17.13",
+    "@types/node": "^26.1.0",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.9"
+  }
+}
