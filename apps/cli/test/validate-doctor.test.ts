@@ -114,7 +114,7 @@ describe("reasoning_effort 미지원 값 진단", () => {
     fs.rmSync(projectDir, { recursive: true, force: true });
   });
 
-  test("validate: kimi-k2.6(미지원)에 high → exit 2 + invalid-reasoning-effort", async () => {
+  test("validate: invalid 설정 → exit 2 + invalid kind 보고", async () => {
     await runCli(["install", "--scope", "project"], {
       cwd: projectDir,
       env: cliEnv,
@@ -140,9 +140,25 @@ describe("reasoning_effort 미지원 값 진단", () => {
     expect(io.err.some((l) => l.includes("invalid-reasoning-effort"))).toBe(
       true,
     );
+
+    io.err.length = 0;
+    writeAgentsToml(
+      projectDir,
+      ["[agents.orchestrator]", "enable = false"].join("\n"),
+    );
+    const protectedAgentExit = await runCli(["validate"], {
+      cwd: projectDir,
+      env: cliEnv,
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+    expect(protectedAgentExit).toBe(2);
+    expect(io.err.some((l) => l.includes("protected-agent-disabled"))).toBe(
+      true,
+    );
   });
 
-  test("doctor: 미지원 reasoning_effort → userConfigValidity=invalid", async () => {
+  test("doctor: invalid 설정 → userConfigValidity=invalid", async () => {
     await runCli(["install", "--scope", "project"], {
       cwd: projectDir,
       env: cliEnv,
@@ -171,6 +187,24 @@ describe("reasoning_effort 미지원 값 진단", () => {
     expect(doctorErr.some((l) => l.includes("invalid-reasoning-effort"))).toBe(
       true,
     );
+
+    writeAgentsToml(
+      projectDir,
+      ["[agents.orchestrator]", "enable = false"].join("\n"),
+    );
+    const protectedDoctorOut: string[] = [];
+    const protectedDoctorErr: string[] = [];
+    const protectedDoctorExit = await runCli(["doctor"], {
+      cwd: projectDir,
+      env: cliEnv,
+      stdout: (l) => protectedDoctorOut.push(l),
+      stderr: (l) => protectedDoctorErr.push(l),
+    });
+    expect(protectedDoctorExit).toBe(2);
+    expect(protectedDoctorOut).toContain("userConfigValidity=invalid");
+    expect(
+      protectedDoctorErr.some((l) => l.includes("protected-agent-disabled")),
+    ).toBe(true);
   });
 });
 

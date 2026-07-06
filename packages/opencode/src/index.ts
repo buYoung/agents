@@ -49,6 +49,8 @@ export {
 import {
   createSessionAgentMap,
   enforcePermission,
+  SUBAGENT_NAMES,
+  type AgentName,
 } from "@opencode/core/permissions";
 
 // ---------------------------------------------------------------------------
@@ -137,6 +139,10 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     agentRecord,
     pluginConfig,
     { catalog },
+  );
+  const enabledSubagentNames = Object.keys(finalAgentRecord).filter(
+    (name): name is AgentName =>
+      (SUBAGENT_NAMES as readonly string[]).includes(name),
   );
 
   // -------------------------------------------------------------------------
@@ -245,6 +251,7 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     const result = enforcePermission(
       { tool: input.tool, sessionID: input.sessionID, args },
       sessionAgentMap,
+      { subagentNames: enabledSubagentNames },
     );
 
     if (!result.allowed) {

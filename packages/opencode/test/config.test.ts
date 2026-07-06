@@ -6,7 +6,11 @@ import { describe, test, expect } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadPluginConfig, applyAgentOverrides } from "@opencode/core/config";
+import {
+  loadPluginConfig,
+  applyAgentOverrides,
+  validatePluginConfig,
+} from "@opencode/core/config";
 import {
   getCatalogModelIds,
   getReasoningEffortsByModel,
@@ -44,7 +48,7 @@ const fakeAgents: Record<string, AgentDefinition> = Object.fromEntries(
 );
 
 describe("loadPluginConfig + applyAgentOverrides 기본", () => {
-  test("explore 모델 오버라이드 + reasoning_effort, ideator 비활성화, planner prompt_append", () => {
+  test("explore 모델 오버라이드 + reasoning_effort, 필수 에이전트 보호, ideator 비활성화, planner prompt_append", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-cfg-"));
     writeProjectToml(
       tempDir,
@@ -77,6 +81,46 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
       | { extraBody?: { reasoning_effort?: string } }
       | undefined;
     expect(exploreOptions?.extraBody?.reasoning_effort).toBe("high");
+
+    const validationMessages = validatePluginConfig(
+      {
+        agents: {
+          orchestrator: { enable: false },
+          worker: { enable: false },
+          ideator: { enable: false },
+        },
+      },
+      undefined,
+      fakeAgents,
+    );
+    expect(validationMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "protected-agent-disabled",
+          path: "agents.orchestrator.enable",
+        }),
+        expect.objectContaining({
+          kind: "protected-agent-disabled",
+          path: "agents.worker.enable",
+        }),
+      ]),
+    );
+    expect(
+      validationMessages.some((message) => message.path === "agents.ideator.enable"),
+    ).toBe(false);
+
+    const protectedConfig = {
+      agents: {
+        orchestrator: { enable: false },
+        worker: { enable: false },
+        ideator: { enable: false },
+      },
+    };
+    const protectedResult = applyAgentOverrides(fakeAgents, protectedConfig);
+    expect(protectedResult.record["orchestrator"]).toBeDefined();
+    expect(protectedResult.record["worker"]).toBeDefined();
+    expect(protectedResult.record["ideator"]).toBeUndefined();
+    expect(protectedResult.disabledNames).toEqual(["ideator"]);
 
     // orchestrator는 변경 없음
     expect(record["orchestrator"]?.model).toBe("ollama-cloud/kimi-k2.6");

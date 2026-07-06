@@ -127,6 +127,10 @@ describe("install --scope project", () => {
   });
 
   test("기존 native 설정 보존 (plugin 다른 항목, provider 유지)", async () => {
+    const userAgentsTomlPath = path.join(projectDir, ".opencode", "agents.toml");
+    const userAgentsTomlContent = "# user-owned\n";
+    fs.mkdirSync(path.dirname(userAgentsTomlPath), { recursive: true });
+    fs.writeFileSync(userAgentsTomlPath, userAgentsTomlContent, "utf-8");
     writeOpencodeJson(projectDir, {
       plugin: ["agents", "other-plugin"],
       provider: { "ollama-cloud": buildProviderConfig() },
@@ -165,6 +169,9 @@ describe("install --scope project", () => {
         cfg.provider !== null &&
         "ollama-cloud" in cfg.provider,
     ).toBe(true);
+    expect(fs.readFileSync(userAgentsTomlPath, "utf-8")).toBe(
+      userAgentsTomlContent,
+    );
   });
 });
 

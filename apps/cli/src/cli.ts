@@ -46,6 +46,7 @@ const EXIT_WARNING = 1;
 const EXIT_INVALID = 2;
 const EXIT_BLOCKED = 3;
 const EXIT_INTERNAL = 4;
+const SHA256_HEX_PATTERN = /^[a-fA-F0-9]{64}$/;
 const AGENT_RECORD: Record<string, AgentDefinition> = Object.fromEntries(
   [
     orchestratorAgent,
@@ -82,10 +83,37 @@ interface LatestManifest {
   };
 }
 
+type LatestManifestArtifactName = "catalog" | "cli";
+
+interface LatestManifestArtifact {
+  url: string;
+  sha256: string;
+}
+
+class ReleaseManifestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReleaseManifestError";
+  }
+}
+
+interface FileSnapshot {
+  filePath: string;
+  existed: boolean;
+  content?: Buffer;
+  mode?: number;
+}
+
+interface CliArtifactApplyResult {
+  packageRoot: string;
+  targetSnapshots: FileSnapshot[];
+}
+
 interface InstallState {
   pluginAdded: boolean;
   providerAdded: boolean;
   nativeConfigPath: string;
+  agentsConfigManaged: boolean;
   installedAt: string;
 }
 
@@ -182,13 +210,125 @@ async function readLocation(
   return Buffer.from(await response.arrayBuffer());
 }
 
+function getLatestManifestArtifact(
+  manifest: LatestManifest,
+  artifactName: LatestManifestArtifactName,
+): LatestManifestArtifact | null {
+  return manifest[artifactName] ?? null;
+}
+
+function assertLatestManifestStringField(
+  manifest: Record<string, unknown>,
+  fieldName: keyof LatestManifest,
+): string {
+  const value = manifest[fieldName];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ReleaseManifestError(
+      `latest.json의 ${String(fieldName)} 필드는 비어 있지 않은 string이어야 합니다.`,
+    );
+  }
+  return value;
+}
+
+function assertArtifactLocation(location: string, fieldPath: string): void {
+  if (location.trim() === "" || location.includes("\0")) {
+    throw new ReleaseManifestError(
+      `latest.json의 ${fieldPath} 필드는 유효한 artifact 위치여야 합니다.`,
+    );
+  }
+  if (location.startsWith("file://")) {
+    try {
+      fileURLToPath(location);
+      return;
+    } catch {
+      throw new ReleaseManifestError(
+        `latest.json의 ${fieldPath} 필드는 유효한 file URL이어야 합니다.`,
+      );
+    }
+  }
+  if (/^https?:\/\//.test(location)) {
+    try {
+      new URL(location);
+      return;
+    } catch {
+      throw new ReleaseManifestError(
+        `latest.json의 ${fieldPath} 필드는 유효한 HTTP URL이어야 합니다.`,
+      );
+    }
+  }
+  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(location)) {
+    throw new ReleaseManifestError(
+      `latest.json의 ${fieldPath} 필드는 file, http, https 또는 로컬 파일 경로만 지원합니다.`,
+    );
+  }
+}
+
+function validateLatestManifestArtifact(
+  manifest: Record<string, unknown>,
+  artifactName: LatestManifestArtifactName,
+): LatestManifestArtifact | undefined {
+  const artifact = manifest[artifactName];
+  if (artifact === undefined) return undefined;
+  if (!isJsonObject(artifact)) {
+    throw new ReleaseManifestError(
+      `latest.json의 ${artifactName} artifact는 object여야 합니다.`,
+    );
+  }
+  const url = artifact.url;
+  if (typeof url !== "string") {
+    throw new ReleaseManifestError(
+      `latest.json의 ${artifactName}.url 필드는 string이어야 합니다.`,
+    );
+  }
+  assertArtifactLocation(url, `${artifactName}.url`);
+
+  const sha256Checksum = artifact.sha256;
+  if (
+    typeof sha256Checksum !== "string" ||
+    !SHA256_HEX_PATTERN.test(sha256Checksum)
+  ) {
+    throw new ReleaseManifestError(
+      `latest.json의 ${artifactName}.sha256 필드는 64자리 sha256 hex string이어야 합니다.`,
+    );
+  }
+  return { url, sha256: sha256Checksum.toLowerCase() };
+}
+
+function parseLatestManifest(content: string): LatestManifest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new ReleaseManifestError(`latest.json 파싱 실패: ${message}`);
+  }
+  if (!isJsonObject(parsed)) {
+    throw new ReleaseManifestError("latest.json은 JSON object여야 합니다.");
+  }
+  return {
+    cliVersion: assertLatestManifestStringField(parsed, "cliVersion"),
+    catalogVersion: assertLatestManifestStringField(parsed, "catalogVersion"),
+    minimumCliVersion: assertLatestManifestStringField(
+      parsed,
+      "minimumCliVersion",
+    ),
+    minimumPluginVersion: assertLatestManifestStringField(
+      parsed,
+      "minimumPluginVersion",
+    ),
+    publishedAt: assertLatestManifestStringField(parsed, "publishedAt"),
+    catalog: validateLatestManifestArtifact(parsed, "catalog"),
+    cli: validateLatestManifestArtifact(parsed, "cli"),
+  };
+}
+
 async function readLatestManifest(
   env: NodeJS.ProcessEnv,
   options: { timeoutMs?: number } = {},
 ): Promise<LatestManifest> {
   const releaseUrl = env.AGENTS_RELEASE_URL ?? DEFAULT_RELEASE_URL;
   const content = await readLocation(releaseUrl, options.timeoutMs);
-  return JSON.parse(content.toString("utf-8")) as LatestManifest;
+  return parseLatestManifest(content.toString("utf-8"));
 }
 
 function compareVersions(left: string, right: string): number {
@@ -204,6 +344,73 @@ function compareVersions(left: string, right: string): number {
     if (safeLeftValue < safeRightValue) return -1;
   }
   return 0;
+}
+
+function getCurrentPluginVersion(): string {
+  return getPackageVersion();
+}
+
+function assertLatestManifestCompatibility(
+  manifest: LatestManifest,
+  projectDirectory: string,
+  commandName: "update" | "upgrade",
+): void {
+  const currentCliVersion = getPackageVersion();
+  const currentPluginVersion = getCurrentPluginVersion();
+  if (compareVersions(manifest.minimumCliVersion, currentCliVersion) > 0) {
+    throw new ReleaseManifestError(
+      `latest.json은 agents CLI ${manifest.minimumCliVersion} 이상이 필요합니다. 현재 버전: ${currentCliVersion}`,
+    );
+  }
+  if (
+    compareVersions(manifest.minimumPluginVersion, currentPluginVersion) > 0
+  ) {
+    throw new ReleaseManifestError(
+      `latest.json은 agents plugin ${manifest.minimumPluginVersion} 이상이 필요합니다. 현재 버전: ${currentPluginVersion}`,
+    );
+  }
+
+  if (
+    commandName === "upgrade" &&
+    compareVersions(manifest.cliVersion, currentCliVersion) < 0
+  ) {
+    throw new ReleaseManifestError(
+      `downgrade는 지원하지 않습니다. 현재 CLI 버전: ${currentCliVersion}, manifest CLI 버전: ${manifest.cliVersion}`,
+    );
+  }
+
+  const state = readManagedState(projectDirectory);
+  if (
+    commandName === "update" &&
+    state?.catalogVersion &&
+    compareVersions(manifest.catalogVersion, state.catalogVersion) < 0
+  ) {
+    throw new ReleaseManifestError(
+      `catalog downgrade는 지원하지 않습니다. 현재 catalog 버전: ${state.catalogVersion}, manifest catalog 버전: ${manifest.catalogVersion}`,
+    );
+  }
+}
+
+function requireLatestManifestArtifact(
+  manifest: LatestManifest,
+  artifactName: LatestManifestArtifactName,
+): LatestManifestArtifact {
+  const artifact = getLatestManifestArtifact(manifest, artifactName);
+  if (!artifact) {
+    throw new ReleaseManifestError(
+      `latest.json에 ${artifactName} artifact 정보가 없습니다.`,
+    );
+  }
+  return artifact;
+}
+
+function reportReleaseManifestError(
+  error: unknown,
+  io: Required<CliIO>,
+): boolean {
+  if (!(error instanceof ReleaseManifestError)) return false;
+  io.stderr(`release-manifest-invalid: ${error.message}`);
+  return true;
 }
 
 async function getVersionNotice(
@@ -279,21 +486,207 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readNativeOpencodeConfig(configPath: string): Record<string, unknown> {
-  if (!fs.existsSync(configPath)) return {};
-  const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8")) as unknown;
+function ensureParentDirectory(filePath: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function writeTextFile(filePath: string, content: string | Buffer): void {
+  ensureParentDirectory(filePath);
+  fs.writeFileSync(filePath, content, "utf-8");
+}
+
+function writeJsonFile(filePath: string, value: unknown): void {
+  writeTextFile(filePath, JSON.stringify(value, null, 2) + "\n");
+}
+
+function snapshotFile(filePath: string): FileSnapshot {
+  if (!fs.existsSync(filePath)) {
+    return { filePath, existed: false };
+  }
+  return {
+    filePath,
+    existed: true,
+    content: fs.readFileSync(filePath),
+    mode: fs.statSync(filePath).mode & 0o777,
+  };
+}
+
+function restoreFileSnapshot(snapshot: FileSnapshot): void {
+  if (!snapshot.existed) {
+    fs.rmSync(snapshot.filePath, { force: true });
+    return;
+  }
+  if (!snapshot.content) {
+    throw new Error(`${snapshot.filePath} snapshot content missing`);
+  }
+  writeTextFile(snapshot.filePath, snapshot.content);
+  if (snapshot.mode !== undefined) {
+    fs.chmodSync(snapshot.filePath, snapshot.mode);
+  }
+}
+
+function getBackupPath(filePath: string, createdAt = new Date()): string {
+  const timestamp = createdAt
+    .toISOString()
+    .replaceAll(":", "")
+    .replaceAll(".", "");
+  return `${filePath}.${timestamp}.bak`;
+}
+
+function writeFileBackup(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  let backupPath = getBackupPath(filePath);
+  let backupIndex = 1;
+  while (fs.existsSync(backupPath)) {
+    backupPath = `${getBackupPath(filePath)}.${backupIndex}`;
+    backupIndex += 1;
+  }
+  ensureParentDirectory(backupPath);
+  fs.copyFileSync(filePath, backupPath);
+  return backupPath;
+}
+
+function removeFileIfExists(filePath: string): boolean {
+  if (!fs.existsSync(filePath)) return false;
+  fs.rmSync(filePath);
+  return true;
+}
+
+function stripJsoncComments(content: string): string {
+  let output = "";
+  let isInString = false;
+  let isEscaped = false;
+  let isInLineComment = false;
+  let isInBlockComment = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    const nextCharacter = content[index + 1];
+
+    if (isInLineComment) {
+      if (character === "\n" || character === "\r") {
+        isInLineComment = false;
+        output += character;
+      }
+      continue;
+    }
+
+    if (isInBlockComment) {
+      if (character === "*" && nextCharacter === "/") {
+        isInBlockComment = false;
+        index += 1;
+      } else if (character === "\n" || character === "\r") {
+        output += character;
+      }
+      continue;
+    }
+
+    if (isInString) {
+      output += character;
+      if (isEscaped) {
+        isEscaped = false;
+      } else if (character === "\\") {
+        isEscaped = true;
+      } else if (character === "\"") {
+        isInString = false;
+      }
+      continue;
+    }
+
+    if (character === "\"") {
+      isInString = true;
+      output += character;
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "/") {
+      isInLineComment = true;
+      index += 1;
+      continue;
+    }
+
+    if (character === "/" && nextCharacter === "*") {
+      isInBlockComment = true;
+      index += 1;
+      continue;
+    }
+
+    output += character;
+  }
+
+  return output;
+}
+
+function removeJsoncTrailingCommas(content: string): string {
+  let output = "";
+  let isInString = false;
+  let isEscaped = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+
+    if (isInString) {
+      output += character;
+      if (isEscaped) {
+        isEscaped = false;
+      } else if (character === "\\") {
+        isEscaped = true;
+      } else if (character === "\"") {
+        isInString = false;
+      }
+      continue;
+    }
+
+    if (character === "\"") {
+      isInString = true;
+      output += character;
+      continue;
+    }
+
+    if (character === ",") {
+      let lookaheadIndex = index + 1;
+      while (/\s/.test(content[lookaheadIndex] ?? "")) {
+        lookaheadIndex += 1;
+      }
+      if (content[lookaheadIndex] === "}" || content[lookaheadIndex] === "]") {
+        continue;
+      }
+    }
+
+    output += character;
+  }
+
+  return output;
+}
+
+function parseJsoncObject(
+  configPath: string,
+  content: string,
+): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(removeJsoncTrailingCommas(stripJsoncComments(content)));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${configPath} 파싱 실패: ${message}`);
+  }
   if (!isJsonObject(parsed)) {
     throw new Error(`${configPath}는 JSON object여야 합니다.`);
   }
   return parsed;
 }
 
+function readNativeOpencodeConfig(configPath: string): Record<string, unknown> {
+  if (!fs.existsSync(configPath)) return {};
+  return parseJsoncObject(configPath, fs.readFileSync(configPath, "utf-8"));
+}
+
 function writeNativeOpencodeConfig(
   configPath: string,
   config: Record<string, unknown>,
 ): void {
-  fs.mkdirSync(path.dirname(configPath), { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  writeFileBackup(configPath);
+  writeJsonFile(configPath, config);
 }
 
 function readInstallState(statePath: string): InstallState | null {
@@ -307,6 +700,7 @@ function readInstallState(statePath: string): InstallState | null {
         typeof parsed.nativeConfigPath === "string"
           ? parsed.nativeConfigPath
           : "",
+      agentsConfigManaged: parsed.agentsConfigManaged === true,
       installedAt:
         typeof parsed.installedAt === "string" ? parsed.installedAt : "",
     };
@@ -323,8 +717,7 @@ function readInstallState(statePath: string): InstallState | null {
 }
 
 function writeInstallState(statePath: string, state: InstallState): void {
-  fs.mkdirSync(path.dirname(statePath), { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + "\n", "utf-8");
+  writeJsonFile(statePath, state);
 }
 
 function ensurePluginEntry(config: Record<string, unknown>): boolean {
@@ -521,7 +914,31 @@ function copyDirectoryContents(
   }
 }
 
-function applyCliArtifact(artifact: Buffer): string {
+function snapshotCliArtifactTargets(
+  sourcePath: string,
+  targetPath: string,
+): FileSnapshot[] {
+  const sourceStats = fs.statSync(sourcePath);
+  if (sourceStats.isFile()) {
+    return [snapshotFile(targetPath)];
+  }
+  if (!sourceStats.isDirectory()) {
+    return [];
+  }
+
+  const snapshots: FileSnapshot[] = [];
+  for (const entry of fs.readdirSync(sourcePath, { withFileTypes: true })) {
+    snapshots.push(
+      ...snapshotCliArtifactTargets(
+        path.join(sourcePath, entry.name),
+        path.join(targetPath, entry.name),
+      ),
+    );
+  }
+  return snapshots;
+}
+
+function applyCliArtifact(artifact: Buffer): CliArtifactApplyResult {
   const packageRoot = getPackageRoot();
   if (!packageRoot) {
     throw new Error("package root를 찾을 수 없습니다.");
@@ -538,19 +955,38 @@ function applyCliArtifact(artifact: Buffer): string {
       "bin",
       path.join("src", "cli.ts"),
     ];
+    const targetSnapshots: FileSnapshot[] = [];
     for (const relativePath of allowedPaths) {
       const sourcePath = path.join(stagingDirectory, relativePath);
       if (!fs.existsSync(sourcePath)) continue;
 
       const targetPath = path.join(packageRoot, relativePath);
-      const sourceStats = fs.statSync(sourcePath);
-      if (sourceStats.isDirectory()) {
-        copyDirectoryContents(sourcePath, targetPath);
-      } else if (sourceStats.isFile()) {
-        atomicCopyFile(sourcePath, targetPath);
-      }
+      targetSnapshots.push(
+        ...snapshotCliArtifactTargets(sourcePath, targetPath),
+      );
     }
-    return packageRoot;
+
+    try {
+      for (const relativePath of allowedPaths) {
+        const sourcePath = path.join(stagingDirectory, relativePath);
+        if (!fs.existsSync(sourcePath)) continue;
+
+        const targetPath = path.join(packageRoot, relativePath);
+        const sourceStats = fs.statSync(sourcePath);
+        if (sourceStats.isDirectory()) {
+          copyDirectoryContents(sourcePath, targetPath);
+        } else if (sourceStats.isFile()) {
+          atomicCopyFile(sourcePath, targetPath);
+        }
+      }
+    } catch (error) {
+      for (const targetSnapshot of [...targetSnapshots].reverse()) {
+        restoreFileSnapshot(targetSnapshot);
+      }
+      throw error;
+    }
+
+    return { packageRoot, targetSnapshots };
   } finally {
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
   }
@@ -570,61 +1006,81 @@ async function install(args: string[], io: Required<CliIO>): Promise<number> {
       ? resolveUserConfigDirectory(io.env)
       : path.join(projectDirectory, ".opencode");
   const targetPath = path.join(targetDirectory, "agents.toml");
-  if (fs.existsSync(targetPath) && !args.includes("--force")) {
-    io.stdout(`agents.toml 유지: ${targetPath}`);
-  } else {
-    fs.mkdirSync(targetDirectory, { recursive: true });
-    const examplePath = path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "..",
-      "..",
-      "..",
-      "packages",
-      "opencode",
-      "agents.example.toml",
-    );
-    if (fs.existsSync(examplePath)) {
-      fs.copyFileSync(examplePath, targetPath);
-      io.stdout(`agents.toml 생성: ${targetPath}`);
-    } else {
-      io.stdout(
-        `agents.example.toml 없음: ${examplePath} — agents.toml을 생성하지 않습니다.`,
-      );
-    }
-  }
-
   const nativeConfigPath = getNativeOpencodeConfigPath(
     scope,
     projectDirectory,
     io.env,
   );
   const installStatePath = getInstallStatePath(scope, projectDirectory, io.env);
-  const existingInstallState = readInstallState(installStatePath);
-  const nativeConfig = readNativeOpencodeConfig(nativeConfigPath);
-  if (!nativeConfig.$schema) {
-    nativeConfig.$schema = OPENCODE_CONFIG_SCHEMA;
+  const fileSnapshots = [
+    snapshotFile(targetPath),
+    snapshotFile(nativeConfigPath),
+    snapshotFile(installStatePath),
+  ];
+
+  try {
+    const existingInstallState = readInstallState(installStatePath);
+    const nativeConfig = readNativeOpencodeConfig(nativeConfigPath);
+    let agentsConfigManaged = false;
+
+    if (fs.existsSync(targetPath) && !args.includes("--force")) {
+      io.stdout(`agents.toml 유지: ${targetPath}`);
+    } else {
+      fs.mkdirSync(targetDirectory, { recursive: true });
+      const examplePath = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "..",
+        "..",
+        "packages",
+        "opencode",
+        "agents.example.toml",
+      );
+      if (fs.existsSync(examplePath)) {
+        writeFileBackup(targetPath);
+        fs.copyFileSync(examplePath, targetPath);
+        agentsConfigManaged = true;
+        io.stdout(`agents.toml 생성: ${targetPath}`);
+      } else {
+        io.stdout(
+          `agents.example.toml 없음: ${examplePath} — agents.toml을 생성하지 않습니다.`,
+        );
+      }
+    }
+
+    if (!nativeConfig.$schema) {
+      nativeConfig.$schema = OPENCODE_CONFIG_SCHEMA;
+    }
+    const pluginAdded = ensurePluginEntry(nativeConfig);
+    const providerAdded = ensureProvider(nativeConfig, projectDirectory, scope);
+    writeNativeOpencodeConfig(nativeConfigPath, nativeConfig);
+    writeInstallState(installStatePath, {
+      pluginAdded: existingInstallState?.pluginAdded === true || pluginAdded,
+      providerAdded:
+        existingInstallState?.providerAdded === true || providerAdded,
+      nativeConfigPath,
+      agentsConfigManaged:
+        existingInstallState?.agentsConfigManaged === true ||
+        agentsConfigManaged,
+      installedAt: existingInstallState?.installedAt || new Date().toISOString(),
+    });
+    io.stdout(`opencode.json 경로: ${nativeConfigPath}`);
+    io.stdout(
+      pluginAdded
+        ? `opencode plugin 설정 추가: ${OPENCODE_PLUGIN_ENTRY}`
+        : `opencode plugin 설정 유지: ${OPENCODE_PLUGIN_ENTRY}`,
+    );
+    io.stdout(
+      providerAdded
+        ? "opencode provider 설정 추가"
+        : "opencode provider 설정 유지",
+    );
+  } catch (error) {
+    for (const fileSnapshot of [...fileSnapshots].reverse()) {
+      restoreFileSnapshot(fileSnapshot);
+    }
+    throw error;
   }
-  const pluginAdded = ensurePluginEntry(nativeConfig);
-  const providerAdded = ensureProvider(nativeConfig, projectDirectory, scope);
-  writeNativeOpencodeConfig(nativeConfigPath, nativeConfig);
-  writeInstallState(installStatePath, {
-    pluginAdded: existingInstallState?.pluginAdded === true || pluginAdded,
-    providerAdded:
-      existingInstallState?.providerAdded === true || providerAdded,
-    nativeConfigPath,
-    installedAt: existingInstallState?.installedAt || new Date().toISOString(),
-  });
-  io.stdout(`opencode.json 경로: ${nativeConfigPath}`);
-  io.stdout(
-    pluginAdded
-      ? `opencode plugin 설정 추가: ${OPENCODE_PLUGIN_ENTRY}`
-      : `opencode plugin 설정 유지: ${OPENCODE_PLUGIN_ENTRY}`,
-  );
-  io.stdout(
-    providerAdded
-      ? "opencode provider 설정 추가"
-      : "opencode provider 설정 유지",
-  );
   return EXIT_VALID;
 }
 
@@ -643,59 +1099,77 @@ async function uninstall(args: string[], io: Required<CliIO>): Promise<number> {
     scope === "user"
       ? getUserConfigPath(io.env)
       : getProjectConfigPath(projectDirectory);
-  if (fs.existsSync(targetPath)) {
-    fs.rmSync(targetPath);
-    io.stdout(`agents.toml 삭제: ${targetPath}`);
-  } else {
-    io.stdout(`agents.toml 없음: ${targetPath}`);
-  }
-
   const nativeConfigPath = getNativeOpencodeConfigPath(
     scope,
     projectDirectory,
     io.env,
   );
   const installStatePath = getInstallStatePath(scope, projectDirectory, io.env);
-  if (!fs.existsSync(nativeConfigPath)) {
-    if (fs.existsSync(installStatePath)) {
-      fs.rmSync(installStatePath);
-    }
-    io.stdout(`opencode.json 없음: ${nativeConfigPath}`);
-    return EXIT_VALID;
-  }
-  const nativeConfig = readNativeOpencodeConfig(nativeConfigPath);
   const installState = readInstallState(installStatePath);
-  const pluginStatus =
-    installState?.pluginAdded === true
-      ? removePluginEntry(nativeConfig)
-        ? "removed"
-        : "missing"
-      : "kept-custom";
-  const providerStatus =
-    installState?.providerAdded === true
-      ? removeProvider(nativeConfig, projectDirectory, scope)
-      : isJsonObject(nativeConfig.provider) &&
-          isJsonObject(nativeConfig.provider["ollama-cloud"])
-        ? "kept-custom"
-        : "missing";
-  writeNativeOpencodeConfig(nativeConfigPath, nativeConfig);
-  if (fs.existsSync(installStatePath)) {
-    fs.rmSync(installStatePath);
-  }
-  io.stdout(`opencode.json 경로: ${nativeConfigPath}`);
-  if (pluginStatus === "removed") {
-    io.stdout(`opencode plugin 설정 삭제: ${OPENCODE_PLUGIN_ENTRY}`);
-  } else if (pluginStatus === "kept-custom") {
-    io.stdout(`opencode plugin 사용자 설정 유지: ${OPENCODE_PLUGIN_ENTRY}`);
-  } else {
-    io.stdout(`opencode plugin 설정 없음: ${OPENCODE_PLUGIN_ENTRY}`);
-  }
-  if (providerStatus === "removed") {
-    io.stdout("opencode provider 설정 삭제");
-  } else if (providerStatus === "kept-custom") {
-    io.stdout("opencode provider 사용자 설정 유지");
-  } else {
-    io.stdout("opencode provider 설정 없음");
+  const fileSnapshots = [
+    snapshotFile(targetPath),
+    snapshotFile(nativeConfigPath),
+    snapshotFile(installStatePath),
+  ];
+
+  try {
+    if (installState?.agentsConfigManaged === true) {
+      if (removeFileIfExists(targetPath)) {
+        io.stdout(`agents.toml 삭제: ${targetPath}`);
+      } else {
+        io.stdout(`agents.toml 없음: ${targetPath}`);
+      }
+    } else if (installState) {
+      io.stdout(`agents.toml 사용자 설정 유지: ${targetPath}`);
+    } else if (fs.existsSync(targetPath)) {
+      io.stdout(`agents.toml 사용자 설정 유지: ${targetPath}`);
+    } else {
+      io.stdout(`agents.toml 없음: ${targetPath}`);
+    }
+
+    if (!fs.existsSync(nativeConfigPath)) {
+      if (installState) {
+        removeFileIfExists(installStatePath);
+      }
+      io.stdout(`opencode.json 없음: ${nativeConfigPath}`);
+      return EXIT_VALID;
+    }
+    const nativeConfig = readNativeOpencodeConfig(nativeConfigPath);
+    const pluginStatus =
+      installState?.pluginAdded === true
+        ? removePluginEntry(nativeConfig)
+          ? "removed"
+          : "missing"
+        : "kept-custom";
+    const providerStatus =
+      installState?.providerAdded === true
+        ? removeProvider(nativeConfig, projectDirectory, scope)
+        : isJsonObject(nativeConfig.provider) &&
+            isJsonObject(nativeConfig.provider["ollama-cloud"])
+          ? "kept-custom"
+          : "missing";
+    writeNativeOpencodeConfig(nativeConfigPath, nativeConfig);
+    removeFileIfExists(installStatePath);
+    io.stdout(`opencode.json 경로: ${nativeConfigPath}`);
+    if (pluginStatus === "removed") {
+      io.stdout(`opencode plugin 설정 삭제: ${OPENCODE_PLUGIN_ENTRY}`);
+    } else if (pluginStatus === "kept-custom") {
+      io.stdout(`opencode plugin 사용자 설정 유지: ${OPENCODE_PLUGIN_ENTRY}`);
+    } else {
+      io.stdout(`opencode plugin 설정 없음: ${OPENCODE_PLUGIN_ENTRY}`);
+    }
+    if (providerStatus === "removed") {
+      io.stdout("opencode provider 설정 삭제");
+    } else if (providerStatus === "kept-custom") {
+      io.stdout("opencode provider 사용자 설정 유지");
+    } else {
+      io.stdout("opencode provider 설정 없음");
+    }
+  } catch (error) {
+    for (const fileSnapshot of [...fileSnapshots].reverse()) {
+      restoreFileSnapshot(fileSnapshot);
+    }
+    throw error;
   }
   return EXIT_VALID;
 }
@@ -732,6 +1206,7 @@ async function validate(args: string[], io: Required<CliIO>): Promise<number> {
       (warning) =>
         warning.kind === "invalid-model" ||
         warning.kind === "invalid-reasoning-effort" ||
+        warning.kind === "protected-agent-disabled" ||
         warning.kind === "invalid-schema" ||
         warning.kind === "invalid-toml",
     )
@@ -742,7 +1217,8 @@ async function validate(args: string[], io: Required<CliIO>): Promise<number> {
     validationMessages.some(
       (message) =>
         message.kind === "invalid-model" ||
-        message.kind === "invalid-reasoning-effort",
+        message.kind === "invalid-reasoning-effort" ||
+        message.kind === "protected-agent-disabled",
     )
   ) {
     return EXIT_INVALID;
@@ -836,13 +1312,15 @@ async function doctor(args: string[], io: Required<CliIO>): Promise<number> {
     (warning) =>
       warning.kind === "invalid-model" ||
       warning.kind === "invalid-reasoning-effort" ||
+      warning.kind === "protected-agent-disabled" ||
       warning.kind === "invalid-schema" ||
       warning.kind === "invalid-toml",
   );
   const invalidValidationMessages = validationMessages.filter(
     (message) =>
       message.kind === "invalid-model" ||
-      message.kind === "invalid-reasoning-effort",
+      message.kind === "invalid-reasoning-effort" ||
+      message.kind === "protected-agent-disabled",
   );
   io.stdout(`pluginVersion=${packageVersion}`);
   io.stdout(`cliVersion=${packageVersion}`);
@@ -915,27 +1393,49 @@ async function doctor(args: string[], io: Required<CliIO>): Promise<number> {
 
 async function update(args: string[], io: Required<CliIO>): Promise<number> {
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
-  const latest = await readLatestManifest(io.env);
-  if (!latest.catalog) {
-    io.stderr("latest.json에 catalog artifact 정보가 없습니다.");
-    return EXIT_BLOCKED;
+  let latest: LatestManifest;
+  let catalogArtifact: LatestManifestArtifact;
+  try {
+    latest = await readLatestManifest(io.env);
+    assertLatestManifestCompatibility(latest, projectDirectory, "update");
+    catalogArtifact = requireLatestManifestArtifact(latest, "catalog");
+  } catch (error) {
+    if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
+    throw error;
   }
-  const catalogContent = await readLocation(latest.catalog.url);
-  verifyChecksum(catalogContent, latest.catalog.sha256);
+  const catalogContent = await readLocation(catalogArtifact.url);
+  verifyChecksum(catalogContent, catalogArtifact.sha256);
   const catalog = parseCatalog(catalogContent.toString("utf-8"));
   const managedCatalogPath = getManagedCatalogPath(projectDirectory);
-  fs.mkdirSync(path.dirname(managedCatalogPath), { recursive: true });
-  fs.writeFileSync(managedCatalogPath, catalogContent, "utf-8");
-  invalidateCatalogCache(managedCatalogPath);
-  writeManagedState(projectDirectory, {
-    pluginVersion: getPackageVersion(),
-    cliVersion: getPackageVersion(),
-    catalogVersion: catalog.catalogVersion,
-    catalogChecksum: latest.catalog.sha256,
-    userConfigSchemaVersion: USER_CONFIG_SCHEMA_VERSION,
-    lastCommand: "update",
-    lastUpdatedAt: new Date().toISOString(),
-  });
+  const managedStatePath = path.join(
+    projectDirectory,
+    ".opencode",
+    "agents.state.json",
+  );
+  const fileSnapshots = [
+    snapshotFile(managedCatalogPath),
+    snapshotFile(managedStatePath),
+  ];
+  try {
+    fs.mkdirSync(path.dirname(managedCatalogPath), { recursive: true });
+    fs.writeFileSync(managedCatalogPath, catalogContent, "utf-8");
+    invalidateCatalogCache(managedCatalogPath);
+    writeManagedState(projectDirectory, {
+      pluginVersion: getPackageVersion(),
+      cliVersion: getPackageVersion(),
+      catalogVersion: catalog.catalogVersion,
+      catalogChecksum: catalogArtifact.sha256,
+      userConfigSchemaVersion: USER_CONFIG_SCHEMA_VERSION,
+      lastCommand: "update",
+      lastUpdatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    for (const fileSnapshot of [...fileSnapshots].reverse()) {
+      restoreFileSnapshot(fileSnapshot);
+    }
+    invalidateCatalogCache(managedCatalogPath);
+    throw error;
+  }
   io.stdout(`catalogVersion=${catalog.catalogVersion}`);
   io.stdout(`catalogPath=${managedCatalogPath}`);
   return EXIT_VALID;
@@ -943,25 +1443,46 @@ async function update(args: string[], io: Required<CliIO>): Promise<number> {
 
 async function upgrade(args: string[], io: Required<CliIO>): Promise<number> {
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
-  const latest = await readLatestManifest(io.env);
-  if (!latest.cli) {
-    io.stderr("latest.json에 cli artifact 정보가 없습니다.");
-    return EXIT_BLOCKED;
+  let latest: LatestManifest;
+  let cliArtifact: LatestManifestArtifact;
+  try {
+    latest = await readLatestManifest(io.env);
+    assertLatestManifestCompatibility(latest, projectDirectory, "upgrade");
+    cliArtifact = requireLatestManifestArtifact(latest, "cli");
+  } catch (error) {
+    if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
+    throw error;
   }
-  const cliArtifact = await readLocation(latest.cli.url);
-  verifyChecksum(cliArtifact, latest.cli.sha256);
-  const packageRoot = applyCliArtifact(cliArtifact);
-  writeManagedState(projectDirectory, {
-    pluginVersion: latest.cliVersion,
-    cliVersion: latest.cliVersion,
-    catalogVersion: latest.catalogVersion,
-    catalogChecksum: getCatalogChecksum(projectDirectory),
-    userConfigSchemaVersion: USER_CONFIG_SCHEMA_VERSION,
-    lastCommand: "upgrade",
-    lastUpdatedAt: new Date().toISOString(),
-  });
+  const cliArtifactContent = await readLocation(cliArtifact.url);
+  verifyChecksum(cliArtifactContent, cliArtifact.sha256);
+  const cliArtifactApplyResult = applyCliArtifact(cliArtifactContent);
+  const managedStatePath = path.join(
+    projectDirectory,
+    ".opencode",
+    "agents.state.json",
+  );
+  const managedStateSnapshot = snapshotFile(managedStatePath);
+  try {
+    writeManagedState(projectDirectory, {
+      pluginVersion: latest.cliVersion,
+      cliVersion: latest.cliVersion,
+      catalogVersion: latest.catalogVersion,
+      catalogChecksum: getCatalogChecksum(projectDirectory),
+      userConfigSchemaVersion: USER_CONFIG_SCHEMA_VERSION,
+      lastCommand: "upgrade",
+      lastUpdatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    restoreFileSnapshot(managedStateSnapshot);
+    for (const targetSnapshot of [
+      ...cliArtifactApplyResult.targetSnapshots,
+    ].reverse()) {
+      restoreFileSnapshot(targetSnapshot);
+    }
+    throw error;
+  }
   io.stdout(`cliVersion=${latest.cliVersion}`);
-  io.stdout(`packagePath=${packageRoot}`);
+  io.stdout(`packagePath=${cliArtifactApplyResult.packageRoot}`);
   io.stdout("upgrade artifact applied.");
   return EXIT_VALID;
 }

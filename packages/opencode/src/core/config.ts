@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { z } from "zod";
 import type { AgentDefinition } from "@opencode/core/types";
+import type { AgentName } from "@opencode/core/doc-protocol";
 import {
   loadCatalog,
   getCatalogModel,
@@ -39,6 +40,16 @@ export const REASONING_EFFORTS = getReasoningEfforts();
 export const MODEL_REASONING_EFFORTS: Readonly<
   Record<string, readonly string[]>
 > = getReasoningEffortsByModel();
+
+/** 런타임이 항상 필요로 하므로 disable 오버라이드를 무시하는 에이전트 목록. */
+export const PROTECTED_AGENT_NAMES: readonly AgentName[] = [
+  "orchestrator",
+  "worker",
+] as const;
+
+function isProtectedAgentName(agentName: string): agentName is AgentName {
+  return (PROTECTED_AGENT_NAMES as readonly string[]).includes(agentName);
+}
 
 // ---------------------------------------------------------------------------
 // Zod 스키마
@@ -98,6 +109,7 @@ export type ConfigLoadWarningKind =
   | "invalid-schema"
   | "invalid-model"
   | "invalid-reasoning-effort"
+  | "protected-agent-disabled"
   | "deprecated-model"
   | "read-error"
   | "missing-preset";
@@ -235,8 +247,8 @@ function loadConfigFromPath(
       options?.catalog,
       options?.agentRecord,
     );
-    const invalidMessages = validationMessages.filter(
-      (message) => message.kind === "invalid-model",
+    const invalidMessages = validationMessages.filter((message) =>
+      ["invalid-model", "protected-agent-disabled"].includes(message.kind),
     );
     for (const validationMessage of validationMessages) {
       options?.onWarning?.({
@@ -391,7 +403,11 @@ export function loadPluginConfig(
 }
 
 export interface PluginConfigValidationMessage {
-  kind: "invalid-model" | "invalid-reasoning-effort" | "deprecated-model";
+  kind:
+    | "invalid-model"
+    | "invalid-reasoning-effort"
+    | "protected-agent-disabled"
+    | "deprecated-model";
   path: string;
   message: string;
 }
@@ -408,6 +424,14 @@ export function validatePluginConfig(
   ): void => {
     const agentName = configPath.split(".").at(-1) ?? "";
     const effectiveModelId = override.model ?? agentRecord[agentName]?.model;
+
+    if (override.enable === false && isProtectedAgentName(agentName)) {
+      messages.push({
+        kind: "protected-agent-disabled",
+        path: `${configPath}.enable`,
+        message: `${configPath}.enable=false는 허용되지 않습니다. ${agentName} 에이전트는 필수 런타임 에이전트입니다.`,
+      });
+    }
 
     if (override.model) {
       const model = getCatalogModel(override.model, catalog);
@@ -472,7 +496,8 @@ export function validatePluginConfig(
 /**
  * 설정의 에이전트 오버라이드를 에이전트 레코드에 적용한다.
  *
- * - enable === false인 에이전트는 결과 레코드에서 제거된다.
+ * - enable === false인 비보호 에이전트는 결과 레코드에서 제거된다.
+ * - 보호 에이전트(orchestrator, worker)는 enable === false여도 유지된다.
  * - model 오버라이드: agent.model을 교체한다.
  * - reasoning_effort: agent.options.extraBody.reasoning_effort에 주입한다.
  * - prompt_append: agent.prompt 끝에 '\n\n' + 내용을 추가한다.
@@ -506,8 +531,8 @@ export function applyAgentOverrides(
   for (const [name, agent] of Object.entries(agentRecord)) {
     const override = overrides[name];
 
-    // enable === false → 비활성화
-    if (override?.enable === false) {
+    // enable === false → 비보호 에이전트만 비활성화
+    if (override?.enable === false && !isProtectedAgentName(name)) {
       disabledNames.push(name);
       continue;
     }

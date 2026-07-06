@@ -165,7 +165,7 @@ export type PathCategory = "agents" | "docs" | "source";
 /**
  * 대상 경로를 세 가지 카테고리로 분류한다.
  *
- * - "agents"  : `.agents/`로 시작하는 경로 (태스크 런 디렉터리)
+ * - "agents"  : `.agents` 세그먼트를 포함하는 경로 (태스크 런 디렉터리)
  * - "docs"    : `docs/`로 시작하는 경로 (briefs 포함)
  * - "source"  : 그 외 모든 경로 (소스 코드, 설정 파일 등)
  *
@@ -178,10 +178,10 @@ export type PathCategory = "agents" | "docs" | "source";
  * classifyPath('src/index.ts')                // → "source"
  */
 export function classifyPath(targetPath: string): PathCategory {
-  // 절대 경로에서 상대 경로 부분만 추출 (선행 슬래시/드라이브 제거)
-  const normalized = targetPath.replace(/^[/\\]+/, "").replace(/\\/g, "/");
+  const normalized = targetPath.replace(/\\/g, "/");
+  const pathSegments = normalized.split("/").filter(Boolean);
 
-  if (normalized.startsWith(".agents/") || normalized === ".agents") {
+  if (pathSegments.includes(".agents")) {
     return "agents";
   }
 
@@ -250,6 +250,11 @@ export interface EnforcementResult {
   reason: string;
 }
 
+export interface EnforcePermissionOptions {
+  /** orchestrator task 위임에 사용할 현재 활성 서브에이전트 목록. */
+  subagentNames?: readonly AgentName[];
+}
+
 /**
  * tool.execute.before 훅에서 호출하는 권한 집행 함수.
  *
@@ -271,9 +276,11 @@ export function enforcePermission(
     args: Record<string, unknown>;
   },
   sessionAgentMap: Map<string, AgentName>,
+  options?: EnforcePermissionOptions,
 ): EnforcementResult {
   const toolName = input.tool.toLowerCase();
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
+  const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
 
   // -------------------------------------------------------------------------
   // 도구 분류
@@ -364,7 +371,7 @@ export function enforcePermission(
         };
       }
       const targetAgent = subagentType.trim();
-      if ((SUBAGENT_NAMES as readonly string[]).includes(targetAgent)) {
+      if ((allowedSubagentNames as readonly string[]).includes(targetAgent)) {
         return {
           allowed: true,
           reason: `[policy] ${agent}: task → ${targetAgent} 허용`,
@@ -372,7 +379,7 @@ export function enforcePermission(
       }
       return {
         allowed: false,
-        reason: `[policy] ${agent}는 '${targetAgent}'에게 위임 불가 — 허용된 서브에이전트: ${SUBAGENT_NAMES.join(", ")}`,
+        reason: `[policy] ${agent}는 '${targetAgent}'에게 위임 불가 — 허용된 서브에이전트: ${allowedSubagentNames.join(", ")}`,
       };
     }
 

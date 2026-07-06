@@ -4,6 +4,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
+  classifyPath,
   enforcePermission,
   createSessionAgentMap,
   type AgentName,
@@ -71,11 +72,14 @@ describe("권한 매트릭스", () => {
       {
         tool: "write",
         sessionID: "session-orch",
-        args: { path: ".agents/20260702-test/task.md" },
+        args: {
+          path: "/Users/buyong/workspace/private/buyong-agents/.agents/20260702-test/task.md",
+        },
       },
       testMap,
     );
     expect(result.allowed).toBe(true);
+    expect(classifyPath("src/not.agents.md")).toBe("source");
   });
 
   test("explore: .agents/** write 허용 (baseline)", () => {
@@ -152,6 +156,20 @@ describe("위임(task 도구)", () => {
       testMap,
     );
     expect(result.allowed).toBe(true);
+
+    const disabledPlannerResult = enforcePermission(
+      {
+        tool: "task",
+        sessionID: "session-orch",
+        args: { subagent_type: "planner" },
+      },
+      testMap,
+      { subagentNames: ["worker"] },
+    );
+    expect(disabledPlannerResult.allowed).toBe(false);
+    expect(disabledPlannerResult.reason).toContain(
+      "허용된 서브에이전트: worker",
+    );
   });
 
   test("worker → planner 재위임 거부", () => {
