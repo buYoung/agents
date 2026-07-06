@@ -1,6 +1,6 @@
 # Developer Specifications
 
-이 폴더의 문서는 구현자가 문서만 보고 opencode 플러그인을 개발하거나 검토할 수 있도록 작성한 개발 명세다.
+이 폴더의 문서는 opencode 플러그인 개발 명세와 CLI 운용 사양을 모은다. 개발 명세는 구현자가 문서만 보고 플러그인을 개발하거나 검토할 수 있도록 작성했고, 운용 사양은 특정 실행 절차를 재현 가능하게 정리한다.
 
 | Document | Purpose |
 | -------- | ------- |
@@ -10,6 +10,7 @@
 | [opencode-plugin-orchestration-spec.md](opencode-plugin-orchestration-spec.md) | transform, runtime hook, registration scope, reload, cross-domain orchestration 규칙. |
 | [opencode-plugin-mcp-integration-spec.md](opencode-plugin-mcp-integration-spec.md) | MCP 서버 구성, local/remote 서버, 인증 치환, timeout, 요청 시점 tool materialization. |
 | [opencode-plugin-installation-and-migration-spec.md](opencode-plugin-installation-and-migration-spec.md) | 플러그인 설치, config patch, generated files, legacy-to-v2 migration, 복구 규칙. |
+| [opencode-cli-ollama-cloud-glm52-usage-spec.md](opencode-cli-ollama-cloud-glm52-usage-spec.md) | opencode CLI에서 Ollama Cloud GLM-5.2를 실행하고 프롬프트 개선 테스트에 사용하는 절차. |
 
 ## Recommended Reading Order
 
@@ -19,7 +20,8 @@
 4. `opencode-plugin-orchestration-spec.md`
 5. `opencode-plugin-mcp-integration-spec.md`
 6. `opencode-plugin-installation-and-migration-spec.md`
-7. `docs/FDD/opencode-plugin-authoring.md`
-8. `docs/FDD/opencode-agent-authoring.md`
+7. `opencode-cli-ollama-cloud-glm52-usage-spec.md`
+8. `docs/FDD/opencode-plugin-authoring.md`
+9. `docs/FDD/opencode-agent-authoring.md`
 
 FDD는 제품 방향과 설계 판단을 설명한다. 개발 명세는 opencode 플러그인과 에이전트의 작성 계약과 검증 기준을 설명한다.

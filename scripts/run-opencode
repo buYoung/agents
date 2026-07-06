@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+#
+# run-opencode
+# ------------
+# Test-oriented opencode CLI runner.
+#
+# This script is intentionally a thin wrapper around the real opencode binary.
+# It does not install the local agents plugin, mutate opencode.json, or manage
+# project configuration. Use the `agents` CLI for install/validate/doctor flows.
+# This runner only normalizes execution for repeatable local test runs.
+#
+# Basic usage:
+#   ./scripts/run-opencode --help
+#   ./scripts/run-opencode run "Summarize this repository"
+#   ./scripts/run-opencode run --model opencode/glm-5.2 "Inspect the code"
+#   ./scripts/run-opencode run --model opencode/glm-5.2 --variant max "Inspect"
+#
+# Piped prompt usage:
+#   printf '%s\n' "Summarize this repository" | ./scripts/run-opencode run
+#
+# Binary resolution order:
+#   1. OPENCODE_CLI_PATH, when set. The path must be executable.
+#   2. <repo>/node_modules/.bin/opencode, when present.
+#   3. `opencode` from PATH.
+#
+# Working directory behavior:
+#   The script always changes to the repository root before executing opencode.
+#   This makes command behavior stable even when the script is called from a
+#   subdirectory such as apps/ or packages/opencode/.
+#
+# Database isolation:
+#   By default each invocation gets its own SQLite database:
+#     .opencode-run/<run-id>/data/opencode.db
+#
+#   This avoids merging test sessions into the user's global opencode database
+#   and avoids concurrent migration/write contention against a shared DB. The
+#   path is passed through OPENCODE_DB. If OPENCODE_DB is already set, the script
+#   preserves it and does not override it.
+#
+# Run artifact directory:
+#   OPENCODE_RUN_ROOT defaults to:
+#     <repo>/.opencode-run
+#
+#   OPENCODE_RUN_ID defaults to:
+#     <YYYYMMDD-HHMMSS>-<pid>
+#
+#   Together they produce:
+#     <OPENCODE_RUN_ROOT>/<OPENCODE_RUN_ID>/
+#
+# opencode run defaults:
+#   For `opencode run`, this runner adds `--format json` by default unless the
+#   caller already supplied `--format` or disabled the behavior with
+#   OPENCODE_RUN_JSON=0. JSON output is easier to parse in benchmark/test
+#   harnesses because tool events, text events, and token usage are structured.
+#
+# Model defaults:
+#   OPENCODE_MODEL is appended as `--model <value>` for `opencode run` only when
+#   neither --model nor -m is already present.
+#
+#   OPENCODE_MODEL_VARIANT is appended as `--variant <value>` for `opencode run`
+#   only when --variant is not already present. Variants are provider-specific
+#   reasoning/effort settings such as high, max, minimal, or xhigh. Unsupported
+#   variants are validated by opencode itself.
+#
+# Environment variables:
+#   OPENCODE_CLI_PATH=/path/to/opencode
+#     Use a specific opencode executable instead of PATH resolution.
+#
+#   OPENCODE_RUN_ROOT=.opencode-run
+#     Override the root directory used for runner artifacts.
+#
+#   OPENCODE_RUN_ID=my-run
+#     Override the per-run directory name. Useful when reproducing a run.
+#
+#   OPENCODE_DB=/path/to/opencode.db
+#     Override the isolated database path completely.
+#
+#   OPENCODE_MODEL=provider/model
+#     Default model for `opencode run`.
+#
+#   OPENCODE_MODEL_VARIANT=max
+#     Default model variant for `opencode run`.
+#
+#   OPENCODE_RUN_JSON=0
+#     Disable the default `--format json` injection.
+#
+# Examples:
+#   OPENCODE_MODEL=opencode/glm-5.2 \
+#   OPENCODE_MODEL_VARIANT=max \
+#   ./scripts/run-opencode run "Analyze this repository"
+#
+#   OPENCODE_RUN_ID=smoke-001 \
+#   ./scripts/run-opencode run --format default "Interactive-style output"
+#
+#   OPENCODE_CLI_PATH=/Users/me/.opencode/bin/opencode \
+#   ./scripts/run-opencode run --model openai/gpt-5.2 "Run with pinned binary"
+#
+# Notes:
+#   - Explicit CLI arguments always win over environment defaults.
+#   - Non-`run` commands are passed through without model, variant, or format
+#     injection.
+#   - .opencode-run/ is ignored by git.
+
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
+
+has_arg() {
+  local wanted="$1"
+  shift
+  local arg
+  for arg in "$@"; do
+    if [[ "${arg}" == "${wanted}" || "${arg}" == "${wanted}="* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -n "${OPENCODE_CLI_PATH:-}" ]]; then
+  if [[ ! -x "${OPENCODE_CLI_PATH}" ]]; then
+    echo "OPENCODE_CLI_PATH is not executable: ${OPENCODE_CLI_PATH}" >&2
+    exit 1
+  fi
+  opencode_cli="$(
+    cd -- "$(dirname -- "${OPENCODE_CLI_PATH}")"
+    pwd
+  )/$(basename -- "${OPENCODE_CLI_PATH}")"
+elif [[ -x "${repo_root}/node_modules/.bin/opencode" ]]; then
+  opencode_cli="${repo_root}/node_modules/.bin/opencode"
+else
+  opencode_cli="$(command -v opencode || true)"
+  if [[ -z "${opencode_cli}" ]]; then
+    echo "opencode CLI not found." >&2
+    echo "Install opencode or set OPENCODE_CLI_PATH to the executable path." >&2
+    exit 127
+  fi
+fi
+
+opencode_run_root="${OPENCODE_RUN_ROOT:-${repo_root}/.opencode-run}"
+opencode_run_id="${OPENCODE_RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
+opencode_run_dir="${opencode_run_root}/${opencode_run_id}"
+
+mkdir -p "${opencode_run_dir}/data"
+
+export OPENCODE_DB="${OPENCODE_DB:-${opencode_run_dir}/data/opencode.db}"
+
+opencode_args=()
+if (($# > 0)); then
+  opencode_args=("$@")
+fi
+if [[ "${1:-}" == "run" ]]; then
+  if [[ -n "${OPENCODE_MODEL:-}" ]] && ! has_arg "--model" "${opencode_args[@]}" && ! has_arg "-m" "${opencode_args[@]}"; then
+    opencode_args+=("--model" "${OPENCODE_MODEL}")
+  fi
+
+  if [[ -n "${OPENCODE_MODEL_VARIANT:-}" ]] && ! has_arg "--variant" "${opencode_args[@]}"; then
+    opencode_args+=("--variant" "${OPENCODE_MODEL_VARIANT}")
+  fi
+
+  if [[ "${OPENCODE_RUN_JSON:-1}" == "1" ]] && ! has_arg "--format" "${opencode_args[@]}"; then
+    opencode_args+=("--format" "json")
+  fi
+fi
+
+cd "${repo_root}"
+if ((${#opencode_args[@]} > 0)); then
+  exec "${opencode_cli}" "${opencode_args[@]}"
+fi
+exec "${opencode_cli}"
