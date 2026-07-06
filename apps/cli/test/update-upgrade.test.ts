@@ -692,6 +692,116 @@ describe("upgrade + checksum", () => {
     expect(io.out).toContain(`packagePath=${process.cwd()}`);
   });
 
+  test("upgrade: state 기록 실패 시 적용한 CLI 파일 복구", async () => {
+    await runCli(["install", "--scope", "project"], {
+      cwd: projectDir,
+      env: cliEnv,
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+
+    const packageCliPath = path.join(process.cwd(), "src", "cli.ts");
+    const originalCliContent = fs.readFileSync(packageCliPath);
+    const originalCliMode = fs.statSync(packageCliPath).mode & 0o777;
+    const managedStatePath = path.join(
+      projectDir,
+      ".opencode",
+      "agents.state.json",
+    );
+    const opencodeDirectory = path.dirname(managedStatePath);
+    const originalOpencodeDirectoryMode =
+      fs.statSync(opencodeDirectory).mode & 0o777;
+    const originalManagedStateContent = fs.existsSync(managedStatePath)
+      ? fs.readFileSync(managedStatePath)
+      : null;
+
+    const bundled = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "..",
+        "..",
+        "packages",
+        "opencode",
+        "src",
+        "core",
+        "catalog.toml",
+      ),
+      "utf-8",
+    );
+    const catalogContent = bundled.replace(
+      'catalogVersion = "2026.07.05.1"',
+      'catalogVersion = "2026.07.05.2"',
+    );
+    fs.writeFileSync(catalogArtifactPath, catalogContent, "utf-8");
+    const catalogChecksum = sha256(fs.readFileSync(catalogArtifactPath));
+
+    const cliArtifactPath = path.join(fixtureDir, "agents-0.1.1.tgz");
+    fs.writeFileSync(
+      cliArtifactPath,
+      createTarGz([
+        {
+          name: "package.json",
+          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+        },
+        {
+          name: "bin/agents",
+          content: fs.readFileSync(path.join(process.cwd(), "bin", "agents")),
+          mode: 0o755,
+        },
+        {
+          name: "src/cli.ts",
+          content: Buffer.concat([
+            originalCliContent,
+            Buffer.from("\n// rollback probe\n"),
+          ]),
+        },
+      ]),
+    );
+    const cliArtifactChecksum = sha256(fs.readFileSync(cliArtifactPath));
+
+    writeLatestManifest(latestPath, {
+      cliVersion: "0.1.1",
+      catalogVersion: "2026.07.05.2",
+      catalog: {
+        url: `file://${catalogArtifactPath}`,
+        sha256: catalogChecksum,
+      },
+      cli: { url: `file://${cliArtifactPath}`, sha256: cliArtifactChecksum },
+    });
+
+    try {
+      fs.chmodSync(opencodeDirectory, 0o555);
+      const upgradeExit = await runCli(["upgrade"], {
+        cwd: projectDir,
+        env: releaseEnv(),
+        stdout: io.stdout,
+        stderr: io.stderr,
+      });
+      expect(upgradeExit).not.toBe(0);
+      expect(io.err.some((line) => line.includes("internal-error:"))).toBe(
+        true,
+      );
+      expect(fs.readFileSync(packageCliPath)).toEqual(originalCliContent);
+      expect(fs.statSync(packageCliPath).mode & 0o777).toBe(originalCliMode);
+      if (originalManagedStateContent) {
+        expect(fs.readFileSync(managedStatePath)).toEqual(
+          originalManagedStateContent,
+        );
+      } else {
+        expect(fs.existsSync(managedStatePath)).toBe(false);
+      }
+    } finally {
+      fs.chmodSync(opencodeDirectory, originalOpencodeDirectoryMode);
+      fs.writeFileSync(packageCliPath, originalCliContent);
+      fs.chmodSync(packageCliPath, originalCliMode);
+      if (originalManagedStateContent) {
+        fs.writeFileSync(managedStatePath, originalManagedStateContent);
+      } else {
+        fs.rmSync(managedStatePath, { force: true });
+      }
+    }
+  });
+
   test("update: catalog checksum mismatch → 거부", async () => {
     await runCli(["install", "--scope", "project"], {
       cwd: projectDir,

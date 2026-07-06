@@ -9,6 +9,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "check-types": "pnpm check",
     "test": "vitest run"
   },
   "dependencies": {
