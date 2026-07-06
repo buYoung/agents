@@ -12,7 +12,7 @@
  * 교차 타입 PluginHooks로 타입 갭을 안전하게 해소한다.
  */
 
-import type { Hooks, Config, Plugin } from "@opencode-ai/plugin";
+import type { Hooks, Config, Plugin, PluginModule } from "@opencode-ai/plugin";
 
 // ---------------------------------------------------------------------------
 // 에이전트 정의 임포트
@@ -308,4 +308,9 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
   };
 };
 
-export default plugin;
+const pluginModule = {
+  id: "buyong-agents",
+  server: plugin,
+} satisfies PluginModule;
+
+export default pluginModule;

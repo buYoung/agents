@@ -9,11 +9,8 @@ import {
   getCatalogModelIds,
 } from "@opencode/core/catalog";
 
-const pluginFactory: typeof _pluginFactory = (
-  typeof _pluginFactory === "function"
-    ? _pluginFactory
-    : (_pluginFactory as { default: typeof _pluginFactory }).default
-) as typeof _pluginFactory;
+const pluginFactory =
+  typeof _pluginFactory === "function" ? _pluginFactory : _pluginFactory.server;
 
 import * as fs from "node:fs";
 import * as os from "node:os";

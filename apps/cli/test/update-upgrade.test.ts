@@ -11,11 +11,13 @@ import { runCli } from "@cli/cli";
 import { sha256, getManagedCatalogPath } from "opencode/core";
 import _pluginFactory from "opencode";
 
-const pluginFactory: typeof _pluginFactory = (
+const pluginFactory =
   typeof _pluginFactory === "function"
     ? _pluginFactory
-    : (_pluginFactory as { default: typeof _pluginFactory }).default
-) as typeof _pluginFactory;
+    : "server" in _pluginFactory
+      ? _pluginFactory.server
+      : (_pluginFactory as { default: { server: typeof _pluginFactory } }).default
+          .server;
 
 const cliEnv = { ...process.env, OLLAMA_API_KEY: "present-for-smoke" };
 

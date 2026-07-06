@@ -5,9 +5,10 @@
 # Test-oriented opencode CLI runner.
 #
 # This script is intentionally a thin wrapper around the real opencode binary.
-# It does not install the local agents plugin, mutate opencode.json, or manage
-# project configuration. Use the `agents` CLI for install/validate/doctor flows.
-# This runner only normalizes execution for repeatable local test runs.
+# It loads this repository's packages/opencode plugin for each run, but it does
+# not install the plugin permanently, mutate user/project opencode.json, or
+# manage project configuration. Use the `agents` CLI for install/validate/doctor
+# flows. This runner only normalizes execution for repeatable local test runs.
 #
 # Basic usage:
 #   ./scripts/run-opencode --help
@@ -27,6 +28,18 @@
 #   The script always changes to the repository root before executing opencode.
 #   This makes command behavior stable even when the script is called from a
 #   subdirectory such as apps/ or packages/opencode/.
+#
+# Plugin behavior:
+#   The runner writes a generated opencode config file:
+#     .opencode-run/<run-id>/config/opencode.jsonc
+#
+#   That file injects this repository's plugin as a local plugin:
+#     <repo>/packages/opencode/src/index.ts
+#
+#   The generated config file is exposed through OPENCODE_CONFIG so opencode
+#   loads the plugin without mutating user or project config files. Project
+#   opencode.json/opencode.jsonc files and normal config directories still load;
+#   the runner only owns the custom config file used for plugin injection.
 #
 # Database isolation:
 #   By default each invocation gets its own SQLite database:
@@ -84,6 +97,14 @@
 #   OPENCODE_RUN_JSON=0
 #     Disable the default `--format json` injection.
 #
+#   OPENCODE_AGENTS_PLUGIN=/path/to/plugin.ts
+#     Override the local agents plugin entrypoint. Defaults to:
+#     <repo>/packages/opencode/src/index.ts
+#
+#   OPENCODE_CONFIG_DIR=/path/to/opencode/config
+#     Still passed through to opencode and to the packages/opencode plugin's
+#     own config loader. The runner does not use it for plugin injection.
+#
 # Examples:
 #   OPENCODE_MODEL=opencode/glm-5.2 \
 #   OPENCODE_MODEL_VARIANT=max \
@@ -97,8 +118,10 @@
 #
 # Notes:
 #   - Explicit CLI arguments always win over environment defaults.
-#   - Non-`run` commands are passed through without model, variant, or format
-#     injection.
+#   - OPENCODE_CONFIG is owned by this runner so packages/opencode is always
+#     loaded as a plugin for the child opencode process.
+#   - Non-`run` commands still load the plugin, but are passed through without
+#     model, variant, or format injection.
 #   - .opencode-run/ is ignored by git.
 
 set -euo pipefail
@@ -141,10 +164,28 @@ fi
 opencode_run_root="${OPENCODE_RUN_ROOT:-${repo_root}/.opencode-run}"
 opencode_run_id="${OPENCODE_RUN_ID:-$(date +%Y%m%d-%H%M%S)-$$}"
 opencode_run_dir="${opencode_run_root}/${opencode_run_id}"
+opencode_config_dir="${opencode_run_dir}/config"
+opencode_config_file="${opencode_config_dir}/opencode.jsonc"
+agents_plugin="${OPENCODE_AGENTS_PLUGIN:-${repo_root}/packages/opencode/src/index.ts}"
 
-mkdir -p "${opencode_run_dir}/data"
+mkdir -p "${opencode_run_dir}/data" "${opencode_config_dir}"
+
+if [[ ! -f "${agents_plugin}" ]]; then
+  echo "agents plugin not found: ${agents_plugin}" >&2
+  exit 1
+fi
+
+cat > "${opencode_config_file}" <<EOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "${agents_plugin}"
+  ]
+}
+EOF
 
 export OPENCODE_DB="${OPENCODE_DB:-${opencode_run_dir}/data/opencode.db}"
+export OPENCODE_CONFIG="${opencode_config_file}"
 
 opencode_args=()
 if (($# > 0)); then
