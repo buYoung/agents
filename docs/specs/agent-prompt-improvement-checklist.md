@@ -40,7 +40,7 @@
 
 | Done | Order | Agent | Status | Required completion evidence |
 | --- | --- | --- | --- | --- |
-| [ ] | 1 | `intent-checker` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 1 | `intent-checker` | `complete` | `docs/evals/agent-prompts/intent-checker-iteration-20260707.md` |
 | [ ] | 2 | `research` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 3 | `explore` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 4 | `ideator` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
@@ -100,6 +100,7 @@ High-risk failure modes:
 
 ### 5.2 Evaluation Design
 
+- [ ] 오케스트레이터가 호출하는 subagent라면 대표 orchestrator flow를 1회 실행해 실제 delegation input shape를 캡처한다.
 - [ ] 정상 경로 fixture를 만든다.
 - [ ] 경계 위반 fixture를 만든다.
 - [ ] 모호한 입력 fixture를 만든다.
@@ -124,6 +125,7 @@ High-risk failure modes:
 ### 5.3 Baseline Run
 
 - [ ] 프롬프트 변경 전 기준선 실행을 기록한다.
+- [ ] 오케스트레이터 경유 대표 flow 기준선을 1회 실행하고, target agent에 들어간 실제 `task` 입력을 기록한다.
 - [ ] 대상 agent를 어떤 평가 모드로 실행할지 확정한다.
 - [ ] `mode: "subagent"` agent를 직접 평가하려면 평가 전용 하네스가 있는지 확인한다.
 - [ ] `--agent <name>` 직접 실행에서 기본 agent fallback이 발생하면 해당 run을 무효로 기록한다.
@@ -139,6 +141,7 @@ High-risk failure modes:
 Fixture:
 Run:
 Evaluation mode:
+Orchestrator delegation input:
 Fallback:
 Tool events:
 Files changed:
@@ -213,9 +216,9 @@ Prompt change if any:
 
 ## 6. Evaluation Harness Requirement
 
-현행 실행 계약에서 `mode: "subagent"` agent는 `opencode run --agent <name>`으로 직접 실행할 수 없다. 직접 실행을 시도해 기본 agent로 fallback되면 그 run은 target agent 평가가 아니다.
+현행 실행 계약에서 `mode: "subagent"` agent는 일반 `opencode run --agent <name>`으로 직접 실행할 수 없다. 직접 실행을 시도해 기본 agent로 fallback되면 그 run은 target agent 평가가 아니다.
 
-따라서 남은 8개 agent 중 `worker`를 제외한 7개 agent는 효율적인 반복강화를 위해 평가 전용 direct-subagent 하네스가 필요하다.
+반복강화에는 `scripts/run-opencode --direct-subagent <agent> run ...` 평가 전용 하네스를 사용한다. 이 하네스는 per-run config override로 대상 agent만 평가 실행에서 primary처럼 선택하고, 운영 source의 `mode` 값은 바꾸지 않는다.
 
 하네스 요구사항:
 
@@ -228,18 +231,18 @@ Prompt change if any:
 - [ ] fallback이 감지되면 해당 run을 실패 또는 무효로 기록한다.
 - [ ] 3회 반복 실행과 평균 token 기록을 지원한다.
 
-하네스가 준비되기 전 가능한 평가:
+현재 가능한 평가:
 
 | Agent | Direct eval now | Recommended interim mode |
 | --- | --- | --- |
-| `intent-checker` | 불가 | orchestrator 경유 통합 평가 |
-| `research` | 불가 | orchestrator 경유 통합 평가 |
-| `explore` | 불가 | orchestrator 경유 통합 평가 |
-| `ideator` | 불가 | orchestrator 경유 통합 평가 |
-| `planner` | 불가 | orchestrator 경유 통합 평가 |
+| `intent-checker` | 가능 (`--direct-subagent intent-checker`) | 직접 agent 계약 평가 |
+| `research` | 가능 (`--direct-subagent research`) | 직접 agent 계약 평가 |
+| `explore` | 가능 (`--direct-subagent explore`) | 직접 agent 계약 평가 |
+| `ideator` | 가능 (`--direct-subagent ideator`) | 직접 agent 계약 평가 |
+| `planner` | 가능 (`--direct-subagent planner`) | 직접 agent 계약 평가 |
 | `worker` | 가능 (`mode: "all"`) | 직접 agent 계약 평가 |
-| `adversarial-review` | 불가 | orchestrator 경유 통합 평가 |
-| `constructive-feedback` | 불가 | orchestrator 경유 통합 평가 |
+| `adversarial-review` | 가능 (`--direct-subagent adversarial-review`) | 직접 agent 계약 평가 |
+| `constructive-feedback` | 가능 (`--direct-subagent constructive-feedback`) | 직접 agent 계약 평가 |
 
 ## 7. Per-Agent Checklist Drafts
 
@@ -249,12 +252,12 @@ Prompt change if any:
 
 핵심 계약:
 
-- [ ] 무상태 gate로 동작한다.
-- [ ] 파일을 읽거나 쓰지 않는다.
-- [ ] taskId와 산출물 경로를 요구하지 않는다.
-- [ ] 사용자 의도와 제안 계획의 정렬 여부만 확인한다.
-- [ ] 계획을 새로 만들거나 실행 agent를 선택하지 않는다.
-- [ ] 사용자 확인이 없으면 진행을 확정하지 않는다.
+- [x] 무상태 gate로 동작한다.
+- [x] 파일을 읽거나 쓰지 않는다.
+- [x] taskId와 산출물 경로를 요구하지 않는다.
+- [x] 사용자 의도와 제안 계획의 정렬 여부만 확인한다.
+- [x] 계획을 새로 만들거나 실행 agent를 선택하지 않는다.
+- [x] 사용자 확인이 없으면 진행을 확정하지 않는다.
 
 평가 유형:
 

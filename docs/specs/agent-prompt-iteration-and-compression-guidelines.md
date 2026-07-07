@@ -66,13 +66,15 @@
 권장 절차:
 
 1. 기준선 실행을 기록한다.
-2. 실제 `tool_use`, 산출물, 반환 형식을 확인한다.
-3. 실패를 공통 평가 축 중 하나로 분류한다.
-4. 실패 하나당 가장 좁은 일반 규칙을 추가하거나 기존 규칙을 줄여 명확하게 만든다.
-5. 프롬프트가 바뀌면 해당 평가 유형의 통과 횟수를 리셋한다.
-6. 같은 유형 요청을 최소 3회 반복 실행한다.
-7. 3회 모두 같은 계약을 지키면 그 유형을 통과로 본다.
-8. 실패가 재발하면 다시 3단계로 돌아간다.
+2. 오케스트레이터가 호출하는 subagent라면 대표 오케스트레이터 flow를 1회 실행해 실제 delegation input shape를 캡처한다.
+3. 직접 agent 계약 평가 fixture는 캡처한 실제 delegation input shape를 기준으로 만든다.
+4. 실제 `tool_use`, 산출물, 반환 형식을 확인한다.
+5. 실패를 공통 평가 축 중 하나로 분류한다.
+6. 실패 하나당 가장 좁은 일반 규칙을 추가하거나 기존 규칙을 줄여 명확하게 만든다.
+7. 프롬프트가 바뀌면 해당 평가 유형의 통과 횟수를 리셋한다.
+8. 같은 유형 요청을 최소 3회 반복 실행한다.
+9. 3회 모두 같은 계약을 지키면 그 유형을 통과로 본다.
+10. 실패가 재발하면 다시 5단계로 돌아간다.
 
 1회 성공은 안정성 근거가 아니다. 모델 변동성이 있으므로 최소 3회 반복 평균과 실패 양상을 함께 기록한다.
 
@@ -86,9 +88,9 @@
 | 직접 agent 계약 평가 | 대상 agent만 delegation-style input으로 실행해 고유 역할 계약을 평가한다. | agent 프롬프트 반복강화의 주 평가로 사용한다. |
 | 오케스트레이션 통합 평가 | 실제 `orchestrator -> subagent` 체인을 제한적으로 실행한다. | 핵심 경로 smoke test와 위임 프롬프트 품질 확인에만 사용한다. |
 
-직접 agent 계약 평가는 토큰 비용과 실패 원인 분리를 위해 필요하다. 단, 현행 실행 계약에서 `mode: "subagent"` agent는 `opencode run --agent <name>`으로 직접 선택할 수 없다. 이 경우 CLI가 기본 agent로 fallback하면 대상 agent 평가가 아니다.
+직접 agent 계약 평가는 토큰 비용과 실패 원인 분리를 위해 필요하다. 단, 현행 실행 계약에서 `mode: "subagent"` agent는 일반 `opencode run --agent <name>`으로 직접 선택할 수 없다. 이 경우 CLI가 기본 agent로 fallback하면 대상 agent 평가가 아니다.
 
-따라서 `subagent` 직접 평가는 평가 전용 하네스가 아래 조건을 만족할 때만 수행한다.
+따라서 `subagent` 직접 평가는 `scripts/run-opencode --direct-subagent <agent> run ...` 같은 평가 전용 하네스가 아래 조건을 만족할 때만 수행한다.
 
 - 평가 실행에서만 대상 agent를 직접 선택 가능하게 한다.
 - 운영 agent definition의 mode 계약은 바꾸지 않는다.
@@ -96,7 +98,7 @@
 - 입력은 실제 orchestrator가 줄 법한 delegation-style input으로 구성한다.
 - JSON event에서 fallback 경고, `tool_use`, token, 파일 변경 여부를 수집한다.
 
-평가 하네스가 없으면 `subagent`는 orchestrator 경유 통합 평가로만 실행할 수 있다. 이 경우 결과에는 “target agent 단독 평가 아님”을 명시한다.
+평가 하네스가 없거나 fallback이 감지되면 `subagent`는 orchestrator 경유 통합 평가로만 실행할 수 있다. 이 경우 결과에는 “target agent 단독 평가 아님”을 명시한다.
 
 ## 7. Anti-Cheating Rules
 
@@ -174,6 +176,7 @@ Failure:
 | Pass rate | 예: `3/3` |
 | Execution mode | 정적 검사, 직접 agent 계약 평가, 오케스트레이션 통합 평가 중 무엇인지 |
 | Tool evidence | 실제 `tool_use` 순서와 대상 |
+| Delegation input evidence | 오케스트레이터 경유 평가에서 target agent에 전달된 실제 입력 |
 | Token evidence | 가능하면 입력 토큰 또는 프롬프트 길이 변화 |
 | Fallback evidence | `--agent` 직접 실행 시 fallback이 없었는지 |
 | Failures found | 발견한 실패와 보강 내용 |
