@@ -517,7 +517,7 @@ export function enforcePermission(
  * 도구마다 경로 키 이름이 다르므로 알려진 키를 순서대로 시도한다.
  *
  * glob/grep: 탐색 범위 경로(path 키)를 반환한다. 미지정이면 undefined.
- * apply_patch: diff 본문(`input`)의 `+++ b/<path>` 헤더에서 경로를 파싱한다.
+ * apply_patch: diff 본문(`input` 또는 `patchText`)에서 단일 대상 경로를 파싱한다.
  */
 function extractTargetPath(
   args: Record<string, unknown>,
@@ -559,13 +559,27 @@ function extractTargetPath(
   }
 
   // -----------------------------------------------------------------------
-  // apply_patch: `input` 인자(diff 본문)에서 `+++ b/<path>` 헤더를 파싱
+  // apply_patch: `input` 또는 `patchText` 인자(diff 본문)에서 단일 대상 경로를 파싱
   // -----------------------------------------------------------------------
   if (toolName === "apply_patch") {
-    const input = args["input"];
+    const input = args["input"] ?? args["patchText"];
     if (typeof input === "string") {
-      const match = /^\+\+\+ b\/(.+)$/m.exec(input);
-      if (match?.[1]) return match[1].trim();
+      const paths = new Set<string>();
+      const patterns = [
+        /^\*\*\* Add File: (.+)$/gm,
+        /^\*\*\* Update File: (.+)$/gm,
+        /^\*\*\* Delete File: (.+)$/gm,
+        /^\+\+\+ b\/(.+)$/gm,
+      ];
+
+      for (const pattern of patterns) {
+        let match: RegExpExecArray | null;
+        while ((match = pattern.exec(input)) !== null) {
+          if (match[1]) paths.add(match[1].trim());
+        }
+      }
+
+      if (paths.size === 1) return [...paths][0];
     }
     // input이 없거나 파싱 불가 — 경로 미확정 (edit 분기에서 sourceEdit=deny로 처리)
     return undefined;

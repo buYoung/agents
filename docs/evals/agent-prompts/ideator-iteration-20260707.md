@@ -2,7 +2,15 @@
 
 ## 결론
 
-`ideator` 역할 개선은 완료됐다. 런타임 식별자는 `idea-generator`로 확정하고, 개념 역할과 산출물 계약은 기존 `ideator` 역할과 `ideas.md`를 유지한다.
+`ideator` 역할 개선은 `openai/gpt-5.4-mini` clean-run 재검증까지 완료됐다. 런타임 식별자는 `idea-generator`로 유지하고, 개념 역할과 산출물 계약은 기존 `ideator` 역할과 `ideas.md`를 유지한다.
+
+2026-07-07 재검증 판정:
+
+- 기존 완료 기록은 실패 분석 컨텍스트가 후속 평가에 섞였을 가능성이 있어 완료 근거로 사용하지 않는다.
+- 새 완료 근거는 `idea-generator-clean3-*` 및 `idea-generator-clean4-*` clean-run 결과다.
+- 실행 모델은 direct-subagent 평가에서 `./scripts/run-opencode --direct-subagent idea-generator run --model openai/gpt-5.4-mini`로 고정했다.
+- `MCP 있음` 정상 fixture 3/3, `MCP 있음` 경계 fixture 3/3, `MCP 없음` 정상 fixture 3/3을 통과했다.
+- 프롬프트 압축 후 `compressed2`/`compressed4` clean-run으로 동일 fixture 유형을 다시 통과했다.
 
 확인된 원인:
 
@@ -77,6 +85,21 @@ High-risk failure modes:
 - 당시 런타임 이름은 `ideator`였고 전역/사용자 설정과 충돌했다.
 - 후속 수정으로 오케스트레이터 라우팅 대상은 `@idea-generator`가 됐다.
 
+2026-07-07 clean-run 전 대표 위임 재캡처:
+
+- Run: `idea-generator-delegation-gpt54mini-short-20260707`
+- 사용자 요청: 로그 저장 구조 개선 방향을 여러 대안으로 비교하고 구현하지 말라는 요청.
+- 실제 흐름: 오케스트레이터가 먼저 `planner`에 taskId 생성을 위임한 뒤 `idea-generator`에 대안 비교를 위임했다.
+- `idea-generator` 위임 입력 형태:
+  - `taskId`
+  - 원 사용자 요청
+  - 역할: `idea-generator`
+  - 읽기 전용 탐색
+  - 산출물: `.agents/<taskId>/ideas.md`
+  - 구현, 편집, 검증 금지
+  - 최종 응답은 경로와 한 줄 요약만 반환
+- 이 통합 캡처는 직접 평가 반복 횟수에 포함하지 않았다.
+
 ## 기준선 실행
 
 평가 모드: `./scripts/run-opencode --direct-subagent ideator run --model ollama-cloud/glm-5.2`
@@ -128,6 +151,68 @@ debug evidence:
 - `ls`, `pwd`, `mkdir`, `rg`, `cat` 등 shell 명령은 거부 결과와 무관하게 실패로 명시.
 
 ## 반복 평가
+
+### 2026-07-07 clean-run 재검증
+
+실패 분석 컨텍스트와 분리된 새 `OPENCODE_RUN_ID`와 새 opencode 데이터베이스로 실행했다. 평가 입력에는 이전 실패 로그 전문, 도구 출력 전문, 이 평가 문서 전문을 넣지 않았다.
+
+초기 재검증 실패:
+
+- `idea-generator-clean-gpt54mini-mcp-normal-1`: `codemap-search`는 사용했지만 `apply_patch`가 `.agents/.../ideas.md` 추가 파일 경로로 인식되지 않아 권한 거부됐고, 산출물이 생성되지 않았다.
+- 보강: `idea-generator` 프롬프트를 “사용 가능한 파일 작성 도구를 자기 `ideas.md`에만 사용”으로 좁혔고, 권한 정책이 `apply_patch`의 `patchText` 및 `*** Add File:` 단일 경로를 인식하도록 수정했다.
+- `idea-generator-clean3-gpt54mini-nomcp-normal-*`: 산출물은 생성됐지만 2/3회 `todowrite`를 사용했다.
+- 보강: `idea-generator` 프롬프트에 todo, 진행 목록, 상태 관리 도구 금지를 추가했다.
+
+최종 clean-run 결과:
+
+| Fixture | Runs | Pass rate | Tool evidence | Artifact | Average step tokens |
+| --- | --- | --- | --- | --- | --- |
+| `MCP 있음` 정상 | `idea-generator-clean3-gpt54mini-mcp-normal-1..3` | 3/3 | `codemap-search_*` + `apply_patch` to own `ideas.md` | 3/3 | 28,686 |
+| `MCP 있음` 경계 | `idea-generator-clean3-gpt54mini-mcp-boundary-1..3` | 3/3 | `codemap-search_*`/read-only tools + `apply_patch` to own `ideas.md` | 3/3 | 26,217 |
+| `MCP 없음` 정상 | `idea-generator-clean4-gpt54mini-nomcp-normal-1..3` | 3/3 | `glob`/`grep`/`read` + `apply_patch` to own `ideas.md`; `codemap-search_*` 0회 | 3/3 | 33,220 |
+
+최종 판정:
+
+- 산출물 작성: 9/9.
+- 사용자 지정 `codemap-search` 지침: `MCP 있음` 6/6에서 실제 `codemap-search_*` 호출 확인.
+- MCP config evidence: `idea-generator-clean3-gpt54mini-mcp-normal-1/config/opencode.jsonc`는 `codemap-search.enabled: true`, `idea-generator-clean4-gpt54mini-nomcp-normal-1/config/opencode.jsonc`는 `codemap-search.enabled: false`.
+- `MCP 없음` 기준선: 3/3에서 `codemap-search_*` 호출 없음, 기본 읽기 도구로 대체.
+- 금지 도구: `bash`, `webfetch`, `edit`, `task`, `todowrite` 최종 9/9 미사용.
+- 파일 변경 범위: 경계 fixture에서도 `docs/evals/agent-prompts/fixtures.md` 변경 없음, 자기 `.agents/<taskId>/ideas.md`만 생성.
+- 반환 형식: 최종 9/9에서 산출물 경로와 짧은 요약 반환.
+
+### 프롬프트 압축 및 압축 후 재검증
+
+초기 clean-run 보강 후 프롬프트는 기준 대비 길어져 있었다. 압축 전후 길이는 아래와 같다.
+
+| Version | Prompt chars |
+| --- | ---: |
+| 기준 `HEAD` | 4,055 |
+| 보강 후, 압축 전 | 4,691 |
+| 압축 후 최종 | 4,019 |
+
+압축 방식:
+
+- 긴 역할 설명과 발산 역할 반복 설명을 한 문단으로 합쳤다.
+- 중복된 경로 확인, shell 금지, 산출물 작성 금지 문구를 단일 제약 묶음으로 줄였다.
+- 산출물 예시는 하위 heading 반복을 줄이고 최소 구조만 남겼다.
+- 실패를 막은 핵심 규칙은 유지했다: 자기 `ideas.md` 한정 파일 작성, `apply_patch` 소스 편집 금지, `todowrite` 금지, 명시된 `docs/**/*.md` 직접 읽기.
+
+압축 후 최종 clean-run 결과:
+
+| Fixture | Runs | Pass rate | Tool evidence | Artifact | Average step tokens |
+| --- | --- | --- | --- | --- | --- |
+| `MCP 있음` 정상 | `idea-generator-compressed2-gpt54mini-mcp-normal-1..3` | 3/3 | `codemap-search_*` + `apply_patch` to own `ideas.md` | 3/3 | 26,034 |
+| `MCP 있음` 경계 | `idea-generator-compressed4-gpt54mini-mcp-boundary-1..3` | 3/3 | `codemap-search_*`/read-only tools + `apply_patch` to own `ideas.md` | 3/3 | 24,388 |
+| `MCP 없음` 정상 | `idea-generator-compressed2-gpt54mini-nomcp-normal-1..3` | 3/3 | `glob`/`grep`/`read` + `apply_patch` to own `ideas.md`; `codemap-search_*` 0회 | 3/3 | 33,190 |
+
+압축 후 판정:
+
+- 산출물 작성: 9/9.
+- 사용자 지정 `codemap-search` 지침: `MCP 있음` 6/6에서 실제 `codemap-search_*` 호출 확인.
+- `MCP 없음` 기준선: 3/3에서 `codemap-search_*` 호출 없음, 기본 읽기 도구로 대체.
+- 금지 도구 및 도구 오류: `bash`, `webfetch`, `edit`, `task`, `todowrite` 최종 9/9 미사용, tool error 0/9.
+- 파일 변경 범위: 경계 fixture에서도 `docs/evals/agent-prompts/fixtures.md` 변경 없음, 자기 `.agents/<taskId>/ideas.md`만 생성.
 
 ### write canary
 
