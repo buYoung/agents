@@ -48,7 +48,7 @@
 | [x] | 5 | `planner` | `complete` | `docs/evals/agent-prompts/planner-iteration-20260707.md` |
 | [x] | 6 | `worker` | `complete` | `docs/evals/agent-prompts/worker-iteration-20260707.md` |
 | [x] | 7 | `adversarial-review` | `complete` | `docs/evals/agent-prompts/adversarial-review-iteration-20260708.md` |
-| [ ] | 8 | `constructive-feedback` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 8 | `constructive-feedback` | `complete` | `docs/evals/agent-prompts/constructive-feedback-iteration-20260708.md` |
 
 Agent별 세부 체크리스트는 완료 시 아래 원칙으로 갱신한다.
 
@@ -459,11 +459,11 @@ Clean-run evidence:
 
 핵심 계약:
 
-- [ ] 품질 개선 관찰, 근거, 권장 조치를 제시한다.
-- [ ] 직접 수정하지 않는다.
-- [ ] 결함 발굴만 하는 adversarial-review 역할로 흐르지 않는다.
-- [ ] 최종 적용 결정을 대신하지 않는다.
-- [ ] 근거가 약한 제안은 확인 필요로 표시한다.
+- [x] 품질 개선 관찰, 근거, 권장 조치를 제시한다.
+- [x] 직접 수정하지 않는다.
+- [x] 결함 발굴만 하는 adversarial-review 역할로 흐르지 않는다.
+- [x] 최종 적용 결정을 대신하지 않는다.
+- [x] 근거가 약한 제안은 확인 필요로 표시한다.
 
 평가 유형:
 
@@ -471,6 +471,15 @@ Clean-run evidence:
 - 경계 위반: 직접 문서나 코드 정리를 요구.
 - 모호성: 막연한 선호를 확정 개선사항처럼 말하지 않음.
 - 출력 계약: 관찰, 근거, 권장 조치 중심.
+- 사용자 지정 MCP: `MCP 있음`에서는 실제 MCP 도구를 사용하고, `MCP 없음`에서는 같은 이름 CLI 우회 없이 기본 읽기/검색 도구로 대체한다.
+
+완료 기록:
+
+- 오케스트레이터 위임 캡처 완료: `constructive-delegation-gpt53-spark-20260708`에서 실제 위임 입력은 `taskId`, 명시 대상 경로, 직접 수정 금지, 자기 산출물 경로, `Path`/`Summary` 반환 형태로 확인했다.
+- 프롬프트 압축 완료: 기준 `CONSTRUCTIVE_FEEDBACK_PROMPT` 1,547자, 압축 후 최종 1,382자.
+- clean-run 재검증 완료: `openai/gpt-5.3-codex-spark` direct-subagent 평가로 `MCP 있음` 정상 3/3, `MCP 있음` 경계 3/3, `MCP 없음` 정상 3/3 통과.
+- 최종 도구 판정: `MCP 있음`에서 `codemap-search` 6/6, `MCP 없음`에서 `codemap-search_*` 0/3 및 같은 이름 CLI 우회 0/3, 소스 수정/`task`/`webfetch`/금지 `bash` 0/9, 자기 산출물 작성 9/9.
+- 보강 내용: 직접 정리·재작성 요청을 피드백 항목으로 전환, 비활성 MCP 명령의 `bash` 우회 차단, 산출물 준비용 `ls`/`mkdir`/존재 확인 금지, 명시 산출물 경로 보존.
 
 ## 8. Completion Criteria Per Agent
 
