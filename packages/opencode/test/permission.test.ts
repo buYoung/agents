@@ -250,6 +250,58 @@ describe("추가 정책 spot-check", () => {
     ).toBe(true);
   });
 
+  test("planner: 파일시스템 변경/경로 나열 bash 거부", () => {
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-planner",
+          args: { command: "mkdir -p .agents/x" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        { tool: "bash", sessionID: "s-planner", args: { command: "ls docs" } },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-planner",
+          args: { command: "git log --oneline -5" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(true);
+  });
+
+  test("planner: .agents/** 산출물 edit 거부, write 허용", () => {
+    expect(
+      enforcePermission(
+        {
+          tool: "edit",
+          sessionID: "s-planner",
+          args: { path: ".agents/20260707-test/plan.md" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-planner",
+          args: { path: ".agents/20260707-test/plan.md" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(true);
+  });
+
   test("7개 advisory 에이전트: source edit 거부", () => {
     for (const [agent, sessionID] of advisoryAgents) {
       const result = enforcePermission(

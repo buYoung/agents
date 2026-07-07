@@ -240,6 +240,25 @@ export function resolveAgent(
   return sessionAgentMap.get(sessionID);
 }
 
+function getBashCommand(args: Record<string, unknown>): string {
+  const command = args["command"];
+  return typeof command === "string" ? command : "";
+}
+
+function isPlannerForbiddenBash(command: string): boolean {
+  const normalizedCommand = command.trim();
+  if (!normalizedCommand) return false;
+
+  const forbiddenCommandPattern =
+    /(?:^|[\s;&|()])(?:ls|mkdir|touch|rm|mv|cp)(?:\s|$|[;&|()])/;
+
+  return (
+    forbiddenCommandPattern.test(normalizedCommand) ||
+    /(^|[^0-9])>{1,2}/.test(normalizedCommand) ||
+    /\b[0-9]>{1,2}/.test(normalizedCommand)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 권한 집행 함수
 // ---------------------------------------------------------------------------
@@ -330,6 +349,13 @@ export function enforcePermission(
   // -------------------------------------------------------------------------
   if (targetPath) {
     const category = classifyPath(targetPath);
+    if (category === "agents" && agent === "planner" && toolName === "edit") {
+      return {
+        allowed: false,
+        reason:
+          "[policy] planner는 plan.md 산출물에 write만 허용 — edit 금지",
+      };
+    }
     if (category === "agents") {
       return {
         allowed: true,
@@ -395,6 +421,16 @@ export function enforcePermission(
       return {
         allowed: false,
         reason: `[policy] ${agent}는 bash 실행 불가`,
+      };
+    }
+    if (
+      agent === "planner" &&
+      isPlannerForbiddenBash(getBashCommand(input.args))
+    ) {
+      return {
+        allowed: false,
+        reason:
+          "[policy] planner는 bash를 읽기 검증/날짜 생성에만 사용할 수 있음 — ls/mkdir/touch/rm/mv/cp/redirection 금지",
       };
     }
     return { allowed: true, reason: `[policy] ${agent}: bash 허용` };

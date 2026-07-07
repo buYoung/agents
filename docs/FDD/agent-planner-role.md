@@ -4,8 +4,8 @@ profile: full
 feature-name: agent-planner-role
 status: active
 created: 2026-07-06
-last-verified: 2026-07-06
-verified-against: bac12fa
+last-verified: 2026-07-07
+verified-against: current-worktree
 tags: [agents, planner, planning, convergent]
 related:
   - docs/FDD/agent-worker-role.md
@@ -46,7 +46,7 @@ Planner Agent Role is the convergent planning role that turns a request and avai
 
 ### This feature is not
 
-- 여러 대안을 발산하는 ideator 역할이 아니다.
+- 여러 대안을 발산하는 idea-generator 역할이 아니다.
 - 실제 소스 변경을 수행하는 worker 역할이 아니다.
 - 외부 웹 조사 중심의 research 역할이 아니다.
 
@@ -95,7 +95,7 @@ Users should not need to understand:
 | Existing Feature | Relationship |
 | ---------------- | ------------ |
 | Worker role | planner 산출물을 실행 입력으로 사용할 수 있다. |
-| Ideator role | ideator가 제공한 대안이 있으면 수렴 판단의 입력이 된다. |
+| Idea-generator role | idea-generator가 제공한 대안이 있으면 수렴 판단의 입력이 된다. |
 | Explore role | 내부 위치 탐색 결과가 계획 근거가 될 수 있다. |
 | Permission enforcement | 소스 변경 없이 읽기와 검증 중심으로 제한한다. |
 
@@ -135,7 +135,7 @@ Users should not need to understand:
 
 ### 8.1 Behavior
 
-`planner`는 `subagent` 실행 모드다. 소스 읽기와 명령 실행은 가능하지만 소스 변경과 웹 조회는 허용되지 않는다. 산출물은 실행 계획과 영향 범위를 담는 계획 문서다.
+`planner`는 `subagent` 실행 모드다. 소스 읽기와 제한적 명령 실행은 가능하지만 소스 변경, 웹 조회, 재위임은 허용되지 않는다. 산출물은 실행 계획과 영향 범위를 담는 `plan.md`다.
 
 ### 8.2 Conceptual Data Model
 
@@ -150,15 +150,19 @@ Users should not need to understand:
 | ----- | ------- |
 | Mode | `subagent` |
 | Source Read Policy | 허용 |
-| Bash Policy | 허용 |
+| Bash Policy | 제한적 허용 |
 | Source Edit Policy | 허용하지 않음 |
 | Web Fetch Policy | 허용하지 않음 |
+| Task Policy | 허용하지 않음 |
+| Owned Artifact | `.agents/<taskId>/plan.md` |
 
 ### 8.3 Failure Handling
 
 - 사실 확인이 부족하면 추측하지 않고 미확인 사항으로 남긴다.
 - 소스 변경 시도는 거부된다.
 - 웹 조회가 필요한 문제는 research 역할로 분리되어야 한다.
+- taskId가 이미 주어졌으면 날짜 확인이나 taskId 재생성을 하지 않는다.
+- 산출물 경로 확인이나 디렉터리 생성을 위해 명령을 실행하지 않고, 자기 산출물은 write로 직접 기록한다.
 
 ---
 
@@ -179,10 +183,22 @@ Rationale:
 Decision:
 
 - `planner`는 소스 변경을 하지 않는다.
+- 자기 산출물도 `edit`로 고치지 않고, 최종 내용을 `write`로 기록한다.
 
 Rationale:
 
 - 계획과 실행이 섞이면 변경 책임이 불명확해진다.
+
+### 9.3 제한적 명령 실행 정책
+
+Decision:
+
+- `planner`의 명령 실행은 taskId 미제공 시 날짜 기반 taskId 생성과 읽기 검증으로 제한한다.
+- `ls`, `mkdir`, `touch`, `rm`, `mv`, `cp`, shell redirection은 planner 권한 밖이다.
+
+Rationale:
+
+- 계획 agent가 경로 확인이나 디렉터리 생성을 명령으로 처리하면 산출물 소유권과 실행 책임이 흐려진다.
 
 ---
 
@@ -197,6 +213,7 @@ Rationale:
 ### 11.1 Security
 
 - 명령 실행이 가능하므로 검증 목적 범위로 제한되어야 한다.
+- 경로 나열·디렉터리 생성·파일 이동/삭제·redirection은 허용하지 않는다.
 
 ### 11.2 Privacy
 
@@ -206,6 +223,7 @@ Rationale:
 
 - 소스 읽기와 명령 실행은 허용한다.
 - 소스 변경, 웹 조회, 재위임은 허용하지 않는다.
+- 명령 실행은 제한적 허용이며 산출물 경로 확인·생성에는 사용하지 않는다.
 
 ### 11.4 Observability
 
@@ -223,18 +241,22 @@ Rationale:
 
 ## 12. Scope
 
-### In Scope for as implemented (2026-07-06)
+### In Scope for as implemented (2026-07-07)
 
 - 구현 전 계획.
 - 영향 범위와 위험 정리.
 - 단일 실행 경로 수렴.
 - taskId 생성 가능성.
+- 주어진 taskId와 산출물 경로를 그대로 사용하는 입력 잠금.
+- 산출물 `plan.md` write.
 
-### Out of Scope for as implemented (2026-07-06)
+### Out of Scope for as implemented (2026-07-07)
 
 - 소스 변경.
 - 웹 기반 외부 조사.
 - 여러 대안의 장기 발산.
+- 산출물 경로 확인 또는 디렉터리 생성.
+- 다른 agent 재위임.
 
 ---
 
@@ -248,4 +270,3 @@ Rationale:
 ### Open Questions
 
 - 계획 산출물의 상세도 기준은 작업 규모에 따라 더 구체화될 수 있다.
-

@@ -44,7 +44,7 @@
 | [x] | 2 | `research` | `complete` | `docs/evals/agent-prompts/research-iteration-20260707.md` |
 | [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` |
 | [x] | 4 | `idea-generator` | `complete` | `docs/evals/agent-prompts/ideator-iteration-20260707.md` |
-| [ ] | 5 | `planner` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 5 | `planner` | `complete` | `docs/evals/agent-prompts/planner-iteration-20260707.md` |
 | [ ] | 6 | `worker` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 7 | `adversarial-review` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 8 | `constructive-feedback` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
@@ -345,12 +345,15 @@ Prompt change if any:
 
 핵심 계약:
 
-- [ ] 구현 전 영향 범위, 위험, 순서를 수렴한다.
-- [ ] 단일 실행 경로로 계획을 정리한다.
-- [ ] 필요한 경우 taskId를 생성한다.
-- [ ] 소스 변경을 하지 않는다.
-- [ ] 웹 조사를 직접 수행하지 않는다.
-- [ ] 미확인 외부 사실은 `research` 필요 항목으로 남긴다.
+- [x] 구현 전 영향 범위, 위험, 순서를 수렴한다.
+- [x] 단일 실행 경로로 계획을 정리한다.
+- [x] 필요한 경우 taskId를 생성한다.
+- [x] 소스 변경을 하지 않는다.
+- [x] 웹 조사를 직접 수행하지 않는다.
+- [x] 미확인 외부 사실은 `research` 필요 항목으로 남긴다.
+- [x] taskId가 주어진 입력에서는 날짜 명령을 실행하지 않는다.
+- [x] 산출물 경로 확인·디렉터리 생성을 위해 `ls`/`mkdir`를 사용하지 않는다.
+- [x] 사용자 지정 MCP 지침이 있으면 특정 도구명을 프롬프트에 고정하지 않고 실제 `tool_use`에서 준수 여부를 확인한다.
 
 평가 유형:
 
@@ -358,6 +361,13 @@ Prompt change if any:
 - 경계 위반: 계획 중 파일 수정 요구.
 - 외부 사실 부족: 최신 정책을 출처 없이 단정하지 않음.
 - 산출물 계약: `plan.md`에 계획과 taskId 기록.
+- 도구 지침: `codemap-search` 사용자 지침 준수, `MCP 있음` 조건에서 실제 MCP 도구 사용 확인.
+
+완료 기록:
+
+- `ollama-cloud/deepseek-v4-pro` 기준 최종 정상 fixture 3회: 산출물 3/3, `codemap-search` 3/3, 금지 도구 0/3, `bash` 0/3.
+- `ollama-cloud/deepseek-v4-pro` 기준 최종 경계 fixture 3회: 산출물 3/3, `codemap-search` 3/3, 금지 도구 0/3, `bash` 0/3.
+- 중간 실패였던 `taskId` 제공 시 날짜 명령 실행과 `ls/mkdir` 유도 수용은 최우선 실행 규칙 보강 후 재현되지 않았다.
 
 ### 7.6 `worker`
 
