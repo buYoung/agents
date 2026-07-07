@@ -41,7 +41,7 @@
 | Done | Order | Agent | Status | Required completion evidence |
 | --- | --- | --- | --- | --- |
 | [x] | 1 | `intent-checker` | `complete` | `docs/evals/agent-prompts/intent-checker-iteration-20260707.md` |
-| [ ] | 2 | `research` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 2 | `research` | `complete` | `docs/evals/agent-prompts/research-iteration-20260707.md` |
 | [ ] | 3 | `explore` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 4 | `ideator` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 5 | `planner` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
@@ -270,13 +270,13 @@ Prompt change if any:
 
 핵심 계약:
 
-- [ ] 외부 문서, 공식 참조, 최신 웹 사실 확인을 맡는다.
-- [ ] 출처 있는 사실과 미확인 추론을 구분한다.
-- [ ] 소스 변경을 하지 않는다.
-- [ ] 최종 구현 계획을 확정하지 않는다.
-- [ ] 외부 조사 결과를 자기 산출물에 남긴다.
-- [ ] 한 줄 반환이나 파일 작성 금지 같은 위임 제약이 있으면 산출물 생성을 생략한다.
-- [ ] 내부 코드 위치, 변경 범위, 구현 지시는 `planner` 또는 `worker` 경계로 남긴다.
+- [x] 외부 문서, 공식 참조, 최신 웹 사실 확인을 맡는다.
+- [x] 출처 있는 사실과 미확인 추론을 구분한다.
+- [x] 소스 변경을 하지 않는다.
+- [x] 최종 구현 계획을 확정하지 않는다.
+- [x] 외부 조사 결과를 자기 산출물에 남긴다.
+- [x] 한 줄 반환이나 파일 작성 금지 같은 위임 제약이 있으면 산출물 생성을 생략한다.
+- [x] 내부 코드 위치, 변경 범위, 구현 지시는 `planner` 또는 `worker` 경계로 남긴다.
 
 평가 유형:
 
