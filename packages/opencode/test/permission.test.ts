@@ -22,8 +22,8 @@ const advisoryAgents: Array<[AgentName, string]> = [
   ["intent-checker", "s-intent"],
   ["planner", "s-planner"],
   ["research", "s-research"],
-  ["explore", "s-explore"],
-  ["ideator", "s-ideator"],
+  ["code-explorer", "s-explore"],
+  ["idea-generator", "s-ideator"],
   ["adversarial-review", "s-adv"],
   ["constructive-feedback", "s-cf"],
 ];
@@ -31,7 +31,7 @@ const advisoryAgents: Array<[AgentName, string]> = [
 describe("권한 매트릭스", () => {
   const testMap = makeMap([
     ["orchestrator", "session-orch"],
-    ["explore", "session-explore"],
+    ["code-explorer", "session-explore"],
     ["worker", "session-worker"],
   ]);
 
@@ -47,7 +47,7 @@ describe("권한 매트릭스", () => {
     expect(result.allowed).toBe(false);
   });
 
-  test("explore: bash 거부", () => {
+  test("code-explorer: bash 거부", () => {
     const result = enforcePermission(
       { tool: "bash", sessionID: "session-explore", args: {} },
       testMap,
@@ -82,7 +82,7 @@ describe("권한 매트릭스", () => {
     expect(classifyPath("src/not.agents.md")).toBe("source");
   });
 
-  test("explore: .agents/** write 허용 (baseline)", () => {
+  test("code-explorer: .agents/** write 허용 (baseline)", () => {
     const result = enforcePermission(
       {
         tool: "write",
@@ -98,7 +98,7 @@ describe("권한 매트릭스", () => {
 describe("fail-safe", () => {
   const testMap = makeMap([
     ["orchestrator", "session-orch"],
-    ["explore", "session-explore"],
+    ["code-explorer", "session-explore"],
     ["worker", "session-worker"],
   ]);
 
@@ -130,7 +130,7 @@ describe("fail-safe", () => {
 describe("위임(task 도구)", () => {
   const testMap = makeMap([
     ["orchestrator", "session-orch"],
-    ["explore", "session-explore"],
+    ["code-explorer", "session-explore"],
     ["worker", "session-worker"],
   ]);
 
@@ -184,7 +184,7 @@ describe("위임(task 도구)", () => {
     expect(result.allowed).toBe(false);
   });
 
-  test("explore → worker 재위임 거부", () => {
+  test("code-explorer → worker 재위임 거부", () => {
     const result = enforcePermission(
       {
         tool: "task",
@@ -204,8 +204,8 @@ describe("추가 정책 spot-check", () => {
     ["worker", "s-worker"],
     ["planner", "s-planner"],
     ["research", "s-research"],
-    ["explore", "s-explore"],
-    ["ideator", "s-ideator"],
+    ["code-explorer", "s-explore"],
+    ["idea-generator", "s-ideator"],
     ["adversarial-review", "s-adv"],
     ["constructive-feedback", "s-cf"],
   ]);
@@ -218,7 +218,7 @@ describe("추가 정책 spot-check", () => {
     expect(result.allowed).toBe(true);
   });
 
-  test("explore/ideator: bash 거부", () => {
+  test("code-explorer/idea-generator: bash 거부", () => {
     expect(
       enforcePermission(
         { tool: "bash", sessionID: "s-explore", args: {} },

@@ -117,7 +117,7 @@ export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
     task: "deny",
   },
   {
-    agent: "explore",
+    agent: "code-explorer",
     sourceRead: "allow",
     bash: "deny",
     sourceEdit: "deny",
@@ -125,7 +125,7 @@ export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
     task: "deny",
   },
   {
-    agent: "ideator",
+    agent: "idea-generator",
     sourceRead: "allow",
     bash: "deny",
     sourceEdit: "deny",

@@ -6,7 +6,7 @@
  * 권한 선언은 이 파일에 없다 — permissions.ts가 소유한다.
  *
  * 위임 가능한 서브에이전트 (8개):
- *   intent-checker, worker, planner, research, explore, ideator,
+ *   intent-checker, worker, planner, research, code-explorer, idea-generator,
  *   adversarial-review, constructive-feedback
  */
 
@@ -35,8 +35,8 @@ const ROUTING_TABLE = `
 | @worker | 구현, 파일 변경, 검증 명령 | 소스 읽기/수정, 파일 작성, 빌드, 타입 검사, 버그 수정 실행. 목표가 분명하면 파일명·재현 조건이 부족해도 worker가 확인한다. |
 | @planner | 구현 전 수렴 계획, 영향 범위, taskId 생성 | 여러 파일, 계약, 설정, 호환성, 순서, 위험이 얽혀 실행 계획이 필요할 때. |
 | @research | 외부 문서, 공식 참조, 최신 웹 사실 | 외부 사실이 판단의 선행 조건일 때. 내부 코드 위치나 변경 범위 판단은 주 목적이 아니다. |
-| @explore | 내부 코드 위치와 패턴 정찰 | 계획 전 내부 파일·심볼·반복 패턴을 읽기 전용으로 좁혀야 할 때. |
-| @ideator | 대안 발산과 트레이드오프 | 방향이 열려 있고 여러 접근법 비교가 필요할 때. |
+| @code-explorer | 내부 코드 위치와 패턴 정찰 | 계획 전 내부 파일·심볼·반복 패턴을 읽기 전용으로 좁혀야 할 때. |
+| @idea-generator | 대안 발산과 트레이드오프 | 방향이 열려 있고 여러 접근법 비교가 필요할 때. |
 | @adversarial-review | 결함, 반례, 회귀·보안 위험 | 구현 또는 산출물 뒤 엄격한 위험 검토가 필요할 때. |
 | @constructive-feedback | 개선 제안과 유지보수성 리뷰 | 결함 판정보다 품질 개선 관찰과 권장 조치가 필요할 때. |
 `.trim();
@@ -94,7 +94,7 @@ const ORCHESTRATOR_RULES = `
 export const orchestratorAgent: AgentDefinition = {
   name: "orchestrator",
   description:
-    "요청을 분류하고 8개 서브에이전트(intent-checker/worker/planner/research/explore/ideator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 필요한 경우에만 의도 확인을 수행하고, 실행 가능한 요청은 가장 좁은 서브에이전트 체인으로 넘긴다. 소스 코드를 직접 읽거나 쓰지 않는다.",
+    "요청을 분류하고 8개 서브에이전트(intent-checker/worker/planner/research/code-explorer/idea-generator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 필요한 경우에만 의도 확인을 수행하고, 실행 가능한 요청은 가장 좁은 서브에이전트 체인으로 넘긴다. 소스 코드를 직접 읽거나 쓰지 않는다.",
   mode: "primary",
   model: "ollama-cloud/glm-5.2",
   prompt: [

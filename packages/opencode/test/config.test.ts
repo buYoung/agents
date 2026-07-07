@@ -32,8 +32,8 @@ const fakeAgents: Record<string, AgentDefinition> = Object.fromEntries(
     "worker",
     "planner",
     "research",
-    "explore",
-    "ideator",
+    "code-explorer",
+    "idea-generator",
     "adversarial-review",
     "constructive-feedback",
   ].map((name) => [
@@ -48,16 +48,16 @@ const fakeAgents: Record<string, AgentDefinition> = Object.fromEntries(
 );
 
 describe("loadPluginConfig + applyAgentOverrides 기본", () => {
-  test("explore 모델 오버라이드 + reasoning_effort, 필수 에이전트 보호, ideator 비활성화, planner prompt_append", () => {
+  test("code-explorer 모델 오버라이드 + reasoning_effort, 필수 에이전트 보호, idea-generator 비활성화, planner prompt_append", () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-cfg-"));
     writeProjectToml(
       tempDir,
       [
-        "[agents.explore]",
+        "[agents.code-explorer]",
         'model = "ollama-cloud/deepseek-v4-pro"',
         'reasoning_effort = "high"',
         "",
-        "[agents.ideator]",
+        "[agents.idea-generator]",
         "enable = false",
         "",
         "[agents.planner]",
@@ -66,18 +66,18 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
     );
 
     const loaded = loadPluginConfig(tempDir, { silent: true });
-    expect(loaded.agents?.["explore"]?.model).toBe(
+    expect(loaded.agents?.["code-explorer"]?.model).toBe(
       "ollama-cloud/deepseek-v4-pro",
     );
-    expect(loaded.agents?.["ideator"]?.enable).toBe(false);
+    expect(loaded.agents?.["idea-generator"]?.enable).toBe(false);
 
     const { record, disabledNames } = applyAgentOverrides(fakeAgents, loaded);
 
-    expect("ideator" in record).toBe(false);
-    expect(disabledNames).toContain("ideator");
+    expect("idea-generator" in record).toBe(false);
+    expect(disabledNames).toContain("idea-generator");
 
-    expect(record["explore"]?.model).toBe("ollama-cloud/deepseek-v4-pro");
-    const exploreOptions = record["explore"]?.options as
+    expect(record["code-explorer"]?.model).toBe("ollama-cloud/deepseek-v4-pro");
+    const exploreOptions = record["code-explorer"]?.options as
       | { extraBody?: { reasoning_effort?: string } }
       | undefined;
     expect(exploreOptions?.extraBody?.reasoning_effort).toBe("high");
@@ -87,7 +87,7 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
         agents: {
           orchestrator: { enable: false },
           worker: { enable: false },
-          ideator: { enable: false },
+          "idea-generator": { enable: false },
         },
       },
       undefined,
@@ -106,25 +106,25 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
       ]),
     );
     expect(
-      validationMessages.some((message) => message.path === "agents.ideator.enable"),
+      validationMessages.some((message) => message.path === "agents.idea-generator.enable"),
     ).toBe(false);
 
     const protectedConfig = {
       agents: {
         orchestrator: { enable: false },
         worker: { enable: false },
-        ideator: { enable: false },
+        "idea-generator": { enable: false },
       },
     };
     const protectedResult = applyAgentOverrides(fakeAgents, protectedConfig);
     expect(protectedResult.record["orchestrator"]).toBeDefined();
     expect(protectedResult.record["worker"]).toBeDefined();
-    expect(protectedResult.record["ideator"]).toBeUndefined();
-    expect(protectedResult.disabledNames).toEqual(["ideator"]);
+    expect(protectedResult.record["idea-generator"]).toBeUndefined();
+    expect(protectedResult.disabledNames).toEqual(["idea-generator"]);
 
     // orchestrator는 변경 없음
     expect(record["orchestrator"]?.model).toBe("ollama-cloud/kimi-k2.6");
-    // ideator 제외 8개
+    // idea-generator 제외 8개
     expect(Object.keys(record)).toHaveLength(8);
 
     // prompt_append
@@ -142,15 +142,15 @@ describe("preset 해소", () => {
       [
         'preset = "fast"',
         "",
-        "[presets.fast.explore]",
+        "[presets.fast.code-explorer]",
         'model = "ollama-cloud/deepseek-v4-pro"',
         "",
-        "[agents.explore]",
+        "[agents.code-explorer]",
         'model = "ollama-cloud/kimi-k2.6"',
       ].join("\n"),
     );
     const config = loadPluginConfig(tempDir, { silent: true });
-    expect(config.agents?.["explore"]?.model).toBe("ollama-cloud/kimi-k2.6");
+    expect(config.agents?.["code-explorer"]?.model).toBe("ollama-cloud/kimi-k2.6");
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -161,12 +161,12 @@ describe("preset 해소", () => {
       [
         'preset = "fast"',
         "",
-        "[presets.fast.explore]",
+        "[presets.fast.code-explorer]",
         'model = "ollama-cloud/deepseek-v4-pro"',
       ].join("\n"),
     );
     const config = loadPluginConfig(tempDir, { silent: true });
-    expect(config.agents?.["explore"]?.model).toBe(
+    expect(config.agents?.["code-explorer"]?.model).toBe(
       "ollama-cloud/deepseek-v4-pro",
     );
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -215,7 +215,7 @@ describe("reasoning_effort 허용값 검증", () => {
         'model = "ollama-cloud/deepseek-v4-flash"',
         'reasoning_effort = "high"',
         "",
-        "[agents.ideator]",
+        "[agents.idea-generator]",
         'model = "ollama-cloud/minimax-m3"',
         'reasoning_effort = "high"',
       ].join("\n"),
@@ -243,7 +243,7 @@ describe("reasoning_effort 허용값 검증", () => {
       | undefined;
     expect(flashHighOptions?.extraBody?.reasoning_effort).toBe("high");
 
-    const minimaxOptions = record["ideator"]?.options as
+    const minimaxOptions = record["idea-generator"]?.options as
       | { extraBody?: { reasoning_effort?: string } }
       | undefined;
     expect(minimaxOptions?.extraBody?.reasoning_effort).toBeUndefined();

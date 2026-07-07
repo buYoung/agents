@@ -41,8 +41,8 @@ describe("플러그인 로드", () => {
       "worker",
       "planner",
       "research",
-      "explore",
-      "ideator",
+      "code-explorer",
+      "idea-generator",
       "adversarial-review",
       "constructive-feedback",
     ];
@@ -53,7 +53,7 @@ describe("플러그인 로드", () => {
 
     expect(agentRecord["orchestrator"]?.mode).toBe("primary");
     expect(agentRecord["worker"]?.mode).toBe("all");
-    expect(agentRecord["explore"]?.mode).toBe("subagent");
+    expect(agentRecord["code-explorer"]?.mode).toBe("subagent");
     expect(agentRecord["planner"]?.mode).toBe("subagent");
     expect(agentRecord["intent-checker"]?.mode).toBe("subagent");
   });

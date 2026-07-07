@@ -17,7 +17,7 @@
 #   ./scripts/run-opencode run --model opencode/glm-5.2 --variant max "Inspect"
 #
 # Direct subagent harness:
-#   ./scripts/run-opencode --direct-subagent explore run "Inspect this repo"
+#   ./scripts/run-opencode --direct-subagent code-explorer run "Inspect this repo"
 #   ./scripts/run-opencode run --direct-subagent planner "Draft a plan"
 #
 #   This is a test-only harness for agent prompt improvement loops. opencode
@@ -34,8 +34,8 @@
 #     worker
 #     planner
 #     research
-#     explore
-#     ideator
+#     code-explorer
+#     idea-generator
 #     adversarial-review
 #     constructive-feedback
 #
@@ -58,6 +58,11 @@
 #
 #   That file injects this repository's plugin as a local plugin:
 #     <repo>/packages/opencode/src/index.ts
+#
+#   It also enables the local codemap-search MCP server for runs:
+#     "mcp": { "codemap-search": { "type": "local", "command": ["codemap-search", "mcp"], "enabled": true } }
+#   Set OPENCODE_CODEMAP_MCP=0 to write a disabled override for no-MCP baseline
+#   runs, including when user/global config also defines codemap-search.
 #
 #   When direct subagent mode is enabled, the generated config also includes:
 #     default_agent: <direct-agent>
@@ -124,10 +129,14 @@
 #   OPENCODE_RUN_JSON=0
 #     Disable the default `--format json` injection.
 #
-#   OPENCODE_DIRECT_SUBAGENT=explore
+#   OPENCODE_DIRECT_SUBAGENT=code-explorer
 #     Enable the direct subagent harness without passing --direct-subagent.
 #     Equivalent to:
-#       ./scripts/run-opencode --direct-subagent explore run ...
+#       ./scripts/run-opencode --direct-subagent code-explorer run ...
+#
+#   OPENCODE_CODEMAP_MCP=0
+#     Disable generated codemap-search MCP config through an explicit disabled
+#     override. Use this only for no-MCP baseline comparisons.
 #
 #   OPENCODE_AGENTS_PLUGIN=/path/to/plugin.ts
 #     Override the local agents plugin entrypoint. Defaults to:
@@ -206,7 +215,7 @@ arg_value() {
 
 is_known_agent() {
   case "$1" in
-    orchestrator | intent-checker | worker | planner | research | explore | ideator | adversarial-review | constructive-feedback)
+    orchestrator | intent-checker | worker | planner | research | code-explorer | idea-generator | adversarial-review | constructive-feedback)
       return 0
       ;;
     *)
@@ -241,7 +250,7 @@ done
 if [[ -n "${direct_subagent}" ]]; then
   if ! is_known_agent "${direct_subagent}"; then
     echo "unknown direct subagent: ${direct_subagent}" >&2
-    echo "valid agents: orchestrator intent-checker worker planner research explore ideator adversarial-review constructive-feedback" >&2
+    echo "valid agents: orchestrator intent-checker worker planner research code-explorer idea-generator adversarial-review constructive-feedback" >&2
     exit 2
   fi
 
@@ -301,13 +310,32 @@ if [[ ! -f "${agents_plugin}" ]]; then
   exit 1
 fi
 
+codemap_mcp_config=""
+if [[ "${OPENCODE_CODEMAP_MCP:-1}" != "0" ]]; then
+  codemap_mcp_config=',
+  "mcp": {
+    "codemap-search": {
+      "type": "local",
+      "command": ["codemap-search", "mcp"],
+      "enabled": true
+    }
+  }'
+else
+  codemap_mcp_config=',
+  "mcp": {
+    "codemap-search": {
+      "enabled": false
+    }
+  }'
+fi
+
 if [[ -n "${direct_subagent}" ]]; then
   cat > "${opencode_config_file}" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "plugin": [
     "${agents_plugin}"
-  ],
+  ]${codemap_mcp_config},
   "default_agent": "${direct_subagent}",
   "agent": {
     "${direct_subagent}": {
@@ -322,7 +350,7 @@ else
   "\$schema": "https://opencode.ai/config.json",
   "plugin": [
     "${agents_plugin}"
-  ]
+  ]${codemap_mcp_config}
 }
 EOF
 fi

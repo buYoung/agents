@@ -44,7 +44,7 @@
 #                                   reasoning_effort: none|high|max
 #   ollama-cloud/kimi-k2.7-code   — Moonshot Kimi K2.7 Code (research 기본값, vision)
 #                                   reasoning_effort: 미지원
-#   ollama-cloud/kimi-k2.6        — Moonshot Kimi K2.6 (explore 기본값, vision)
+#   ollama-cloud/kimi-k2.6        — Moonshot Kimi K2.6 (code-explorer 기본값, vision)
 #                                   reasoning_effort: 미지원
 #
 # catalog에 없는 model id는 validate/doctor에서 오류로 보고됩니다.
@@ -62,18 +62,18 @@
 # reasoning_effort = "high"
 
 # 예: minimax-m3에 reasoning_effort 설정 → 경고 후 무시됨
-# [agents.explore]
+# [agents.code-explorer]
 # model = "ollama-cloud/minimax-m3"
 # reasoning_effort = "high"  # minimax-m3는 미지원 — 무시됨
 
-# 예: explore 에이전트에 추가 지시 덧붙이기
-# [agents.explore]
+# 예: code-explorer 에이전트에 추가 지시 덧붙이기
+# [agents.code-explorer]
 # prompt_append = """
 # 탐색 시 항상 파일 확장자별로 결과를 그룹화하여 보고하라.
 # """
 
-# 예: ideator 비활성화 (창의적 설계 워크플로우 불필요 시)
-# [agents.ideator]
+# 예: idea-generator 비활성화 (창의적 설계 워크플로우 불필요 시)
+# [agents.idea-generator]
 # enable = false
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@
 # reasoning_effort = "medium"
 
 # 예: "minimal" 프리셋 — 핵심 에이전트만 활성화
-# [presets.minimal.ideator]
+# [presets.minimal.idea-generator]
 # enable = false
 #
 # [presets.minimal.adversarial-review]

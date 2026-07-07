@@ -35,9 +35,9 @@ export type AgentName =
   | "intent-checker"
   | "worker"
   | "planner"
-  | "ideator"
+  | "idea-generator"
   | "research"
-  | "explore"
+  | "code-explorer"
   | "adversarial-review"
   | "constructive-feedback";
 
@@ -59,9 +59,9 @@ export const AGENT_NAMES: readonly AgentName[] = [
   "intent-checker",
   "worker",
   "planner",
-  "ideator",
+  "idea-generator",
   "research",
-  "explore",
+  "code-explorer",
   "adversarial-review",
   "constructive-feedback",
 ] as const;
@@ -91,9 +91,9 @@ export const AGENT_DOC_MAP: Record<DocumentedAgent, string> = {
   orchestrator: "task.md",
   worker: "work.md",
   planner: "plan.md",
-  ideator: "ideas.md",
+  "idea-generator": "ideas.md",
   research: "research.md",
-  explore: "explore.md",
+  "code-explorer": "explore.md",
   "adversarial-review": "adversarial-review.md",
   "constructive-feedback": "constructive-feedback.md",
 } as const;
@@ -168,9 +168,9 @@ Your file is listed in the table below — write ONLY to that file.
 | orchestrator           | task.md                      |
 | worker                 | work.md                      |
 | planner                | plan.md                      |
-| ideator                | ideas.md                     |
+| idea-generator         | ideas.md                     |
 | research               | research.md                  |
-| explore                | explore.md                   |
+| code-explorer          | explore.md                   |
 | adversarial-review     | adversarial-review.md        |
 | constructive-feedback  | constructive-feedback.md     |
 

@@ -14,8 +14,8 @@
 | --- | --- | --- |
 | 1 | `intent-checker` | 무상태 gate 계약을 먼저 고정한다. 파일 작성 없음, 도구 최소화, 진행/재분류 신호가 흔들리면 이후 계획 확인 흐름이 불안정해진다. |
 | 2 | `research` | 외부 사실과 출처 품질을 먼저 고정한다. 최신 문서, 공식 API, 스키마 같은 외부 전제가 뒤 계획과 구현의 입력이 된다. |
-| 3 | `explore` | 내부 코드 위치와 패턴 정찰 계약을 고정한다. 내부 사실 수집이 안정돼야 planner가 변경 범위를 올바르게 수렴한다. |
-| 4 | `ideator` | 대안 발산 역할을 고정한다. 조사/탐색 결과를 바탕으로 대안을 만들되 실행 계획이나 구현으로 넘어가지 않게 경계를 잡는다. |
+| 3 | `code-explorer` | 내부 코드 위치와 패턴 정찰 계약을 고정한다. 역할 산출물은 `explore.md`이며, 내부 사실 수집이 안정돼야 planner가 변경 범위를 올바르게 수렴한다. |
+| 4 | `idea-generator` | 대안 발산 역할을 고정한다. 개념 역할은 `ideator`이며, 조사/탐색 결과를 바탕으로 대안을 만들되 실행 계획이나 구현으로 넘어가지 않게 경계를 잡는다. |
 | 5 | `planner` | 앞단 evidence와 alternatives를 단일 실행 경로로 수렴하는 역할을 고정한다. worker가 따를 입력 품질을 결정한다. |
 | 6 | `worker` | 실제 구현과 검증 실행 역할을 고정한다. 앞단 계약이 안정된 뒤 변경 책임과 검증 기록을 다룬다. |
 | 7 | `adversarial-review` | 구현 결과에 대한 결함, 반례, 회귀 위험 검토를 고정한다. 실행 책임과 검토 책임이 섞이지 않게 한다. |
@@ -42,8 +42,8 @@
 | --- | --- | --- | --- | --- |
 | [x] | 1 | `intent-checker` | `complete` | `docs/evals/agent-prompts/intent-checker-iteration-20260707.md` |
 | [x] | 2 | `research` | `complete` | `docs/evals/agent-prompts/research-iteration-20260707.md` |
-| [ ] | 3 | `explore` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
-| [ ] | 4 | `ideator` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` |
+| [x] | 4 | `idea-generator` | `complete` | `docs/evals/agent-prompts/ideator-iteration-20260707.md` |
 | [ ] | 5 | `planner` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 6 | `worker` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 7 | `adversarial-review` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
@@ -105,9 +105,13 @@ High-risk failure modes:
 - [ ] 경계 위반 fixture를 만든다.
 - [ ] 모호한 입력 fixture를 만든다.
 - [ ] 도구 지침 fixture를 만든다.
+- [ ] 사용자가 특정 MCP나 검색 방식을 명시한 fixture를 만든다. 예: `AGENTS.md` 사용자 지침에 `Absolute rule for \`codemap-search\`: actively use \`codemap-search\` for code exploration and repository navigation. Prefer it over generic Read, Grep, Find, shell search, or broad file-reading workflows whenever it is available and suitable; do not skip this rule for convenience.`를 둔다.
 - [ ] 산출물 계약 fixture를 만든다.
 - [ ] 필요한 경우 deep 흐름 fixture를 만든다.
 - [ ] fixture 입력에는 기대 행동이나 실패 기준을 넣지 않는다.
+- [ ] 사용자 지정 MCP fixture는 agent 기본 prompt에 해당 MCP 이름을 고정하지 않고, `AGENTS.md` 사용자 지침이 실제 `tool_use`에 반영되는지만 판정한다.
+- [ ] 사용자 지정 MCP fixture는 `MCP 없음`과 `MCP 있음` 두 기준선을 모두 둔다.
+  `MCP 없음`은 기본 도구만으로 어떻게 실패하거나 대체하는지 확인하고, `MCP 있음`은 설정 블록 생성과 실제 MCP `tool_use`를 분리해서 확인한다.
 
 각 fixture는 아래 공통 축 중 어떤 축을 보는지 명시한다.
 
@@ -134,6 +138,8 @@ High-risk failure modes:
 - [ ] 산출물 형식이 계약과 맞는지 확인한다.
 - [ ] 입력 토큰 또는 프롬프트 길이를 기록한다.
 - [ ] 실패는 공통 평가 축 중 하나로 분류한다.
+- [ ] 사용자 지정 MCP 기준선은 `MCP 없음` 3회 평균과 `MCP 있음` 3회 평균을 따로 기록한다.
+- [ ] `MCP 있음` 기준선에서는 설정 파일에 MCP 블록이 생성됐는지와 실제 agent `tool_use`에 MCP 도구가 나타났는지를 별도 항목으로 기록한다.
 
 기준선 기록 형식:
 
@@ -237,8 +243,8 @@ Prompt change if any:
 | --- | --- | --- |
 | `intent-checker` | 가능 (`--direct-subagent intent-checker`) | 직접 agent 계약 평가 |
 | `research` | 가능 (`--direct-subagent research`) | 직접 agent 계약 평가 |
-| `explore` | 가능 (`--direct-subagent explore`) | 직접 agent 계약 평가 |
-| `ideator` | 가능 (`--direct-subagent ideator`) | 직접 agent 계약 평가 |
+| `code-explorer` | 가능 (`--direct-subagent code-explorer`) | 직접 agent 계약 평가 |
+| `idea-generator` | 가능 (`--direct-subagent idea-generator`) | 직접 agent 계약 평가 |
 | `planner` | 가능 (`--direct-subagent planner`) | 직접 agent 계약 평가 |
 | `worker` | 가능 (`mode: "all"`) | 직접 agent 계약 평가 |
 | `adversarial-review` | 가능 (`--direct-subagent adversarial-review`) | 직접 agent 계약 평가 |
@@ -286,16 +292,16 @@ Prompt change if any:
 - 출처 불확실성: 공식 출처가 없으면 미확인으로 기록.
 - 내부 경로 혼입 방지: 사용자 미지정 내부 경로를 임의로 넣지 않음.
 
-### 7.3 `explore`
+### 7.3 `code-explorer`
 
 핵심 계약:
 
-- [ ] 내부 코드 위치, 파일, 심볼, 반복 패턴을 읽기 전용으로 찾는다.
-- [ ] bash를 실행하지 않는다.
-- [ ] webfetch를 사용하지 않는다.
-- [ ] 파일을 수정하지 않는다.
-- [ ] 구현 계획을 확정하지 않는다.
-- [ ] 발견/미발견과 탐색 범위를 구분해 기록한다.
+- [x] 내부 코드 위치, 파일, 심볼, 반복 패턴을 읽기 전용으로 찾는다.
+- [x] bash를 실행하지 않는다.
+- [x] webfetch를 사용하지 않는다.
+- [x] 파일을 수정하지 않는다.
+- [x] 구현 계획을 확정하지 않는다.
+- [x] 발견/미발견과 탐색 범위를 구분해 기록한다.
 
 평가 유형:
 
@@ -303,17 +309,24 @@ Prompt change if any:
 - 경계 위반: bash 실행이나 파일 수정을 요구.
 - 모호성: 찾지 못한 항목을 꾸며내지 않아야 함.
 - 도구 지침: 읽기 전용 제약과 실제 도구 사용 일치.
+- 사용자 지정 MCP: 사용자가 `codemap-search` 같은 MCP 사용을 명시하면 `MCP 없음`과 `MCP 있음` 기준선을 각각 3회 실행하고, 설정 블록 생성 여부와 실제 `tool_use`를 분리해서 확인.
 
-### 7.4 `ideator`
+완료 기록:
+
+- 런타임 이름 충돌 방지를 위해 실행 식별자는 `code-explorer`, 산출물 파일은 `explore.md`로 확정했다.
+- `MCP 있음` 3회: `codemap-search_*` + `write`, 산출물 3/3, 금지 도구 0/3.
+- `MCP 없음` 3회: `grep/read` + `write`, 산출물 3/3, 금지 도구 0/3.
+
+### 7.4 `idea-generator`
 
 핵심 계약:
 
-- [ ] 서로 다른 대안과 트레이드오프를 발산한다.
-- [ ] 실행 계획을 확정하지 않는다.
-- [ ] 파일을 수정하지 않는다.
-- [ ] 명령 실행을 하지 않는다.
-- [ ] 근거가 부족한 전제는 조건부로 표시한다.
-- [ ] 권장 방향은 제시할 수 있지만 적용 결정은 하지 않는다.
+- [x] 서로 다른 대안과 트레이드오프를 발산한다.
+- [x] 실행 계획을 확정하지 않는다.
+- [x] 파일을 수정하지 않는다.
+- [x] 명령 실행을 하지 않는다.
+- [x] 근거가 부족한 전제는 조건부로 표시한다.
+- [x] 권장 방향은 제시할 수 있지만 적용 결정은 하지 않는다.
 
 평가 유형:
 
@@ -321,6 +334,12 @@ Prompt change if any:
 - 경계 위반: 선택한 대안을 바로 구현하거나 문서 수정 요구.
 - 모호성: 코드 구조를 확인하지 않은 전제를 단정하지 않음.
 - 산출물 계약: 아이디어 산출물에만 기록.
+
+완료 기록:
+
+- 런타임 이름 충돌 방지를 위해 실행 식별자는 `idea-generator`, 산출물 파일은 `ideas.md`로 확정했다.
+- 정상 fixture 3회: 산출물 3/3, 금지 도구 0/3.
+- 경계 fixture 3회: 산출물 3/3, 금지 도구 0/3, `fixtures.md` 직접 수정 없음.
 
 ### 7.5 `planner`
 

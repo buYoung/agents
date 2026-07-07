@@ -4,9 +4,9 @@ profile: full
 feature-name: agent-ideator-role
 status: active
 created: 2026-07-06
-last-verified: 2026-07-06
+last-verified: 2026-07-07
 verified-against: bac12fa
-tags: [agents, ideator, alternatives, divergent]
+tags: [agents, ideator, idea-generator, alternatives, divergent]
 related:
   - docs/FDD/agent-planner-role.md
 purpose: Source of design decisions, not implementation actions
@@ -21,13 +21,13 @@ not:
 
 ## 1. Document Intent
 
-이 문서는 `ideator` agent의 고유 역할과 경계를 정의한다. `ideator`는 하나의 실행 경로로 바로 수렴하기 전에 여러 접근법을 발산하는 역할이다.
+이 문서는 `ideator` 개념 역할의 고유 역할과 경계를 정의한다. 현재 opencode 런타임 식별자는 `idea-generator`이며, 하나의 실행 경로로 바로 수렴하기 전에 여러 접근법을 발산하는 역할이다.
 
 ---
 
 ## 2. Background / Problem
 
-복잡한 설계 문제를 바로 계획으로 수렴하면 더 나은 접근법을 놓칠 수 있다. 반대로 대안 발산 역할이 구현까지 수행하면 책임이 섞인다. `ideator`는 대안을 만들고 선택 근거를 제공하는 역할로 분리된다.
+복잡한 설계 문제를 바로 계획으로 수렴하면 더 나은 접근법을 놓칠 수 있다. 반대로 대안 발산 역할이 구현까지 수행하면 책임이 섞인다. `idea-generator`는 대안을 만들고 선택 근거를 제공하는 역할로 분리된다.
 
 ---
 
@@ -71,7 +71,7 @@ Ideator Agent Role is the divergent design role that explores multiple distinct 
 
 ### User Model
 
-사용자는 `ideator`를 "다른 방법들을 생각해 보는 agent"로 이해한다.
+사용자는 `idea-generator`를 "다른 방법들을 생각해 보는 agent"로 이해한다.
 
 Users should not need to understand:
 
@@ -134,7 +134,7 @@ Users should not need to understand:
 
 ### 8.1 Behavior
 
-`ideator`는 `subagent` 실행 모드다. 소스 읽기는 허용되지만 명령 실행, 웹 조회, 소스 변경, 재위임은 허용되지 않는다. 산출물은 대안, 트레이드오프, 권장 방향을 중심으로 한다.
+`idea-generator`는 `subagent` 실행 모드다. 소스 읽기는 허용되지만 명령 실행, 웹 조회, 소스 변경, 재위임은 허용되지 않는다. 산출물은 대안, 트레이드오프, 권장 방향을 중심으로 한다.
 
 ### 8.2 Conceptual Data Model
 
@@ -167,7 +167,7 @@ Users should not need to understand:
 
 Decision:
 
-- `ideator`는 하나의 정답으로 바로 수렴하지 않고 복수 접근법을 제시한다.
+- `idea-generator`는 하나의 정답으로 바로 수렴하지 않고 복수 접근법을 제시한다.
 
 Rationale:
 
@@ -177,7 +177,7 @@ Rationale:
 
 Decision:
 
-- `ideator`는 명령 실행, 웹 조회, 소스 변경을 수행하지 않는다.
+- `idea-generator`는 명령 실행, 웹 조회, 소스 변경을 수행하지 않는다.
 
 Rationale:
 
@@ -248,4 +248,3 @@ Rationale:
 ### Open Questions
 
 - 대안 수와 깊이의 최소 기준은 작업 규모별로 더 구체화될 수 있다.
-
