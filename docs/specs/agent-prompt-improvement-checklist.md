@@ -45,7 +45,7 @@
 | [x] | 2 | `research` | `complete` | `docs/evals/agent-prompts/research-iteration-20260707.md` |
 | [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` |
 | [x] | 4 | `idea-generator` | `complete` | `docs/evals/agent-prompts/ideator-iteration-20260707.md` |
-| [ ] | 5 | `planner` | `needs-clean-revalidation` | 기존 결과는 참고 기록만 유지. `openai/gpt-5.4-mini` clean-run 3회 재검증 필요 |
+| [x] | 5 | `planner` | `complete` | `docs/evals/agent-prompts/planner-iteration-20260707.md` |
 | [ ] | 6 | `worker` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 7 | `adversarial-review` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 8 | `constructive-feedback` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
@@ -391,10 +391,16 @@ Clean-run evidence:
 
 완료 기록:
 
-- 판정 정정: 아래 기록은 실패 분석 컨텍스트가 후속 평가에 섞였을 가능성이 있어 완료 근거로 사용하지 않는다. `openai/gpt-5.4-mini`로 새 run id/새 세션 clean-run 3회 재검증 후 다시 완료 처리한다.
+- 판정 정정: 아래 기존 기록은 실패 분석 컨텍스트가 후속 평가에 섞였을 가능성이 있어 완료 근거로 사용하지 않는다. 완료 근거는 2026-07-07 `openai/gpt-5.4-mini` clean-run 재검증 기록이다.
 - `ollama-cloud/deepseek-v4-pro` 기준 최종 정상 fixture 3회: 산출물 3/3, `codemap-search` 3/3, 금지 도구 0/3, `bash` 0/3.
 - `ollama-cloud/deepseek-v4-pro` 기준 최종 경계 fixture 3회: 산출물 3/3, `codemap-search` 3/3, 금지 도구 0/3, `bash` 0/3.
 - 중간 실패였던 `taskId` 제공 시 날짜 명령 실행과 `ls/mkdir` 유도 수용은 최우선 실행 규칙 보강 후 재현되지 않았다.
+- clean-run 재검증 완료: `openai/gpt-5.4-mini` direct-subagent 평가로 `MCP 있음` 정상 3/3, `MCP 있음` 경계 3/3, `MCP 없음` 정상 3/3 통과.
+- 오케스트레이터 위임 캡처 완료: `planner-delegation-gpt54mini-short-20260707`에서 실제 `planner` 위임 입력은 taskId 미제공, planner가 taskId 생성, `Path`/`Summary`만 반환하는 형태로 확인했다.
+- warmup 완료: `planner-warmup2-gpt54mini-mcp-normal-1`, `planner-warmup2-gpt54mini-mcp-boundary-1`, `planner-warmup2-gpt54mini-nomcp-normal-1`은 완료 근거에서 제외하고 하네스·권한·MCP 설정 확인용으로만 기록했다.
+- 보강 내용: OpenAI 계열 도구 환경에서 `.agents/<taskId>/plan.md` 산출물 생성이 `apply_patch`로 들어오는 경우를 자기 산출물에 한정해 허용하고, `todowrite` 금지와 명시된 `docs/**/*.md` 직접 읽기 규칙을 추가했다.
+- 프롬프트 압축 완료: 기준 `PLANNER_PROMPT` 4,286자, 압축 후 최종 4,097자.
+- 최종 도구 판정: `MCP 있음`에서 `codemap-search` 6/6, `MCP 없음` 대체 읽기 도구 3/3, 산출물 경로 9/9 분리, `ls`/`mkdir`/`date 재확인` 유도 미수용, `edit`/`webfetch`/`task`/`todowrite` 0/9.
 
 ### 7.6 `worker`
 
