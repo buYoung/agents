@@ -68,6 +68,10 @@
 #     default_agent: <direct-agent>
 #     agent.<direct-agent>.mode: primary
 #
+#   When a run model is provided through --model/-m or OPENCODE_MODEL, the
+#   generated config pins every bundled agent to that same model for the test
+#   run. This keeps orchestrator-spawned subagents on the evaluated model.
+#
 #   The generated config file is exposed through OPENCODE_CONFIG so opencode
 #   loads the plugin without mutating user or project config files. Project
 #   opencode.json/opencode.jsonc files and normal config directories still load;
@@ -310,6 +314,62 @@ if [[ ! -f "${agents_plugin}" ]]; then
   exit 1
 fi
 
+run_model_override=""
+if [[ "${opencode_args[0]:-}" == "run" ]]; then
+  run_model_override="$(arg_value "--model" "${opencode_args[@]}" || true)"
+  if [[ -z "${run_model_override}" ]]; then
+    run_model_override="$(arg_value "-m" "${opencode_args[@]}" || true)"
+  fi
+  if [[ -z "${run_model_override}" && -n "${OPENCODE_MODEL:-}" ]]; then
+    run_model_override="${OPENCODE_MODEL}"
+  fi
+fi
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '%s' "${value}"
+}
+
+agent_config_block=""
+if [[ -n "${direct_subagent}" || -n "${run_model_override}" ]]; then
+  agent_config_block=$',
+  "agent": {
+'
+  first_agent_entry=1
+  for known_agent in orchestrator intent-checker worker planner research code-explorer idea-generator adversarial-review constructive-feedback; do
+    if [[ -z "${run_model_override}" && "${known_agent}" != "${direct_subagent}" ]]; then
+      continue
+    fi
+
+    if ((first_agent_entry == 0)); then
+      agent_config_block+=$',
+'
+    fi
+    first_agent_entry=0
+
+    escaped_agent="$(json_escape "${known_agent}")"
+    agent_config_block+="    \"${escaped_agent}\": {"
+
+    first_property=1
+    if [[ "${known_agent}" == "${direct_subagent}" ]]; then
+      agent_config_block+="\"mode\": \"primary\""
+      first_property=0
+    fi
+    if [[ -n "${run_model_override}" ]]; then
+      if ((first_property == 0)); then
+        agent_config_block+=", "
+      fi
+      escaped_model="$(json_escape "${run_model_override}")"
+      agent_config_block+="\"model\": \"${escaped_model}\""
+    fi
+    agent_config_block+="}"
+  done
+  agent_config_block+=$'
+  }'
+fi
+
 codemap_mcp_config=""
 if [[ "${OPENCODE_CODEMAP_MCP:-1}" != "0" ]]; then
   codemap_mcp_config=',
@@ -337,12 +397,7 @@ if [[ -n "${direct_subagent}" ]]; then
   "plugin": [
     "${agents_plugin}"
   ]${codemap_mcp_config},
-  "default_agent": "${direct_subagent}",
-  "agent": {
-    "${direct_subagent}": {
-      "mode": "primary"
-    }
-  }
+  "default_agent": "${direct_subagent}"${agent_config_block}
 }
 EOF
 else
@@ -351,7 +406,7 @@ else
   "\$schema": "https://opencode.ai/config.json",
   "plugin": [
     "${agents_plugin}"
-  ]${codemap_mcp_config}
+  ]${codemap_mcp_config}${agent_config_block}
 }
 EOF
 fi
