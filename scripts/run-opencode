@@ -16,6 +16,29 @@
 #   ./scripts/run-opencode run --model opencode/glm-5.2 "Inspect the code"
 #   ./scripts/run-opencode run --model opencode/glm-5.2 --variant max "Inspect"
 #
+# Direct subagent harness:
+#   ./scripts/run-opencode --direct-subagent explore run "Inspect this repo"
+#   ./scripts/run-opencode run --direct-subagent planner "Draft a plan"
+#
+#   This is a test-only harness for agent prompt improvement loops. opencode
+#   normally rejects `mode: "subagent"` agents when passed through `run --agent`
+#   because subagents are meant to be invoked by a primary agent through the
+#   task tool. When --direct-subagent or OPENCODE_DIRECT_SUBAGENT is set, this
+#   runner writes a per-run config override that temporarily changes only that
+#   agent to `mode: "primary"` and sets it as default_agent. The real plugin
+#   source stays unchanged; the override exists only inside .opencode-run/.
+#
+#   Valid direct agents:
+#     orchestrator
+#     intent-checker
+#     worker
+#     planner
+#     research
+#     explore
+#     ideator
+#     adversarial-review
+#     constructive-feedback
+#
 # Piped prompt usage:
 #   printf '%s\n' "Summarize this repository" | ./scripts/run-opencode run
 #
@@ -35,6 +58,10 @@
 #
 #   That file injects this repository's plugin as a local plugin:
 #     <repo>/packages/opencode/src/index.ts
+#
+#   When direct subagent mode is enabled, the generated config also includes:
+#     default_agent: <direct-agent>
+#     agent.<direct-agent>.mode: primary
 #
 #   The generated config file is exposed through OPENCODE_CONFIG so opencode
 #   loads the plugin without mutating user or project config files. Project
@@ -97,6 +124,11 @@
 #   OPENCODE_RUN_JSON=0
 #     Disable the default `--format json` injection.
 #
+#   OPENCODE_DIRECT_SUBAGENT=explore
+#     Enable the direct subagent harness without passing --direct-subagent.
+#     Equivalent to:
+#       ./scripts/run-opencode --direct-subagent explore run ...
+#
 #   OPENCODE_AGENTS_PLUGIN=/path/to/plugin.ts
 #     Override the local agents plugin entrypoint. Defaults to:
 #     <repo>/packages/opencode/src/index.ts
@@ -116,10 +148,19 @@
 #   OPENCODE_CLI_PATH=/Users/me/.opencode/bin/opencode \
 #   ./scripts/run-opencode run --model openai/gpt-5.2 "Run with pinned binary"
 #
+#   ./scripts/run-opencode --direct-subagent adversarial-review \
+#   run --model ollama-cloud/glm-5.2 "Review this proposed prompt"
+#
 # Notes:
 #   - Explicit CLI arguments always win over environment defaults.
 #   - OPENCODE_CONFIG is owned by this runner so packages/opencode is always
 #     loaded as a plugin for the child opencode process.
+#   - --direct-subagent is a runner-only flag. It is stripped before invoking
+#     opencode.
+#   - Direct subagent mode refuses pre-existing OPENCODE_CONFIG_CONTENT because
+#     opencode merges that after OPENCODE_CONFIG and it can override the harness
+#     config. Use project config files or OPENCODE_CONFIG_DIR for additive test
+#     settings in this mode.
 #   - Non-`run` commands still load the plugin, but are passed through without
 #     model, variant, or format injection.
 #   - .opencode-run/ is ignored by git.
@@ -140,6 +181,91 @@ has_arg() {
   done
   return 1
 }
+
+arg_value() {
+  local wanted="$1"
+  shift
+  local arg
+  while (($# > 0)); do
+    arg="$1"
+    if [[ "${arg}" == "${wanted}="* ]]; then
+      printf '%s\n' "${arg#*=}"
+      return 0
+    fi
+    if [[ "${arg}" == "${wanted}" ]]; then
+      if (($# < 2)); then
+        return 1
+      fi
+      printf '%s\n' "$2"
+      return 0
+    fi
+    shift
+  done
+  return 1
+}
+
+is_known_agent() {
+  case "$1" in
+    orchestrator | intent-checker | worker | planner | research | explore | ideator | adversarial-review | constructive-feedback)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+direct_subagent="${OPENCODE_DIRECT_SUBAGENT:-}"
+opencode_args=()
+while (($# > 0)); do
+  case "$1" in
+    --direct-subagent)
+      if (($# < 2)); then
+        echo "--direct-subagent requires an agent name." >&2
+        exit 2
+      fi
+      direct_subagent="$2"
+      shift 2
+      ;;
+    --direct-subagent=*)
+      direct_subagent="${1#*=}"
+      shift
+      ;;
+    *)
+      opencode_args+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -n "${direct_subagent}" ]]; then
+  if ! is_known_agent "${direct_subagent}"; then
+    echo "unknown direct subagent: ${direct_subagent}" >&2
+    echo "valid agents: orchestrator intent-checker worker planner research explore ideator adversarial-review constructive-feedback" >&2
+    exit 2
+  fi
+
+  if [[ "${opencode_args[0]:-}" != "run" ]]; then
+    echo "--direct-subagent is only supported with 'opencode run'." >&2
+    exit 2
+  fi
+
+  if [[ -n "${OPENCODE_CONFIG_CONTENT:-}" ]]; then
+    echo "--direct-subagent cannot be combined with OPENCODE_CONFIG_CONTENT." >&2
+    echo "OPENCODE_CONFIG_CONTENT is merged after the runner config and can override the direct subagent harness." >&2
+    exit 2
+  fi
+
+  explicit_agent="$(arg_value "--agent" "${opencode_args[@]}" || true)"
+  if [[ -n "${explicit_agent}" && "${explicit_agent}" != "${direct_subagent}" ]]; then
+    echo "--agent (${explicit_agent}) must match --direct-subagent (${direct_subagent})." >&2
+    exit 2
+  fi
+
+  if [[ -z "${explicit_agent}" ]]; then
+    opencode_args+=("--agent" "${direct_subagent}")
+  fi
+fi
 
 if [[ -n "${OPENCODE_CLI_PATH:-}" ]]; then
   if [[ ! -x "${OPENCODE_CLI_PATH}" ]]; then
@@ -175,7 +301,23 @@ if [[ ! -f "${agents_plugin}" ]]; then
   exit 1
 fi
 
-cat > "${opencode_config_file}" <<EOF
+if [[ -n "${direct_subagent}" ]]; then
+  cat > "${opencode_config_file}" <<EOF
+{
+  "\$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "${agents_plugin}"
+  ],
+  "default_agent": "${direct_subagent}",
+  "agent": {
+    "${direct_subagent}": {
+      "mode": "primary"
+    }
+  }
+}
+EOF
+else
+  cat > "${opencode_config_file}" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
   "plugin": [
@@ -183,15 +325,12 @@ cat > "${opencode_config_file}" <<EOF
   ]
 }
 EOF
+fi
 
 export OPENCODE_DB="${OPENCODE_DB:-${opencode_run_dir}/data/opencode.db}"
 export OPENCODE_CONFIG="${opencode_config_file}"
 
-opencode_args=()
-if (($# > 0)); then
-  opencode_args=("$@")
-fi
-if [[ "${1:-}" == "run" ]]; then
+if [[ "${opencode_args[0]:-}" == "run" ]]; then
   if [[ -n "${OPENCODE_MODEL:-}" ]] && ! has_arg "--model" "${opencode_args[@]}" && ! has_arg "-m" "${opencode_args[@]}"; then
     opencode_args+=("--model" "${OPENCODE_MODEL}")
   fi
