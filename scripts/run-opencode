@@ -321,6 +321,7 @@ if [[ "${OPENCODE_CODEMAP_MCP:-1}" != "0" ]]; then
     }
   }'
 else
+  export OPENCODE_DISABLED_MCP_COMMANDS="${OPENCODE_DISABLED_MCP_COMMANDS:-codemap-search}"
   codemap_mcp_config=',
   "mcp": {
     "codemap-search": {

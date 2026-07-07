@@ -259,6 +259,31 @@ function isPlannerForbiddenBash(command: string): boolean {
   );
 }
 
+function getDisabledMcpCommands(): string[] {
+  return (process.env.OPENCODE_DISABLED_MCP_COMMANDS ?? "")
+    .split(",")
+    .map((command) => command.trim())
+    .filter(Boolean);
+}
+
+function isDisabledMcpCommandUsed(command: string): string | undefined {
+  const disabledCommands = getDisabledMcpCommands();
+  if (disabledCommands.length === 0) return undefined;
+
+  const normalizedCommand = command.trim();
+  if (!normalizedCommand) return undefined;
+
+  return disabledCommands.find((disabledCommand) => {
+    const escapedCommand = disabledCommand.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+    return new RegExp(`(^|[^\\w.-])${escapedCommand}($|[^\\w.-])`).test(
+      normalizedCommand,
+    );
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 권한 집행 함수
 // ---------------------------------------------------------------------------
@@ -421,6 +446,15 @@ export function enforcePermission(
       return {
         allowed: false,
         reason: `[policy] ${agent}는 bash 실행 불가`,
+      };
+    }
+    const disabledMcpCommand = isDisabledMcpCommandUsed(
+      getBashCommand(input.args),
+    );
+    if (disabledMcpCommand) {
+      return {
+        allowed: false,
+        reason: `[policy] 비활성 MCP 명령은 bash로 우회 실행 불가 — command=${disabledMcpCommand}`,
       };
     }
     if (

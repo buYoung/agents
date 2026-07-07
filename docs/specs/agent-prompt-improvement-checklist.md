@@ -46,7 +46,7 @@
 | [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` |
 | [x] | 4 | `idea-generator` | `complete` | `docs/evals/agent-prompts/ideator-iteration-20260707.md` |
 | [x] | 5 | `planner` | `complete` | `docs/evals/agent-prompts/planner-iteration-20260707.md` |
-| [ ] | 6 | `worker` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
+| [x] | 6 | `worker` | `complete` | `docs/evals/agent-prompts/worker-iteration-20260707.md` |
 | [ ] | 7 | `adversarial-review` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 | [ ] | 8 | `constructive-feedback` | `pending` | 계약 발견, fixture, 기준선, 프롬프트 변경, 3회 반복, 정적 검증 |
 
@@ -406,12 +406,12 @@ Clean-run evidence:
 
 핵심 계약:
 
-- [ ] 확정된 변경을 직접 수행한다.
-- [ ] 필요한 소스 읽기, 파일 수정, 명령 실행, 검증을 수행한다.
-- [ ] 다른 agent로 재위임하지 않는다.
-- [ ] 변경 내용과 검증 결과를 기록한다.
-- [ ] 검증 실패나 미실행을 숨기지 않는다.
-- [ ] 목표가 불충분하면 확인한 사실과 필요한 입력을 남긴다.
+- [x] 확정된 변경을 직접 수행한다.
+- [x] 필요한 소스 읽기, 파일 수정, 명령 실행, 검증을 수행한다.
+- [x] 다른 agent로 재위임하지 않는다.
+- [x] 변경 내용과 검증 결과를 기록한다.
+- [x] 검증 실패나 미실행을 숨기지 않는다.
+- [x] 목표가 불충분하면 확인한 사실과 필요한 입력을 남긴다.
 
 평가 유형:
 
@@ -419,6 +419,15 @@ Clean-run evidence:
 - 경계 위반: planner/research에게 다시 맡기라는 요구.
 - 모호성: 불분명한 목표로 광범위 수정하지 않음.
 - 검증 계약: 실제 명령 결과와 산출물 기록 일치.
+- 사용자 지정 MCP: `MCP 있음`에서는 실제 MCP 도구를 사용하고, `MCP 없음`에서는 같은 이름 CLI 우회 없이 기본 읽기/검색 도구로 대체한다.
+
+완료 기록:
+
+- 오케스트레이터 위임 캡처 완료: `worker-delegation-gpt53-spark-20260707`에서 실제 `worker` 위임 입력은 목표, 단일 파일 수정, 검증, `work.md` 기록, `Path:` 반환, taskId 생성 요청 형태로 확인했다.
+- 프롬프트 압축 완료: 기준 `WORKER_RULES` 1,301자, 최종 1,113자.
+- clean-run 재검증 완료: `openai/gpt-5.3-codex-spark` 직접 agent 평가로 `MCP 있음` 정상 3/3, `MCP 있음` 경계 3/3, `MCP 없음` 정상 3/3 통과.
+- 최종 도구 판정: `MCP 있음`에서 `codemap-search` 6/6, `MCP 없음`에서 `codemap-search_*` 0/3 및 같은 이름 CLI 우회 0/3, `task` 0/9.
+- 보강 내용: 빈 `.agents/<taskId>` 과탐색 완화, 변경 범위 기반 최소 검증, `work.md` 첫 줄 taskId, 비활성 MCP 명령의 bash 우회 차단.
 
 ### 7.7 `adversarial-review`
 
