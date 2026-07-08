@@ -446,3 +446,37 @@ taskId: 20260707-explore-codemap
 4. `codemap-search` 같은 사용자 지정 MCP를 평가하려면, 설정 블록 생성과 실제 agent tool set 노출을 별도로 진단한다.
 
 이번 반복에서는 1회 성공을 근거로 완료 처리하지 않았고, 실패한 3회 평균과 실제 `tool_use` 기준으로 `blocked` 판정했다.
+
+## 2026-07-08 Revalidation Status
+
+이 문서의 기존 실행 기록은 2026-07-08 이후 프롬프트 변경의 완료 근거로 사용하지 않는다.
+
+현재 정정:
+
+- `code-explorer` 프롬프트에서 임의 숫자 기반 도구 제한은 제거했다.
+- 남은 변경은 경로 위생, 최소 정찰, 전문 판정 금지 같은 일반 역할 경계다.
+- 이전 실패 로그와 도구 출력이 많이 읽힌 상태에서 이어진 재평가는 clean-run 근거로 인정하지 않는다.
+- 다음 유효 판정은 새 run id와 새 세션에서 직접 agent 계약 평가 3회로 수행해야 한다.
+
+### Clean-run Revalidation Result
+
+Model: `openai/gpt-5.3-codex-spark`
+
+Evaluation mode: `scripts/run-opencode --direct-subagent code-explorer run`
+
+Clean-run set: `code-explorer-clean-revalidation3-1..3`
+
+| Run | Artifact | Tool evidence | Tool errors | Return contract | Total tokens |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `.agents/20260708-code-explorer-clean3-1/explore.md` | `codemap-search_*`, `apply_patch` | 0 | `Path` + `Summary` | 42,615 |
+| 2 | `.agents/20260708-code-explorer-clean3-2/explore.md` | `codemap-search_*`, `apply_patch` | 0 | `Path` + `Summary` | 58,929 |
+| 3 | `.agents/20260708-code-explorer-clean3-3/explore.md` | `codemap-search_*`, `glob`, `apply_patch` | 0 | `Path` + `Summary` | 37,980 |
+
+Pass rate: 3/3.
+
+Average total tokens: about 46,508.
+
+Prompt changes during revalidation:
+
+- Added a convergence rule: once direct locations and evidence are found, stop expanding surrounding reference lists and write the artifact.
+- Added a write-finalization rule: converge artifact content before writing, and avoid post-write expansion or micro-edit loops unless fixing a format/path error.

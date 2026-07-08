@@ -43,10 +43,10 @@
 | --- | --- | --- | --- | --- |
 | [x] | 1 | `intent-checker` | `complete` | `docs/evals/agent-prompts/intent-checker-iteration-20260707.md` |
 | [x] | 2 | `research` | `complete` | `docs/evals/agent-prompts/research-iteration-20260707.md` |
-| [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` |
+| [x] | 3 | `code-explorer` | `complete` | `docs/evals/agent-prompts/explore-iteration-20260707.md` + `code-explorer-clean-revalidation3-1..3` |
 | [x] | 4 | `idea-generator` | `complete` | `docs/evals/agent-prompts/ideator-iteration-20260707.md` |
 | [x] | 5 | `planner` | `complete` | `docs/evals/agent-prompts/planner-iteration-20260707.md` |
-| [x] | 6 | `worker` | `complete` | `docs/evals/agent-prompts/worker-iteration-20260707.md` |
+| [x] | 6 | `worker` | `complete` | `docs/evals/agent-prompts/worker-iteration-20260707.md` + `worker-clean-revalidation8-1..3` |
 | [x] | 7 | `adversarial-review` | `complete` | `docs/evals/agent-prompts/adversarial-review-iteration-20260708.md` |
 | [x] | 8 | `constructive-feedback` | `complete` | `docs/evals/agent-prompts/constructive-feedback-iteration-20260708.md` |
 
@@ -57,6 +57,14 @@ Agent별 세부 체크리스트는 완료 시 아래 원칙으로 갱신한다.
 - `blocked`는 3회 반복 평가가 불가능하거나, direct-subagent 하네스 같은 선결 조건이 없을 때만 사용한다.
 - `needs-clean-revalidation`은 과거 평가 입력에 실패 로그나 도구 출력이 섞였을 가능성이 있을 때 사용한다.
 - `complete`는 `Completion Criteria Per Agent`의 모든 항목이 충족된 경우에만 사용한다.
+
+2026-07-08 정정:
+
+- `code-explorer`와 `worker`는 완료 기록 이후 프롬프트가 다시 변경되었으므로 `needs-clean-revalidation`으로 되돌린다.
+- 이전 실패 로그와 도구 출력이 많이 읽힌 상태에서 이어진 재평가는 완료 근거로 쓰지 않는다.
+- 재검증은 새 `OPENCODE_RUN_ID`, 새 opencode 세션, 이전 실패 전문 없는 입력으로 직접 agent 계약 평가 3회부터 다시 시작한다.
+- 오케스트레이터 통합 평가는 subagent 재검증 이후 핵심 경로 smoke test로만 수행한다.
+- 재검증 결과: `code-explorer-clean-revalidation3-1..3`와 `worker-clean-revalidation8-1..3`는 새 run id, 새 taskId, 별도 JSONL 출력에서 3/3 통과했다.
 
 ## 4. Why This Checklist Exists
 
@@ -335,6 +343,8 @@ Clean-run evidence:
 - 런타임 이름 충돌 방지를 위해 실행 식별자는 `code-explorer`, 산출물 파일은 `explore.md`로 확정했다.
 - `MCP 있음` 3회: `codemap-search_*` + `write`, 산출물 3/3, 금지 도구 0/3.
 - `MCP 없음` 3회: `grep/read` + `write`, 산출물 3/3, 금지 도구 0/3.
+- 2026-07-08 정정: 완료 이후 경로 위생, 최소 정찰, 전문 판정 금지 관련 프롬프트가 변경되었다. 임의 숫자 기반 도구 제한은 제거했으며, 이 변경은 clean-run 3회 재검증 전까지 완료 근거로 쓰지 않는다.
+- 2026-07-08 재검증 완료: `code-explorer-clean-revalidation3-1..3` 직접 agent 평가에서 산출물 3/3, `codemap-search_*` 3/3, 도구 오류 0/3, `Path`/`Summary` 반환 3/3, 평균 total token 약 46,508.
 
 ### 7.4 `idea-generator`
 
@@ -428,6 +438,8 @@ Clean-run evidence:
 - clean-run 재검증 완료: `openai/gpt-5.3-codex-spark` 직접 agent 평가로 `MCP 있음` 정상 3/3, `MCP 있음` 경계 3/3, `MCP 없음` 정상 3/3 통과.
 - 최종 도구 판정: `MCP 있음`에서 `codemap-search` 6/6, `MCP 없음`에서 `codemap-search_*` 0/3 및 같은 이름 CLI 우회 0/3, `task` 0/9.
 - 보강 내용: 빈 `.agents/<taskId>` 과탐색 완화, 변경 범위 기반 최소 검증, `work.md` 첫 줄 taskId, 비활성 MCP 명령의 bash 우회 차단.
+- 2026-07-08 정정: 완료 이후 선행 산출물 신뢰, 동일 범위 재탐색 금지, 근거 연결 관련 프롬프트가 변경되었다. 임의 숫자 기반 조회 제한은 제거했으며, 이 변경은 clean-run 3회 재검증 전까지 완료 근거로 쓰지 않는다.
+- 2026-07-08 재검증 완료: `worker-clean-revalidation8-1..3` 직접 agent 평가에서 대상 파일 변경 3/3, `work.md` 산출물 3/3, 첫 줄 taskId 3/3, 도구 오류 0/3, `Path`/`Summary` 반환 3/3, 평균 total token 약 14,265.
 
 ### 7.7 `adversarial-review`
 

@@ -77,6 +77,67 @@ describe("권한 매트릭스", () => {
     }
   });
 
+  test("orchestrator: .agents 루트 열람 거부", () => {
+    const readTargets = [".agents", ".agents/", ".agents/*", ".agents/**"];
+
+    for (const targetPath of readTargets) {
+      const result = enforcePermission(
+        {
+          tool: "read",
+          sessionID: "session-orch",
+          args: { path: targetPath },
+        },
+        testMap,
+        { workspaceRoot: "/Users/buyong/workspace/private/buyong-agents" },
+      );
+      expect(result.allowed, targetPath).toBe(false);
+    }
+  });
+
+  test("orchestrator: 자기 task.md만 read 허용", () => {
+    const taskIndex = enforcePermission(
+      {
+        tool: "read",
+        sessionID: "session-orch",
+        args: { path: ".agents/20260702-test/task.md" },
+      },
+      testMap,
+    );
+    const subagentArtifact = enforcePermission(
+      {
+        tool: "read",
+        sessionID: "session-orch",
+        args: { path: ".agents/20260702-test/explore.md" },
+      },
+      testMap,
+    );
+
+    expect(taskIndex.allowed).toBe(true);
+    expect(subagentArtifact.allowed).toBe(false);
+  });
+
+  test("orchestrator: bash .agents 루트 나열 거부", () => {
+    const commands = [
+      "ls .agents",
+      "ls -la .agents/",
+      "find .agents -maxdepth 1 -type f",
+      "date +%Y%m%d && ls .agents",
+    ];
+
+    for (const command of commands) {
+      const result = enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "session-orch",
+          args: { command },
+        },
+        testMap,
+        { workspaceRoot: "/Users/buyong/workspace/private/buyong-agents" },
+      );
+      expect(result.allowed, command).toBe(false);
+    }
+  });
+
   test("orchestrator: 쓰기 가능 bash 거부", () => {
     const commands = [
       "mkdir -p .agents/20260702-test",

@@ -243,16 +243,18 @@ export const TASKID_RULE = `
     20260702-agents-plugin
 
 ### Who generates it
-Only a **bash-capable agent** (typically \`planner\` or \`worker\`) may generate
-the taskId by running a date command:
+Only a **bash-capable agent** may generate the taskId by running a date command:
   \`date +%Y%m%d\`-<descriptive-slug>
 
-The generating agent writes the taskId as the first line of its handoff file
-(\`.agents/<taskId>/plan.md\` or \`.agents/<taskId>/work.md\`).
+Typically this is \`planner\` or \`worker\`. The orchestrator does not run bash
+only to create a taskId. If it must first call an artifact-writing subagent that
+cannot run bash, it uses the run date already embedded in its prompt and threads
+that taskId before dependent handoff files are written.
 
 ### Who threads it
-The **orchestrator** receives the taskId from the first bash-capable agent and
-threads it through every subsequent subagent call as an explicit parameter.
+The **orchestrator** threads the taskId through every subsequent subagent call
+as an explicit parameter, whether it received the value from a subagent or
+created it for a non-bash first delegation.
 
 ### What agents must NOT do
 - Do NOT re-derive or regenerate the taskId if you already received it.

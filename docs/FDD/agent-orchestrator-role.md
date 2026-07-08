@@ -60,10 +60,12 @@ Orchestrator Agent Role is the primary coordination role that classifies user re
 - 허용된 subagent에게만 작업을 위임한다.
 - subagent 산출물을 기준으로 작업 진행의 대표 인덱스를 유지한다.
 - 소스 변경 권한 없이 전체 흐름을 조정한다.
+- 필요한 경우 산출물 존재, 줄 수, git 상태 같은 제한된 사실만 읽기 전용 bash로 확인한다.
 
 ### Non-Goals
 
 - 소스 파일을 직접 읽고 수정하지 않는다.
+- 빌드, 테스트, 설치, 네트워크 명령, 구현 검증 명령을 직접 실행하지 않는다.
 - worker의 구현 책임을 대신하지 않는다.
 - review agent의 평가 책임을 대신하지 않는다.
 
@@ -136,7 +138,7 @@ Users should not need to understand:
 
 ### 8.1 Behavior
 
-`orchestrator`는 `primary` 실행 모드의 agent다. 사용자가 별도 기본 agent를 지정하지 않으면 이 역할이 기본 진입점이 된다. 이 역할은 소스 변경, 명령 실행, 웹 조회를 직접 수행하지 않고, 허용된 subagent 위임을 통해 작업을 진행한다.
+`orchestrator`는 `primary` 실행 모드의 agent다. 사용자가 별도 기본 agent를 지정하지 않으면 이 역할이 기본 진입점이 된다. 이 역할은 소스 변경, 웹 조회, 구현 검증을 직접 수행하지 않고, 허용된 subagent 위임을 통해 작업을 진행한다. bash는 산출물 존재, 줄 수, git 상태 같은 읽기 전용 사실 확인에만 제한된다.
 
 ### 8.2 Conceptual Data Model
 
@@ -151,6 +153,7 @@ Users should not need to understand:
 | Mode | `primary` |
 | Source Read Policy | 문서 영역 중심의 제한 읽기 |
 | Source Edit Policy | 허용하지 않음 |
+| Bash Policy | 읽기 전용 사실 확인만 허용 |
 | Task Policy | 허용된 subagent로만 위임 |
 
 ### 8.3 Failure Handling
@@ -173,15 +176,17 @@ Rationale:
 
 - 요청 분류 없이 구현 agent로 바로 들어가면 역할 경계가 흐려진다.
 
-### 9.2 직접 변경 금지 정책
+### 9.2 직접 실행 제한 정책
 
 Decision:
 
-- `orchestrator`는 소스 변경과 명령 실행을 직접 수행하지 않는다.
+- `orchestrator`는 소스 변경, 웹 조회, 구현 검증을 직접 수행하지 않는다.
+- bash는 산출물 존재, 줄 수, git 상태 같은 읽기 전용 사실 확인으로만 제한한다.
 
 Rationale:
 
 - 조정자 역할과 실행자 역할을 분리해야 변경 책임을 추적할 수 있다.
+- 산출물 존재 확인은 조정자 책임을 닫는 데 필요하지만, 구현·검증 명령까지 허용하면 worker 역할과 충돌한다.
 
 ### 9.3 보호 agent 정책
 
@@ -213,7 +218,8 @@ Rationale:
 
 ### 11.3 Permissions
 
-- source edit, bash, webfetch는 허용하지 않는다.
+- source edit, webfetch는 허용하지 않는다.
+- bash는 읽기 전용 사실 확인만 허용한다.
 - task 위임은 허용된 subagent에 한정한다.
 
 ### 11.4 Observability
@@ -258,4 +264,3 @@ Rationale:
 ### Open Questions
 
 - 사용자가 기본 agent를 직접 바꾼 경우 이 역할의 발견성을 어떻게 유지할지는 별도 결정이 필요하다.
-

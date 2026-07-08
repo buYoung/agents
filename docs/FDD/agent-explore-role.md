@@ -6,7 +6,7 @@ status: active
 created: 2026-07-06
 last-verified: 2026-07-06
 verified-against: bac12fa
-tags: [agents, explore, codebase-discovery, read-only]
+tags: [agents, explore, code-explorer, codebase-discovery, read-only]
 related:
   - docs/FDD/agent-planner-role.md
   - docs/FDD/agent-research-role.md
@@ -22,13 +22,13 @@ not:
 
 ## 1. Document Intent
 
-이 문서는 `explore` agent의 고유 역할과 경계를 정의한다. `explore`는 코드베이스 내부의 관련 위치와 패턴을 빠르게 찾는 읽기 전용 정찰 역할이다.
+이 문서는 런타임 agent 이름 `code-explorer`의 고유 역할과 경계를 정의한다. 개념명과 산출물명은 기존 `explore`를 유지하며, 이 역할은 코드베이스 내부의 관련 위치와 패턴을 빠르게 찾는 읽기 전용 정찰 역할이다.
 
 ---
 
 ## 2. Background / Problem
 
-넓은 코드베이스에서 바로 계획이나 구현을 시작하면 관련 파일과 패턴을 놓칠 수 있다. 하지만 탐색 단계가 명령 실행이나 외부 조사까지 확장되면 역할이 커진다. `explore`는 내부 위치 발견에 집중하는 좁은 역할이 필요해서 존재한다.
+넓은 코드베이스에서 바로 계획이나 구현을 시작하면 관련 파일과 패턴을 놓칠 수 있다. 하지만 탐색 단계가 명령 실행이나 외부 조사까지 확장되면 역할이 커진다. `code-explorer`는 내부 위치 발견에 집중하는 좁은 역할이 필요해서 존재한다.
 
 ---
 
@@ -72,7 +72,7 @@ Explore Agent Role is the read-only codebase reconnaissance role that discovers 
 
 ### User Model
 
-사용자는 `explore`를 "코드베이스 어디를 봐야 하는지 찾아주는 agent"로 이해한다.
+사용자는 `code-explorer`를 "코드베이스 어디를 봐야 하는지 찾아주는 agent"로 이해한다.
 
 Users should not need to understand:
 
@@ -107,7 +107,7 @@ Users should not need to understand:
 
 ```text
 작업 범위가 넓거나 불명확하다.
-  -> explore가 내부 코드베이스를 검색한다.
+  -> code-explorer가 내부 코드베이스를 검색한다.
   -> 관련 위치와 패턴을 정리한다.
   -> planner 또는 worker가 이 결과를 읽고 다음 판단을 한다.
 ```
@@ -116,7 +116,7 @@ Users should not need to understand:
 
 ```text
 특정 이름이나 패턴의 존재 여부가 궁금하다.
-  -> explore가 읽기 전용 탐색으로 발견 여부를 확인한다.
+  -> code-explorer가 읽기 전용 탐색으로 발견 여부를 확인한다.
   -> 발견 위치 또는 미발견 사실을 산출물에 남긴다.
 ```
 
@@ -124,7 +124,7 @@ Users should not need to understand:
 
 ```text
 검색 범위 안에서 관련 항목을 찾지 못한다.
-  -> explore는 미발견 사실과 검색 범위를 남긴다.
+  -> code-explorer는 미발견 사실과 검색 범위를 남긴다.
   -> 후속 agent는 범위 확장 여부를 판단한다.
 ```
 
@@ -134,7 +134,7 @@ Users should not need to understand:
 
 ### 8.1 Behavior
 
-`explore`는 `subagent` 실행 모드다. 소스 읽기는 허용되지만 명령 실행, 웹 조회, 소스 변경, 재위임은 허용되지 않는다. 산출물은 내부 코드 위치와 패턴을 중심으로 한다.
+`code-explorer`는 `subagent` 실행 모드다. 소스 읽기는 허용되지만 명령 실행, 웹 조회, 소스 변경, 재위임은 허용되지 않는다. 산출물은 내부 코드 위치와 패턴을 중심으로 한다.
 
 ### 8.2 Conceptual Data Model
 
@@ -167,7 +167,7 @@ Users should not need to understand:
 
 Decision:
 
-- `explore`는 내부 코드 읽기와 검색에만 집중한다.
+- `code-explorer`는 내부 코드 읽기와 검색에만 집중한다.
 
 Rationale:
 
@@ -177,7 +177,7 @@ Rationale:
 
 Decision:
 
-- `explore`는 웹 조회를 하지 않는다.
+- `code-explorer`는 웹 조회를 하지 않는다.
 
 Rationale:
 
@@ -247,4 +247,3 @@ Rationale:
 ### Open Questions
 
 - 탐색 결과의 충분성 기준은 작업 유형별로 더 구체화될 수 있다.
-

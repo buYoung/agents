@@ -265,3 +265,13 @@ Final verdict:
 - Read-only bash permission policy: pass.
 - Orchestrator full delegation with read-only bash verification: pass.
 - Artifact existence coverage: pass.
+
+## 2026-07-08 재검증 상태
+
+위 최종 clean-run은 당시 프롬프트와 권한 상태에 대한 과거 근거다.
+
+현재 정정:
+
+- 이후 프롬프트 변경은 `orchestrator`, `code-explorer`, `worker`에 영향을 줬다.
+- 기존 full-delegation 통과 기록은 이후 변경의 완료 근거로 사용하지 않는다.
+- 다음 유효 순서는 변경된 subagent 직접 clean-run 재검증을 먼저 수행하고, 직접 검증이 통과한 경우에만 제한된 orchestrator smoke test를 1회 수행하는 것이다.

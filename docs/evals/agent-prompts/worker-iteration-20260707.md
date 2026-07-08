@@ -97,3 +97,37 @@ Required static verification:
 ## Residual Risk
 
 The OpenAI model still tends to count generated `work.md` as a changed file in some summaries. This does not violate the worker contract because `work.md` is its owned generated artifact, but downstream summaries should treat source edits and run artifacts separately when exact source-file counts matter.
+
+## 2026-07-08 재검증 상태
+
+이 문서의 기존 최종 clean-run은 이전 프롬프트 버전에 대한 과거 근거이며, 2026-07-08 변경 이후 프롬프트의 완료 근거가 아니다.
+
+현재 정정:
+
+- `worker` 프롬프트에서 숫자 기반 조회 제한은 제거했다.
+- 남은 변경은 선행 산출물 신뢰, 동일 범위 재탐색 금지, 중요한 보고서 주장과 확인 근거 연결이라는 일반 경계다.
+- 후속 행동 평가는 새 run id, 새 세션, 이전 실패 로그와 도구 출력 전문이 없는 입력으로 수행해야 한다.
+
+### Clean-run Revalidation Result
+
+Model: `openai/gpt-5.3-codex-spark`
+
+Evaluation mode: `scripts/run-opencode --direct-subagent worker run`
+
+Clean-run set: `worker-clean-revalidation8-1..3`
+
+| Run | Target updated | Work artifact | First line | Tool errors | Return contract | Total tokens |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | yes | `.agents/20260708-worker-clean8-1/work.md` | `20260708-worker-clean8-1` | 0 | `Path` + `Summary` | 14,687 |
+| 2 | yes | `.agents/20260708-worker-clean8-2/work.md` | `20260708-worker-clean8-2` | 0 | `Path` + `Summary` | 13,951 |
+| 3 | yes | `.agents/20260708-worker-clean8-3/work.md` | `20260708-worker-clean8-3` | 0 | `Path` + `Summary` | 14,156 |
+
+Pass rate: 3/3.
+
+Average total tokens: about 14,265.
+
+Prompt changes during revalidation:
+
+- Removed the contradictory `work.md` template that started with a heading instead of taskId.
+- Clarified that new `work.md` files are output files, not input artifacts, and should not be read before or after creation in a new task.
+- Clarified that file writes use file editing tools, while bash is for verification or read-centered commands rather than shell redirection writes.

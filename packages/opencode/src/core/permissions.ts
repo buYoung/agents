@@ -643,6 +643,46 @@ function isPathWithinAllowedRoots(
   return allowedRoots.some((root) => isWithinRoot(resolvedPath, root));
 }
 
+function getWorkspaceRelativePath(
+  targetPath: string,
+  workspaceRoot: string | undefined,
+): string {
+  const normalizedTargetPath = targetPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!path.isAbsolute(targetPath) || !workspaceRoot) {
+    return normalizedTargetPath;
+  }
+
+  return path
+    .relative(path.resolve(workspaceRoot), path.resolve(targetPath))
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+}
+
+function isAgentsRootEnumerationPath(
+  targetPath: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const relativePath = getWorkspaceRelativePath(targetPath, workspaceRoot);
+  return (
+    relativePath === ".agents" ||
+    relativePath === ".agents/*" ||
+    relativePath === ".agents/**"
+  );
+}
+
+function isOrchestratorTaskIndexPath(
+  targetPath: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const relativePath = getWorkspaceRelativePath(targetPath, workspaceRoot);
+  const pathSegments = relativePath.split("/").filter(Boolean);
+  return (
+    pathSegments.length === 3 &&
+    pathSegments[0] === ".agents" &&
+    pathSegments[2] === "task.md"
+  );
+}
+
 function isPathLikeToken(token: string): boolean {
   if (!token || token.startsWith("-") || isShellAssignment(token)) return false;
   if (token.startsWith("/") || token.startsWith(".") || token.startsWith("~")) {
@@ -731,6 +771,19 @@ function isWorkspaceBoundedBash(
   return tokenizeResult.tokens.every((token) => {
     if (!isPathLikeToken(token)) return true;
     return isPathWithinAllowedRoots(token, effectiveWorkdir, tempRoots);
+  });
+}
+
+function targetsAgentsRootEnumeration(
+  command: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const tokenizeResult = tokenizeBashCommand(command);
+  if (tokenizeResult.error) return false;
+
+  return tokenizeResult.tokens.some((token) => {
+    if (!isPathLikeToken(token)) return false;
+    return isAgentsRootEnumerationPath(token, workspaceRoot);
   });
 }
 
@@ -893,6 +946,27 @@ export function enforcePermission(
           reason: `[baseline] .agents/** 산출물은 workspace 내부만 허용 — path=${outsideWorkspaceArtifactPath}`,
         };
       }
+      const rootEnumerationPath = targetPaths.find((pathValue) =>
+        isAgentsRootEnumerationPath(pathValue, options?.workspaceRoot),
+      );
+      if (agent === "orchestrator" && isReadTool && rootEnumerationPath) {
+        return {
+          allowed: false,
+          reason: `[policy] orchestrator는 .agents 루트/전체 산출물 목록 열람 금지 — tool=${toolName}, path=${rootEnumerationPath}`,
+        };
+      }
+      const subagentArtifactPath = targetPaths.find(
+        (pathValue) =>
+          agent === "orchestrator" &&
+          isReadTool &&
+          !isOrchestratorTaskIndexPath(pathValue, options?.workspaceRoot),
+      );
+      if (subagentArtifactPath) {
+        return {
+          allowed: false,
+          reason: `[policy] orchestrator는 서브에이전트 산출물 본문 열람 금지 — tool=${toolName}, path=${subagentArtifactPath}`,
+        };
+      }
       return {
         allowed: true,
         reason: `[baseline] .agents/** 경로는 모든 에이전트에 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
@@ -953,6 +1027,15 @@ export function enforcePermission(
       return {
         allowed: false,
         reason: `[policy] 비활성 MCP 명령은 bash로 우회 실행 불가 — command=${disabledMcpCommand}`,
+      };
+    }
+    if (
+      agent === "orchestrator" &&
+      targetsAgentsRootEnumeration(bashCommand, options?.workspaceRoot)
+    ) {
+      return {
+        allowed: false,
+        reason: "[policy] orchestrator는 bash로 .agents 루트/전체 산출물 목록 열람 금지",
       };
     }
     if (policy.tools.bash === "read-only") {

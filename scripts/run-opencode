@@ -129,6 +129,14 @@
 #
 #   OPENCODE_MODEL_VARIANT=max
 #     Default model variant for `opencode run`.
+#     When unset and the run model is openai/gpt-5.3-codex-spark, the runner
+#     defaults to `low` so repeated eval runs do not inherit the provider's
+#     heavier default reasoning budget. Explicit --variant or this variable
+#     always wins.
+#
+#   OPENCODE_RUN_TITLE=<title>
+#     Default title passed to `opencode run` when --title is not already present.
+#     Set to 0 to disable title injection.
 #
 #   OPENCODE_RUN_JSON=0
 #     Disable the default `--format json` injection.
@@ -315,6 +323,7 @@ if [[ ! -f "${agents_plugin}" ]]; then
 fi
 
 run_model_override=""
+run_variant_override=""
 if [[ "${opencode_args[0]:-}" == "run" ]]; then
   run_model_override="$(arg_value "--model" "${opencode_args[@]}" || true)"
   if [[ -z "${run_model_override}" ]]; then
@@ -322,6 +331,14 @@ if [[ "${opencode_args[0]:-}" == "run" ]]; then
   fi
   if [[ -z "${run_model_override}" && -n "${OPENCODE_MODEL:-}" ]]; then
     run_model_override="${OPENCODE_MODEL}"
+  fi
+
+  run_variant_override="$(arg_value "--variant" "${opencode_args[@]}" || true)"
+  if [[ -z "${run_variant_override}" && -n "${OPENCODE_MODEL_VARIANT:-}" ]]; then
+    run_variant_override="${OPENCODE_MODEL_VARIANT}"
+  fi
+  if [[ -z "${run_variant_override}" && "${run_model_override}" == "openai/gpt-5.3-codex-spark" ]]; then
+    run_variant_override="low"
   fi
 fi
 
@@ -419,8 +436,12 @@ if [[ "${opencode_args[0]:-}" == "run" ]]; then
     opencode_args+=("--model" "${OPENCODE_MODEL}")
   fi
 
-  if [[ -n "${OPENCODE_MODEL_VARIANT:-}" ]] && ! has_arg "--variant" "${opencode_args[@]}"; then
-    opencode_args+=("--variant" "${OPENCODE_MODEL_VARIANT}")
+  if [[ -n "${run_variant_override}" ]] && ! has_arg "--variant" "${opencode_args[@]}"; then
+    opencode_args+=("--variant" "${run_variant_override}")
+  fi
+
+  if [[ "${OPENCODE_RUN_TITLE:-${opencode_run_id}}" != "0" ]] && ! has_arg "--title" "${opencode_args[@]}"; then
+    opencode_args+=("--title" "${OPENCODE_RUN_TITLE:-${opencode_run_id}}")
   fi
 
   if [[ "${OPENCODE_RUN_JSON:-1}" == "1" ]] && ! has_arg "--format" "${opencode_args[@]}"; then
