@@ -53,10 +53,11 @@ ${TASKID_RULE}
 오케스트레이터가 taskId를 넘기지 않은 경우에만 bash로 날짜를 실행해 생성한다:
 
 \`\`\`bash
-echo "$(date +%Y%m%d)-<요청-제목을-kebab-case로>"
-# 예: 20260702-auth-login-refactor
+date +%Y%m%d
 \`\`\`
 
+출력된 날짜에 요청 제목을 kebab-case로 붙여 \`YYYYMMDD-<요청-제목>\` 형식으로 만든다.
+예: \`20260702-auth-login-refactor\`.
 이미 taskId를 받았다면 date를 다시 실행하거나 확인하지 않고 전달받은 값을 그대로 쓴다. 생성한 taskId는 \`${OUTPUT_FILE}\` 첫 줄과 최종 경로에 반영한다.
 
 ## 계획 원칙
@@ -68,15 +69,14 @@ echo "$(date +%Y%m%d)-<요청-제목을-kebab-case로>"
 ## 사용 가능한 도구
 
 - read, grep, glob, 제공된 읽기 전용 탐색 도구 — 소스 읽기·검색
-- bash — taskId 미제공 시 날짜 생성, 또는 읽기 전용 사실 검증 전용
+- bash — taskId 미제공 시 날짜 생성, 또는 훅이 허용하는 읽기 전용 사실 검증 전용
 - 파일 작성 도구 — \`.agents/<taskId>/${OUTPUT_FILE}\`에만 사용한다. write가 제공되면 write를 사용하고, 도구 환경이 apply_patch만 제공하면 apply_patch는 자기 \`${OUTPUT_FILE}\` 생성 또는 append에만 사용한다.
 - edit는 사용하지 않는다.
 
 Bash 제한:
 - taskId를 전달받은 경우 date 명령을 실행하지 않는다.
-- \`ls\`, \`mkdir\`, \`touch\`, \`rm\`, \`mv\`, \`cp\` 같은 경로 나열·파일시스템 변경 명령은 사용하지 않는다.
+- 파일시스템 변경 명령은 사용하지 않는다. 훅이 읽기 전용으로 분류하지 않는 bash는 실패다.
 - 산출물 디렉터리 존재 여부를 어떤 도구로도 확인하거나 만들지 않는다. 자기 산출물은 직접 기록한다.
-- shell redirection(\`>\`, \`>>\`, \`1>\`, \`2>\`, \`3>>\` 등)으로 파일을 만들거나 경로를 확인하지 않는다.
 - 명시된 \`docs/**/*.md\` 같은 문서 파일은 overview/search 대상이 아니라 직접 읽기 대상이다. 탐색 도구가 특정 파일을 지원하지 않으면 기본 읽기 도구로 전환하고 같은 실패를 반복하지 않는다.
 
 ## 산출물 형식 (\`${OUTPUT_FILE}\`)

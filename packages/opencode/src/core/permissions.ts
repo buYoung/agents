@@ -13,6 +13,9 @@
 // 타입 정의
 // ---------------------------------------------------------------------------
 
+import os from "node:os";
+import path from "node:path";
+
 // AgentName SSOT: doc-protocol.ts에서 import한다 (중복 선언 금지).
 // 기존 소비자가 permissions.ts에서 AgentName을 import해도 계속 동작하도록 re-export한다.
 export type { AgentName } from "./doc-protocol";
@@ -33,13 +36,10 @@ export type BinaryPolicy = "allow" | "deny";
 /** bash 실행 정책 */
 export type BashPolicy = BinaryPolicy | "read-only";
 
-/**
- * 에이전트 한 행(row)의 권한 정책.
- * 베이스라인(.agents/** 읽기+쓰기) 위에 적용되는 델타.
- */
-export interface PermissionPolicy {
-  /** 에이전트 이름 */
-  agent: AgentName;
+/** 경로 접근 경계 정책 */
+export type PathBoundaryPolicy = "any" | "workspace-or-temp";
+
+export interface ToolPermissionPolicy {
   /** source 파일 읽기 — allow | deny | docs-only(docs/** 만 허용) */
   sourceRead: SourceReadPolicy;
   /** bash 실행 — allow | deny | read-only */
@@ -53,6 +53,28 @@ export interface PermissionPolicy {
    * to-subagents: orchestrator 전용, 7개 서브에이전트에게만 위임 허용
    */
   task: TaskPolicy;
+}
+
+export interface PathPermissionPolicy {
+  /** 읽기 도구 대상 경계 */
+  sourceRead: PathBoundaryPolicy;
+  /** 편집/쓰기 도구 대상 경계 */
+  sourceEdit: PathBoundaryPolicy;
+  /** bash workdir/명령 인자 경계 */
+  bash: PathBoundaryPolicy;
+}
+
+/**
+ * 에이전트 한 행(row)의 권한 정책.
+ * 베이스라인(.agents/** 읽기+쓰기) 위에 적용되는 델타.
+ */
+export interface PermissionPolicy {
+  /** 에이전트 이름 */
+  agent: AgentName;
+  /** 도구별 권한 */
+  tools: ToolPermissionPolicy;
+  /** 경로 기반 도구/명령 경계 */
+  paths: PathPermissionPolicy;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,75 +103,106 @@ export const SUBAGENT_NAMES: readonly AgentName[] = AGENT_NAMES_IMPL.filter(
 export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
   {
     agent: "orchestrator",
-    sourceRead: "docs-only", // docs/** 와 briefs/** 에 한정
-    bash: "read-only",
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "to-subagents", // 8개 서브에이전트에게만 위임 가능
+    tools: {
+      sourceRead: "docs-only", // docs/** 와 briefs/** 에 한정
+      bash: "read-only",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "to-subagents", // 8개 서브에이전트에게만 위임 가능
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "intent-checker",
-    sourceRead: "deny", // 게이트 에이전트 — 읽기 불필요 (오케스트레이터가 텍스트로 넘겨줌)
-    bash: "deny",
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny", // 재위임 금지
+    tools: {
+      sourceRead: "deny", // 게이트 에이전트 — 읽기 불필요 (오케스트레이터가 텍스트로 넘겨줌)
+      bash: "deny",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny", // 재위임 금지
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "worker",
-    sourceRead: "allow",
-    bash: "allow",
-    sourceEdit: "allow",
-    webfetch: "allow",
-    task: "deny", // 재위임 금지
+    tools: {
+      sourceRead: "allow",
+      bash: "allow",
+      sourceEdit: "allow",
+      webfetch: "allow",
+      task: "deny", // 재위임 금지
+    },
+    paths: {
+      sourceRead: "workspace-or-temp",
+      sourceEdit: "workspace-or-temp",
+      bash: "workspace-or-temp",
+    },
   },
   {
     agent: "planner",
-    sourceRead: "allow",
-    bash: "allow", // 검증(verify) 목적
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "read-only",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "research",
-    sourceRead: "allow",
-    bash: "allow",
-    sourceEdit: "deny",
-    webfetch: "allow",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "allow",
+      sourceEdit: "deny",
+      webfetch: "allow",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "code-explorer",
-    sourceRead: "allow",
-    bash: "deny",
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "deny",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "idea-generator",
-    sourceRead: "allow",
-    bash: "deny",
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "deny",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "adversarial-review",
-    sourceRead: "allow",
-    bash: "allow", // 검증(verify) 목적
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "read-only",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
   {
     agent: "constructive-feedback",
-    sourceRead: "allow",
-    bash: "allow", // 검증(verify) 목적
-    sourceEdit: "deny",
-    webfetch: "deny",
-    task: "deny",
+    tools: {
+      sourceRead: "allow",
+      bash: "read-only",
+      sourceEdit: "deny",
+      webfetch: "deny",
+      task: "deny",
+    },
+    paths: { sourceRead: "any", sourceEdit: "any", bash: "any" },
   },
 ] as const;
 
@@ -248,20 +301,6 @@ function getBashCommand(args: Record<string, unknown>): string {
   return typeof command === "string" ? command : "";
 }
 
-function isPlannerForbiddenBash(command: string): boolean {
-  const normalizedCommand = command.trim();
-  if (!normalizedCommand) return false;
-
-  const forbiddenCommandPattern =
-    /(?:^|[\s;&|()])(?:ls|mkdir|touch|rm|mv|cp)(?:\s|$|[;&|()])/;
-
-  return (
-    forbiddenCommandPattern.test(normalizedCommand) ||
-    /(^|[^0-9])>{1,2}/.test(normalizedCommand) ||
-    /\b[0-9]>{1,2}/.test(normalizedCommand)
-  );
-}
-
 function getDisabledMcpCommands(): string[] {
   return (process.env.OPENCODE_DISABLED_MCP_COMMANDS ?? "")
     .split(",")
@@ -358,6 +397,26 @@ const UNSAFE_READ_ONLY_ARGS: Record<string, readonly string[]> = {
   sed: ["-i", "--in-place"],
 };
 
+const INLINE_SCRIPT_COMMANDS = new Set([
+  "bash",
+  "node",
+  "perl",
+  "php",
+  "python",
+  "python3",
+  "ruby",
+  "sh",
+  "zsh",
+]);
+
+const INLINE_SCRIPT_FLAGS = new Set([
+  "-c",
+  "-e",
+  "--eval",
+  "--execute",
+  "--command",
+]);
+
 interface BashTokenizeResult {
   tokens: string[];
   error?: string;
@@ -387,6 +446,15 @@ function tokenizeBashCommand(command: string): BashTokenizeResult {
     }
 
     if (quote) {
+      if (
+        quote === "\"" &&
+        (character === "`" || (character === "$" && nextCharacter === "("))
+      ) {
+        return {
+          tokens: [],
+          error: "command substitution is not read-only safe",
+        };
+      }
       if (character === quote) {
         quote = undefined;
       } else {
@@ -533,6 +601,139 @@ function isReadOnlyBash(command: string): boolean {
   return segments.every(isReadOnlyBashSegment);
 }
 
+function getDefaultTempRoots(): string[] {
+  return [os.tmpdir(), process.env.TMPDIR, process.env.TMP, process.env.TEMP]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => path.resolve(value));
+}
+
+function normalizeRoot(root: string): string {
+  return path.resolve(root);
+}
+
+function isWithinRoot(candidatePath: string, root: string): boolean {
+  const normalizedCandidate = path.resolve(candidatePath);
+  const normalizedRoot = normalizeRoot(root);
+  const relativePath = path.relative(normalizedRoot, normalizedCandidate);
+  return (
+    relativePath === "" ||
+    (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))
+  );
+}
+
+function resolveTargetPath(targetPath: string, workspaceRoot?: string): string {
+  if (targetPath.startsWith("~")) {
+    return path.resolve(os.homedir(), targetPath.slice(1));
+  }
+  if (path.isAbsolute(targetPath)) {
+    return path.resolve(targetPath);
+  }
+  return path.resolve(workspaceRoot ?? process.cwd(), targetPath);
+}
+
+function isPathWithinAllowedRoots(
+  targetPath: string,
+  workspaceRoot: string | undefined,
+  tempRoots: readonly string[],
+): boolean {
+  if (!workspaceRoot) return true;
+
+  const resolvedPath = resolveTargetPath(targetPath, workspaceRoot);
+  const allowedRoots = [workspaceRoot, ...tempRoots].map(normalizeRoot);
+  return allowedRoots.some((root) => isWithinRoot(resolvedPath, root));
+}
+
+function isPathLikeToken(token: string): boolean {
+  if (!token || token.startsWith("-") || isShellAssignment(token)) return false;
+  if (token.startsWith("/") || token.startsWith(".") || token.startsWith("~")) {
+    return true;
+  }
+  return token.includes("/");
+}
+
+function splitBashSegments(tokens: string[]): string[][] {
+  const segments: string[][] = [[]];
+  for (const token of tokens) {
+    if (SHELL_SEPARATORS.has(token)) {
+      if (segments[segments.length - 1].length > 0) {
+        segments.push([]);
+      }
+      continue;
+    }
+    segments[segments.length - 1].push(token);
+  }
+  return segments.filter((segment) => segment.length > 0);
+}
+
+function getSegmentCommandIndex(tokens: string[]): number {
+  let commandIndex = tokens.findIndex((token) => !isShellAssignment(token));
+  if (commandIndex < 0) return -1;
+
+  const commandName = tokens[commandIndex];
+  if (commandName === "command" || commandName === "builtin") {
+    commandIndex += 1;
+  }
+
+  if (tokens[commandIndex] === "env") {
+    commandIndex += 1;
+    while (
+      commandIndex < tokens.length &&
+      (tokens[commandIndex].startsWith("-") ||
+        isShellAssignment(tokens[commandIndex]))
+    ) {
+      commandIndex += 1;
+    }
+  }
+
+  return commandIndex < tokens.length ? commandIndex : -1;
+}
+
+function hasInlineScriptExecution(tokens: string[]): boolean {
+  return splitBashSegments(tokens).some((segment) => {
+    const commandIndex = getSegmentCommandIndex(segment);
+    if (commandIndex < 0) return false;
+
+    const commandName = segment[commandIndex];
+    if (!INLINE_SCRIPT_COMMANDS.has(commandName)) return false;
+
+    return segment
+      .slice(commandIndex + 1)
+      .some(
+        (arg) =>
+          INLINE_SCRIPT_FLAGS.has(arg) ||
+          [...INLINE_SCRIPT_FLAGS].some((flag) => arg.startsWith(`${flag}=`)),
+      );
+  });
+}
+
+function isWorkspaceBoundedBash(
+  args: Record<string, unknown>,
+  workspaceRoot: string | undefined,
+  tempRoots: readonly string[],
+): boolean {
+  if (!workspaceRoot) return true;
+
+  const command = getBashCommand(args);
+  const tokenizeResult = tokenizeBashCommand(command);
+  if (tokenizeResult.error) return false;
+
+  const workdir = args["workdir"];
+  const effectiveWorkdir =
+    typeof workdir === "string" && workdir.length > 0 ? workdir : workspaceRoot;
+  if (!isPathWithinAllowedRoots(effectiveWorkdir, workspaceRoot, tempRoots)) {
+    return false;
+  }
+
+  if (hasInlineScriptExecution(tokenizeResult.tokens)) {
+    return false;
+  }
+
+  return tokenizeResult.tokens.every((token) => {
+    if (!isPathLikeToken(token)) return true;
+    return isPathWithinAllowedRoots(token, effectiveWorkdir, tempRoots);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 권한 집행 함수
 // ---------------------------------------------------------------------------
@@ -546,6 +747,10 @@ export interface EnforcementResult {
 export interface EnforcePermissionOptions {
   /** orchestrator task 위임에 사용할 현재 활성 서브에이전트 목록. */
   subagentNames?: readonly AgentName[];
+  /** 작업공간 루트. worker의 workspace/temp 경계 검증에 사용한다. */
+  workspaceRoot?: string;
+  /** 작업공간 밖에서 허용할 임시 디렉터리 루트. 미지정 시 OS/env 기본값을 쓴다. */
+  tempRoots?: readonly string[];
 }
 
 /**
@@ -574,6 +779,7 @@ export function enforcePermission(
   const toolName = input.tool.toLowerCase();
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
   const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
+  const tempRoots = options?.tempRoots ?? getDefaultTempRoots();
 
   // -------------------------------------------------------------------------
   // 도구 분류
@@ -614,31 +820,6 @@ export function enforcePermission(
   }
 
   // -------------------------------------------------------------------------
-  // 대상 경로 추출 (edit/write/read 계열 도구)
-  // -------------------------------------------------------------------------
-  const targetPath = extractTargetPath(input.args, toolName);
-
-  // -------------------------------------------------------------------------
-  // 베이스라인: .agents/** 는 모든 에이전트에게 항상 허용
-  // -------------------------------------------------------------------------
-  if (targetPath) {
-    const category = classifyPath(targetPath);
-    if (category === "agents" && agent === "planner" && toolName === "edit") {
-      return {
-        allowed: false,
-        reason:
-          "[policy] planner는 plan.md 산출물에 write만 허용 — edit 금지",
-      };
-    }
-    if (category === "agents") {
-      return {
-        allowed: true,
-        reason: `[baseline] .agents/** 경로는 모든 에이전트에 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
-      };
-    }
-  }
-
-  // -------------------------------------------------------------------------
   // 정책 테이블 조회
   // -------------------------------------------------------------------------
   const policy = POLICY_MAP.get(agent);
@@ -651,17 +832,86 @@ export function enforcePermission(
   }
 
   // -------------------------------------------------------------------------
+  // 대상 경로 추출 및 경계 집행 (edit/write/read 계열 도구)
+  // -------------------------------------------------------------------------
+  const targetPaths = extractTargetPaths(input.args, toolName);
+  const targetPath = targetPaths[0];
+
+  if (targetPaths.length > 0) {
+    const boundaryPolicy = isEditTool
+      ? policy.paths.sourceEdit
+      : isReadTool
+        ? policy.paths.sourceRead
+        : "any";
+    if (boundaryPolicy === "workspace-or-temp") {
+      const outsidePath = targetPaths.find(
+        (pathValue) =>
+          !isPathWithinAllowedRoots(
+            pathValue,
+            options?.workspaceRoot,
+            tempRoots,
+          ),
+      );
+      if (outsidePath) {
+        return {
+          allowed: false,
+          reason: `[policy] ${agent}: workspace/temp 밖 경로 접근 거부 — tool=${toolName}, path=${outsidePath}`,
+        };
+      }
+    }
+  } else if (isEditTool && policy.paths.sourceEdit === "workspace-or-temp") {
+    return {
+      allowed: false,
+      reason: `[policy] ${agent}: 대상 경로 없는 편집/쓰기 도구 거부 — tool=${toolName}`,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // 베이스라인: .agents/** 는 모든 에이전트에게 항상 허용
+  // -------------------------------------------------------------------------
+  if (targetPaths.length > 0) {
+    const categories = targetPaths.map(classifyPath);
+    if (
+      categories.every((category) => category === "agents") &&
+      agent === "planner" &&
+      toolName === "edit"
+    ) {
+      return {
+        allowed: false,
+        reason:
+          "[policy] planner는 plan.md 산출물에 write만 허용 — edit 금지",
+      };
+    }
+    if (categories.every((category) => category === "agents")) {
+      const outsideWorkspaceArtifactPath = targetPaths.find(
+        (pathValue) =>
+          !isPathWithinAllowedRoots(pathValue, options?.workspaceRoot, []),
+      );
+      if (outsideWorkspaceArtifactPath) {
+        return {
+          allowed: false,
+          reason: `[baseline] .agents/** 산출물은 workspace 내부만 허용 — path=${outsideWorkspaceArtifactPath}`,
+        };
+      }
+      return {
+        allowed: true,
+        reason: `[baseline] .agents/** 경로는 모든 에이전트에 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
+      };
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // task 도구 집행
   // -------------------------------------------------------------------------
   if (isTaskTool) {
-    if (policy.task === "deny") {
+    if (policy.tools.task === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 task 위임 불가 (재위임 금지)`,
       };
     }
 
-    if (policy.task === "to-subagents") {
+    if (policy.tools.task === "to-subagents") {
       // orchestrator만 해당: 7개 서브에이전트에게만 위임 허용
       const subagentType = input.args["subagent_type"];
       if (typeof subagentType !== "string" || subagentType.trim() === "") {
@@ -692,7 +942,7 @@ export function enforcePermission(
   // -------------------------------------------------------------------------
   if (isBashTool) {
     const bashCommand = getBashCommand(input.args);
-    if (policy.bash === "deny") {
+    if (policy.tools.bash === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 bash 실행 불가`,
@@ -705,7 +955,7 @@ export function enforcePermission(
         reason: `[policy] 비활성 MCP 명령은 bash로 우회 실행 불가 — command=${disabledMcpCommand}`,
       };
     }
-    if (policy.bash === "read-only") {
+    if (policy.tools.bash === "read-only") {
       if (isReadOnlyBash(bashCommand)) {
         return {
           allowed: true,
@@ -717,15 +967,13 @@ export function enforcePermission(
         reason: `[policy] ${agent}: 읽기 전용으로 분류되지 않은 bash 거부`,
       };
     }
-    if (
-      agent === "planner" &&
-      isPlannerForbiddenBash(bashCommand)
-    ) {
-      return {
-        allowed: false,
-        reason:
-          "[policy] planner는 bash를 읽기 검증/날짜 생성에만 사용할 수 있음 — ls/mkdir/touch/rm/mv/cp/redirection 금지",
-      };
+    if (policy.paths.bash === "workspace-or-temp") {
+      if (!isWorkspaceBoundedBash(input.args, options?.workspaceRoot, tempRoots)) {
+        return {
+          allowed: false,
+          reason: `[policy] ${agent}: workspace/temp 밖 bash 접근 또는 안전하지 않은 인라인 실행 거부`,
+        };
+      }
     }
     return { allowed: true, reason: `[policy] ${agent}: bash 허용` };
   }
@@ -734,7 +982,7 @@ export function enforcePermission(
   // webfetch 도구 집행
   // -------------------------------------------------------------------------
   if (isWebfetchTool) {
-    if (policy.webfetch === "deny") {
+    if (policy.tools.webfetch === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 webfetch 불가`,
@@ -747,7 +995,7 @@ export function enforcePermission(
   // 편집/쓰기 도구 집행
   // -------------------------------------------------------------------------
   if (isEditTool) {
-    if (policy.sourceEdit === "deny") {
+    if (policy.tools.sourceEdit === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 source 편집/쓰기 불가 — tool=${toolName}${targetPath ? `, path=${targetPath}` : ""}`,
@@ -763,14 +1011,14 @@ export function enforcePermission(
   // 읽기 도구 집행
   // -------------------------------------------------------------------------
   if (isReadTool) {
-    if (policy.sourceRead === "deny") {
+    if (policy.tools.sourceRead === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 source 읽기 불가`,
       };
     }
 
-    if (policy.sourceRead === "docs-only") {
+    if (policy.tools.sourceRead === "docs-only") {
       // targetPath가 없으면(glob/grep에 범위 미지정 → repo 전체 탐색) 거부
       if (!targetPath) {
         return {
@@ -813,23 +1061,23 @@ export function enforcePermission(
  * glob/grep: 탐색 범위 경로(path 키)를 반환한다. 미지정이면 undefined.
  * apply_patch: diff 본문(`input` 또는 `patchText`)에서 단일 대상 경로를 파싱한다.
  */
-function extractTargetPath(
+function extractTargetPaths(
   args: Record<string, unknown>,
   toolName: string,
-): string | undefined {
+): string[] {
   if (toolName === "bash") {
     // bash는 경로가 아니라 명령어이므로 별도 분류
-    return undefined;
+    return [];
   }
 
   if (toolName === "webfetch") {
     // webfetch는 URL이므로 경로 분류 불필요
-    return undefined;
+    return [];
   }
 
   if (toolName === "task") {
     // task는 subagent_type으로 처리 (enforcePermission에서 직접 처리)
-    return undefined;
+    return [];
   }
 
   // -----------------------------------------------------------------------
@@ -838,8 +1086,8 @@ function extractTargetPath(
   if (toolName === "glob") {
     const scopePath = args["path"] ?? args["glob"];
     return typeof scopePath === "string" && scopePath.length > 0
-      ? scopePath
-      : undefined;
+      ? [scopePath]
+      : [];
   }
 
   // -----------------------------------------------------------------------
@@ -848,8 +1096,8 @@ function extractTargetPath(
   if (toolName === "grep") {
     const scopePath = args["path"];
     return typeof scopePath === "string" && scopePath.length > 0
-      ? scopePath
-      : undefined;
+      ? [scopePath]
+      : [];
   }
 
   // -----------------------------------------------------------------------
@@ -873,10 +1121,10 @@ function extractTargetPath(
         }
       }
 
-      if (paths.size === 1) return [...paths][0];
+      return [...paths];
     }
     // input이 없거나 파싱 불가 — 경로 미확정 (edit 분기에서 sourceEdit=deny로 처리)
-    return undefined;
+    return [];
   }
 
   // -----------------------------------------------------------------------
@@ -893,9 +1141,9 @@ function extractTargetPath(
   for (const key of pathKeys) {
     const value = args[key];
     if (typeof value === "string" && value.length > 0) {
-      return value;
+      return [value];
     }
   }
 
-  return undefined;
+  return [];
 }

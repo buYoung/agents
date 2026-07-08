@@ -263,6 +263,44 @@ describe("추가 정책 spot-check", () => {
     expect(result.allowed).toBe(true);
   });
 
+  test("research: source 쓰기 거부, workspace 내부 산출물 쓰기만 허용", () => {
+    const options = { workspaceRoot: "/repo/project" };
+
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-research",
+          args: { path: "/repo/project/src/research.ts" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-research",
+          args: { path: "/repo/project/.agents/task/research.md" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-research",
+          args: { path: "/tmp/.agents/task/research.md" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+  });
+
   test("code-explorer/idea-generator: bash 거부", () => {
     expect(
       enforcePermission(
@@ -278,24 +316,32 @@ describe("추가 정책 spot-check", () => {
     ).toBe(false);
   });
 
-  test("planner/adversarial-review/constructive-feedback: bash 허용 (검증 목적)", () => {
-    expect(
-      enforcePermission(
-        { tool: "bash", sessionID: "s-planner", args: {} },
-        fullMap,
-      ).allowed,
-    ).toBe(true);
-    expect(
-      enforcePermission({ tool: "bash", sessionID: "s-adv", args: {} }, fullMap)
-        .allowed,
-    ).toBe(true);
-    expect(
-      enforcePermission({ tool: "bash", sessionID: "s-cf", args: {} }, fullMap)
-        .allowed,
-    ).toBe(true);
+  test("planner/adversarial-review/constructive-feedback: 읽기 전용 bash만 허용", () => {
+    for (const sessionID of ["s-planner", "s-adv", "s-cf"]) {
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID,
+            args: { command: "wc -l .agents/20260707-test/plan.md" },
+          },
+          fullMap,
+        ).allowed,
+      ).toBe(true);
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID,
+            args: { command: "mkdir -p .agents/x" },
+          },
+          fullMap,
+        ).allowed,
+      ).toBe(false);
+    }
   });
 
-  test("planner: 파일시스템 변경/경로 나열 bash 거부", () => {
+  test("planner: 읽기 전용 bash 허용, 파일시스템 변경 bash 거부", () => {
     expect(
       enforcePermission(
         {
@@ -311,7 +357,7 @@ describe("추가 정책 spot-check", () => {
         { tool: "bash", sessionID: "s-planner", args: { command: "ls docs" } },
         fullMap,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -322,6 +368,145 @@ describe("추가 정책 spot-check", () => {
         fullMap,
       ).allowed,
     ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-planner",
+          args: { command: "date +%Y%m%d" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-planner",
+          args: { command: "echo \"$(date +%Y%m%d)-task\"" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+  });
+
+  test("worker: workspace/temp 밖 경로 쓰기 거부", () => {
+    const options = {
+      workspaceRoot: "/repo/project",
+      tempRoots: ["/tmp"],
+    };
+
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-worker",
+          args: { path: "/repo/project/src/service.ts" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-worker",
+          args: { path: "/tmp/worker-output.txt" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "s-worker",
+          args: { path: "/Users/other/outside.txt" },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+  });
+
+  test("worker: workspace/temp 밖 bash 접근과 인라인 스크립트 거부", () => {
+    const options = {
+      workspaceRoot: "/repo/project",
+      tempRoots: ["/tmp"],
+    };
+
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "pnpm check",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "cp src/a.ts /tmp/a.ts",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "cp src/a.ts /Users/other/a.ts",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "pnpm check",
+            workdir: "/Users/other",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "python -c \"open('x', 'w').write('x')\"",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
   });
 
   test("planner: .agents/** 산출물 edit 거부, write 허용", () => {

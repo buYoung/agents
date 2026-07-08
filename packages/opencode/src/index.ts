@@ -251,7 +251,10 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     const result = enforcePermission(
       { tool: input.tool, sessionID: input.sessionID, args },
       sessionAgentMap,
-      { subagentNames: enabledSubagentNames },
+      {
+        subagentNames: enabledSubagentNames,
+        workspaceRoot: _input.directory,
+      },
     );
 
     if (!result.allowed) {
