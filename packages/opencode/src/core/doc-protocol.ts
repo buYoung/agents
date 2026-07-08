@@ -137,8 +137,9 @@ When delegating work to another agent or returning results to the orchestrator:
 - Embed **file paths and one-line summaries only** — never the full working content.
 - Write detailed findings, plans, or output to your handoff file
   (\`.agents/<taskId>/<your-file>.md\`) and **return the path + one-line summary**.
-- The receiving agent reads that file directly; do NOT paste its contents into
-  the task prompt or return value.
+- A receiving subagent reads that file directly only when its role and
+  permission policy allow it. The orchestrator passes returned paths and
+  summaries forward without reading full handoff content.
 - Brief excerpts are acceptable only when a fragment is essential context for
   the next agent to START (not to complete) the work.
 
@@ -177,14 +178,16 @@ Your file is listed in the table below — write ONLY to that file.
 > \`intent-checker\` owns no file — it is a stateless gate and is not bound by this rule.
 
 Rules:
-1. **ALWAYS APPEND** — never overwrite, never use the Edit tool to replace
+1. Create your handoff file directly if it does not exist; append to it only
+   when it is already available as an input artifact. Do not read or list
+   output paths just to check whether they exist. Never overwrite or replace
    existing content in your handoff file.
 2. **NEVER write to another agent's file.** Cross-file writes corrupt the
    1:1 ownership contract and will be treated as a violation.
 3. \`task.md\` is the orchestrator's master index — all other agents are
    READ-ONLY with respect to that file.
-4. Reading any file in \`.agents/<taskId>/\` is permitted; writing is
-   restricted to your own file only.
+4. Reading files in \`.agents/<taskId>/\` is permitted only when the agent role
+   and permission policy allow it; writing is restricted to your own file only.
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -216,11 +219,13 @@ Every piece of information has exactly ONE authoritative file inside
 
 Rules:
 1. **Return path + one-line summary**, never full content, when handing off
-   information between agents.  The receiving agent reads the file directly.
+   information between agents. A receiving subagent reads the file directly
+   only when its role and permission policy allow it.
 2. If a fact already exists in another agent's file, reference it by path —
    do NOT copy it into your own file (facts must not fork across files).
-3. The orchestrator reads handoff files to build the master index; subagents
-   do not update \`task.md\`.
+3. The orchestrator builds the master index from returned paths and one-line
+   summaries; it does not need to read subagent handoff content. Subagents do
+   not update \`task.md\`.
 `.trim();
 
 // ---------------------------------------------------------------------------
