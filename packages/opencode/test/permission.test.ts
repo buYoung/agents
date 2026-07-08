@@ -55,6 +55,51 @@ describe("권한 매트릭스", () => {
     expect(result.allowed).toBe(false);
   });
 
+  test("orchestrator: 읽기 전용 bash 허용", () => {
+    const commands = [
+      "ls .agents/20260702-test",
+      "wc -l .agents/20260702-test/task.md",
+      "test -f .agents/20260702-test/task.md",
+      "find .agents/20260702-test -type f | wc -l",
+      "git status --short",
+    ];
+
+    for (const command of commands) {
+      const result = enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "session-orch",
+          args: { command },
+        },
+        testMap,
+      );
+      expect(result.allowed, command).toBe(true);
+    }
+  });
+
+  test("orchestrator: 쓰기 가능 bash 거부", () => {
+    const commands = [
+      "mkdir -p .agents/20260702-test",
+      "rm -rf .agents/20260702-test",
+      "cat .agents/20260702-test/task.md > /tmp/task.md",
+      "sed -i '' 's/a/b/' .agents/20260702-test/task.md",
+      "find .agents/20260702-test -type f -delete",
+      "git checkout -- packages/opencode/src/core/permissions.ts",
+    ];
+
+    for (const command of commands) {
+      const result = enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "session-orch",
+          args: { command },
+        },
+        testMap,
+      );
+      expect(result.allowed, command).toBe(false);
+    }
+  });
+
   test("worker: source edit 허용", () => {
     const result = enforcePermission(
       {

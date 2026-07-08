@@ -30,6 +30,9 @@ export type TaskPolicy = "allow" | "deny" | "to-subagents";
 /** 단순 이진 허용/거부 정책 */
 export type BinaryPolicy = "allow" | "deny";
 
+/** bash 실행 정책 */
+export type BashPolicy = BinaryPolicy | "read-only";
+
 /**
  * 에이전트 한 행(row)의 권한 정책.
  * 베이스라인(.agents/** 읽기+쓰기) 위에 적용되는 델타.
@@ -39,8 +42,8 @@ export interface PermissionPolicy {
   agent: AgentName;
   /** source 파일 읽기 — allow | deny | docs-only(docs/** 만 허용) */
   sourceRead: SourceReadPolicy;
-  /** bash 실행 — allow | deny */
-  bash: BinaryPolicy;
+  /** bash 실행 — allow | deny | read-only */
+  bash: BashPolicy;
   /** source 파일 편집/쓰기 — allow | deny */
   sourceEdit: BinaryPolicy;
   /** webfetch 사용 — allow | deny */
@@ -79,7 +82,7 @@ export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
   {
     agent: "orchestrator",
     sourceRead: "docs-only", // docs/** 와 briefs/** 에 한정
-    bash: "deny",
+    bash: "read-only",
     sourceEdit: "deny",
     webfetch: "deny",
     task: "to-subagents", // 8개 서브에이전트에게만 위임 가능
@@ -284,6 +287,252 @@ function isDisabledMcpCommandUsed(command: string): string | undefined {
   });
 }
 
+const READ_ONLY_BASH_COMMANDS = new Set([
+  "awk",
+  "basename",
+  "cat",
+  "cmp",
+  "comm",
+  "cut",
+  "date",
+  "df",
+  "diff",
+  "dirname",
+  "du",
+  "echo",
+  "egrep",
+  "false",
+  "fgrep",
+  "file",
+  "find",
+  "git",
+  "grep",
+  "head",
+  "id",
+  "jq",
+  "ls",
+  "md5",
+  "md5sum",
+  "nl",
+  "paste",
+  "printf",
+  "pwd",
+  "rg",
+  "sed",
+  "shasum",
+  "sha1sum",
+  "sha256sum",
+  "sort",
+  "stat",
+  "tail",
+  "test",
+  "tr",
+  "true",
+  "type",
+  "uname",
+  "uniq",
+  "wc",
+  "which",
+  "whoami",
+  "[",
+]);
+
+const READ_ONLY_GIT_SUBCOMMANDS = new Set([
+  "blame",
+  "diff",
+  "grep",
+  "log",
+  "ls-files",
+  "rev-list",
+  "rev-parse",
+  "show",
+  "show-ref",
+  "status",
+]);
+
+const SHELL_SEPARATORS = new Set([";", "|", "&&", "||"]);
+
+const UNSAFE_READ_ONLY_ARGS: Record<string, readonly string[]> = {
+  awk: ["-i"],
+  find: ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint"],
+  sed: ["-i", "--in-place"],
+};
+
+interface BashTokenizeResult {
+  tokens: string[];
+  error?: string;
+}
+
+function tokenizeBashCommand(command: string): BashTokenizeResult {
+  const tokens: string[] = [];
+  let token = "";
+  let quote: "'" | "\"" | undefined;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    const nextCharacter = command[index + 1];
+
+    if (!quote && character === "`") {
+      return { tokens: [], error: "command substitution is not read-only safe" };
+    }
+
+    if (!quote && character === "$" && nextCharacter === "(") {
+      return { tokens: [], error: "command substitution is not read-only safe" };
+    }
+
+    if (character === "\\" && index + 1 < command.length) {
+      token += character + command[index + 1];
+      index += 1;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = undefined;
+      } else {
+        token += character;
+      }
+      continue;
+    }
+
+    if (character === "'" || character === "\"") {
+      quote = character;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+      continue;
+    }
+
+    if (character === ">" || character === "<" || character === "(" || character === ")") {
+      return { tokens: [], error: "shell redirection or subshell is not read-only safe" };
+    }
+
+    if (character === ";" || character === "|") {
+      if (token) {
+        tokens.push(token);
+        token = "";
+      }
+
+      if (character === "|" && nextCharacter === "|") {
+        tokens.push("||");
+        index += 1;
+      } else {
+        tokens.push(character);
+      }
+      continue;
+    }
+
+    if (character === "&") {
+      if (nextCharacter === "&") {
+        if (token) {
+          tokens.push(token);
+          token = "";
+        }
+        tokens.push("&&");
+        index += 1;
+        continue;
+      }
+      return { tokens: [], error: "background execution is not read-only safe" };
+    }
+
+    token += character;
+  }
+
+  if (quote) {
+    return { tokens: [], error: "unterminated quote" };
+  }
+
+  if (token) {
+    tokens.push(token);
+  }
+
+  return { tokens };
+}
+
+function isShellAssignment(token: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*=/.test(token);
+}
+
+function isUnsafeReadOnlyArgument(commandName: string, args: string[]): boolean {
+  const unsafeArgs = UNSAFE_READ_ONLY_ARGS[commandName];
+  if (!unsafeArgs) return false;
+
+  return args.some((arg) =>
+    unsafeArgs.some(
+      (unsafeArg) => arg === unsafeArg || arg.startsWith(`${unsafeArg}=`),
+    ),
+  );
+}
+
+function isReadOnlyGitCommand(args: string[]): boolean {
+  const subcommand = args.find((arg) => !arg.startsWith("-"));
+  return typeof subcommand === "string" && READ_ONLY_GIT_SUBCOMMANDS.has(subcommand);
+}
+
+function isReadOnlyBashSegment(tokens: string[]): boolean {
+  let commandIndex = tokens.findIndex((token) => !isShellAssignment(token));
+  if (commandIndex < 0) return false;
+
+  let commandName = tokens[commandIndex];
+  if (commandName === "command" || commandName === "builtin") {
+    commandIndex += 1;
+    commandName = tokens[commandIndex];
+  }
+
+  if (commandName === "env") {
+    commandIndex += 1;
+    while (
+      commandIndex < tokens.length &&
+      (tokens[commandIndex].startsWith("-") ||
+        isShellAssignment(tokens[commandIndex]))
+    ) {
+      commandIndex += 1;
+    }
+    commandName = tokens[commandIndex];
+  }
+
+  if (!commandName || !READ_ONLY_BASH_COMMANDS.has(commandName)) {
+    return false;
+  }
+
+  const args = tokens.slice(commandIndex + 1);
+  if (isUnsafeReadOnlyArgument(commandName, args)) {
+    return false;
+  }
+
+  if (commandName === "git") {
+    return isReadOnlyGitCommand(args);
+  }
+
+  return true;
+}
+
+function isReadOnlyBash(command: string): boolean {
+  const normalizedCommand = command.trim();
+  if (!normalizedCommand) return false;
+
+  const tokenizeResult = tokenizeBashCommand(normalizedCommand);
+  if (tokenizeResult.error) return false;
+
+  const segments: string[][] = [[]];
+  for (const token of tokenizeResult.tokens) {
+    if (SHELL_SEPARATORS.has(token)) {
+      if (segments[segments.length - 1].length === 0) return false;
+      segments.push([]);
+      continue;
+    }
+    segments[segments.length - 1].push(token);
+  }
+
+  if (segments[segments.length - 1].length === 0) return false;
+  return segments.every(isReadOnlyBashSegment);
+}
+
 // ---------------------------------------------------------------------------
 // 권한 집행 함수
 // ---------------------------------------------------------------------------
@@ -442,24 +691,35 @@ export function enforcePermission(
   // bash 도구 집행
   // -------------------------------------------------------------------------
   if (isBashTool) {
+    const bashCommand = getBashCommand(input.args);
     if (policy.bash === "deny") {
       return {
         allowed: false,
         reason: `[policy] ${agent}는 bash 실행 불가`,
       };
     }
-    const disabledMcpCommand = isDisabledMcpCommandUsed(
-      getBashCommand(input.args),
-    );
+    const disabledMcpCommand = isDisabledMcpCommandUsed(bashCommand);
     if (disabledMcpCommand) {
       return {
         allowed: false,
         reason: `[policy] 비활성 MCP 명령은 bash로 우회 실행 불가 — command=${disabledMcpCommand}`,
       };
     }
+    if (policy.bash === "read-only") {
+      if (isReadOnlyBash(bashCommand)) {
+        return {
+          allowed: true,
+          reason: `[policy] ${agent}: 읽기 전용 bash 허용`,
+        };
+      }
+      return {
+        allowed: false,
+        reason: `[policy] ${agent}: 읽기 전용으로 분류되지 않은 bash 거부`,
+      };
+    }
     if (
       agent === "planner" &&
-      isPlannerForbiddenBash(getBashCommand(input.args))
+      isPlannerForbiddenBash(bashCommand)
     ) {
       return {
         allowed: false,

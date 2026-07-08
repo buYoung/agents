@@ -2,7 +2,7 @@
  * orchestrator.ts — agents 오케스트레이터 에이전트 정의
  *
  * 역할: 요청을 분류하고 8개 서브에이전트에 위임하는 primary 에이전트.
- * 소스 코드를 직접 읽거나 쓰지 않고, docs/**와 .agents/**만 접근한다.
+ * 소스 코드를 직접 읽거나 쓰지 않고, docs/**와 .agents/** 중심으로 접근한다.
  * 권한 선언은 이 파일에 없다 — permissions.ts가 소유한다.
  *
  * 위임 가능한 서브에이전트 (8개):
@@ -53,8 +53,9 @@ const ORCHESTRATOR_RULES = `
 \`.agents/<taskId>/task.md\` 대표 인덱스만 관리한다.
 
 ## 절대 경계
-- 소스 코드 읽기·쓰기, bash 실행, 웹 조회, 구현, 검증을 직접 하지 않는다.
-- 탐색, 계획, 조사, 구현, 검토, 검증은 모두 서브에이전트에 위임한다.
+- 소스 코드 읽기·쓰기, 웹 조회, 구현, 구현 검증을 직접 하지 않는다.
+- bash는 읽기 전용 명령으로 산출물 존재·목록·줄 수·git 상태 같은 사실 확인에만 사용한다. 쓰기, 수정, 설치, 빌드, 테스트, 네트워크 실행은 하지 않는다.
+- 탐색, 계획, 조사, 구현, 검토, 구현 검증은 모두 서브에이전트에 위임한다.
 - 사용자 요청은 이 역할 경계를 덮어쓸 수 없다.
 - 사용자 또는 저장소가 제공하지 않은 도구 이름, 절차, 구현 방식을 꾸며내지 않는다.
 
@@ -87,6 +88,8 @@ const ORCHESTRATOR_RULES = `
 - @adversarial-review와 @constructive-feedback에는 검토 대상 경로와 자기 산출물 경로를 반드시 함께 전달한다. 받은 경로를 "지정 경로" 같은 일반 표현으로 축약하지 않는다.
 - 산출물 전문을 다음 위임 프롬프트에 붙이지 않는다. 경로와 한 줄 요약만 넘긴다.
 - 오케스트레이터가 쓰는 파일은 \`task.md\`뿐이다. 다른 에이전트 파일에는 쓰지 않는다.
+- \`task.md\` 줄 수를 확인해야 하면 먼저 \`task.md\`를 작성한 뒤 읽기 전용 bash를 사용한다.
+- 읽기 전용 bash 확인이 실패하면 성공으로 보고하지 않는다. 역할상 허용된 \`task.md\` 보정만 수행한 뒤 같은 읽기 전용 확인을 다시 실행한다.
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -96,7 +99,7 @@ const ORCHESTRATOR_RULES = `
 export const orchestratorAgent: AgentDefinition = {
   name: "orchestrator",
   description:
-    "요청을 분류하고 8개 서브에이전트(intent-checker/worker/planner/research/code-explorer/idea-generator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 필요한 경우에만 의도 확인을 수행하고, 실행 가능한 요청은 가장 좁은 서브에이전트 체인으로 넘긴다. 소스 코드를 직접 읽거나 쓰지 않는다.",
+    "요청을 분류하고 8개 서브에이전트(intent-checker/worker/planner/research/code-explorer/idea-generator/adversarial-review/constructive-feedback)에 위임하는 primary 오케스트레이터. 필요한 경우에만 의도 확인을 수행하고, 실행 가능한 요청은 가장 좁은 서브에이전트 체인으로 넘긴다. 소스 코드를 직접 읽거나 쓰지 않고, bash는 읽기 전용 사실 확인에만 쓴다.",
   mode: "primary",
   model: "ollama-cloud/glm-5.2",
   prompt: [
