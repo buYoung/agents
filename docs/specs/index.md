@@ -13,6 +13,7 @@
 | [agent-prompt-improvement-and-testing-spec.md](agent-prompt-improvement-and-testing-spec.md) | 번들 agents 시스템 프롬프트 개선 시 FDD 기반 리라이트 절차와 정적·런타임·행동 평가 기준. |
 | [agent-prompt-iteration-and-compression-guidelines.md](agent-prompt-iteration-and-compression-guidelines.md) | 모든 agent에 공통 적용할 반복강화, 치팅 방지, 프롬프트 압축, 3회 반복 평가 기준. |
 | [agent-prompt-improvement-checklist.md](agent-prompt-improvement-checklist.md) | `orchestrator` 이후 8개 agent 프롬프트 개선 순서와 agent별 체크리스트 초안. |
+| [pdf-document-authoring-guidelines.md](pdf-document-authoring-guidelines.md) | 설명용 PDF를 재사용 가능하게 만들기 위한 내용 구조, 타이포그래피, 레이아웃, 검증 기준. |
 | [opencode-cli-ollama-cloud-glm52-usage-spec.md](opencode-cli-ollama-cloud-glm52-usage-spec.md) | opencode CLI에서 Ollama Cloud GLM-5.2를 실행하고 프롬프트 개선 테스트에 사용하는 절차. |
 
 ## Recommended Reading Order
@@ -26,8 +27,9 @@
 7. `agent-prompt-improvement-and-testing-spec.md`
 8. `agent-prompt-iteration-and-compression-guidelines.md`
 9. `agent-prompt-improvement-checklist.md`
-10. `opencode-cli-ollama-cloud-glm52-usage-spec.md`
-11. `docs/FDD/opencode-plugin-authoring.md`
-12. `docs/FDD/opencode-agent-authoring.md`
+10. `pdf-document-authoring-guidelines.md`
+11. `opencode-cli-ollama-cloud-glm52-usage-spec.md`
+12. `docs/FDD/opencode-plugin-authoring.md`
+13. `docs/FDD/opencode-agent-authoring.md`
 
 FDD는 제품 방향과 설계 판단을 설명한다. 개발 명세는 opencode 플러그인과 에이전트의 작성 계약과 검증 기준을 설명한다.
