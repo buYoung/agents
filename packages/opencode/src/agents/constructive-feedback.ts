@@ -5,7 +5,7 @@
  * 각 항목에는 근거(rationale)와 권장 조치(recommended action)가 함께 붙는다.
  *
  * 소스 파일을 수정하지 않는다. 읽기 + read-only bash 검증만 허용.
- * 권한 선언 없음 — permissions.ts가 소유한다.
+ * 권한 선언 없음 — permissions/가 소유한다.
  */
 
 import {

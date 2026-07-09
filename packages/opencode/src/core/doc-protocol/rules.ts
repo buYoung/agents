@@ -1,128 +1,6 @@
 /**
- * doc-protocol.ts
- *
- * Run-directory communication contract for the agents plugin.
- *
- * This module owns:
- *   - The run-directory root path constant (`RUN_DIR_ROOT`)
- *   - The 1:1 agent → filename map (`AGENT_DOC_MAP`)
- *   - The path-builder helper (`runDocPath`)
- *   - Shared prompt-block strings imported by every agent module
- *
- * No imports from `agents/` or `permissions.ts` — this module is
- * imported BY them, never the reverse.
+ * doc-protocol/rules.ts — 에이전트 프롬프트 공유 규칙 문구
  */
-
-// ---------------------------------------------------------------------------
-// Run-directory root
-// ---------------------------------------------------------------------------
-
-/** Root directory that contains every per-run task folder. */
-export const RUN_DIR_ROOT = ".agents" as const;
-
-// ---------------------------------------------------------------------------
-// Agent name union
-// ---------------------------------------------------------------------------
-
-/**
- * Canonical names for all 9 agents in the agents plugin.
- *
- * SSOT: this is the single source of truth for agent names.
- * `permissions.ts` imports this type — do NOT redeclare it elsewhere.
- */
-export type AgentName =
-  | "orchestrator"
-  | "intent-checker"
-  | "worker"
-  | "planner"
-  | "idea-generator"
-  | "research"
-  | "code-explorer"
-  | "adversarial-review"
-  | "constructive-feedback";
-
-/**
- * Agents that own a handoff file inside `.agents/<taskId>/`.
- * Each documented agent maps 1:1 to exactly one writable file.
- *
- * `intent-checker` is excluded — it is a stateless gate that returns
- * a one-line answer to the orchestrator and writes no file.
- */
-export type DocumentedAgent = Exclude<AgentName, "intent-checker">;
-
-/**
- * Ordered list of all agent names.
- * Used by `permissions.ts` to build `AGENT_NAMES` / `SUBAGENT_NAMES`.
- */
-export const AGENT_NAMES: readonly AgentName[] = [
-  "orchestrator",
-  "intent-checker",
-  "worker",
-  "planner",
-  "idea-generator",
-  "research",
-  "code-explorer",
-  "adversarial-review",
-  "constructive-feedback",
-] as const;
-
-/**
- * Agents that own a handoff file (subset of {@link AGENT_NAMES}).
- * Used by `runDocPath` and the append-only / SSOT rule tables.
- */
-export const DOCUMENTED_AGENTS: readonly DocumentedAgent[] = (
-  AGENT_NAMES as readonly AgentName[]
-).filter((name): name is DocumentedAgent => name !== "intent-checker");
-
-// ---------------------------------------------------------------------------
-// 1:1 documented-agent → filename map
-// ---------------------------------------------------------------------------
-
-/**
- * Maps each **documented** agent to the bare filename it owns and appends to.
- * No two agents share a file — one writer per file, enforced by prompt rules.
- *
- * `intent-checker` is intentionally absent: it writes no file.
- *
- * Full path for any given taskId: `.agents/<taskId>/<filename>`
- * Use `runDocPath(taskId, agent)` to build the complete path.
- */
-export const AGENT_DOC_MAP: Record<DocumentedAgent, string> = {
-  orchestrator: "task.md",
-  worker: "work.md",
-  planner: "plan.md",
-  "idea-generator": "ideas.md",
-  research: "research.md",
-  "code-explorer": "explore.md",
-  "adversarial-review": "adversarial-review.md",
-  "constructive-feedback": "constructive-feedback.md",
-} as const;
-
-// ---------------------------------------------------------------------------
-// Path helper
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the full relative path for a documented agent's handoff file.
- *
- * @param taskId  Task identifier in `YYYYMMDD-<slug>` format,
- *                e.g. `"20260702-agents-plugin"`.
- * @param agent   One of the {@link DocumentedAgent} values (not `intent-checker`).
- * @returns       `.agents/<taskId>/<filename>` — consistent with the
- *                `.agents/**` scope the permission layer enforces.
- *
- * @example
- *   runDocPath("20260702-auth-login", "planner")
- *   // → ".agents/20260702-auth-login/plan.md"
- */
-export function runDocPath(taskId: string, agent: DocumentedAgent): string {
-  return `${RUN_DIR_ROOT}/${taskId}/${AGENT_DOC_MAP[agent]}`;
-}
-
-// ---------------------------------------------------------------------------
-// Shared prompt-block strings
-// (a) PATHS_ONLY_RULE
-// ---------------------------------------------------------------------------
 
 /**
  * (a) Paths-only delegation rule.
@@ -147,10 +25,6 @@ Example return format:
   Path: .agents/20260702-slug/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 `.trim();
-
-// ---------------------------------------------------------------------------
-// (b) APPEND_ONLY_RULE
-// ---------------------------------------------------------------------------
 
 /**
  * (b) Append-only / never-Edit rule.
@@ -190,10 +64,6 @@ Rules:
    and permission policy allow it; writing is restricted to your own file only.
 `.trim();
 
-// ---------------------------------------------------------------------------
-// (c) SSOT_RULE
-// ---------------------------------------------------------------------------
-
 /**
  * (c) Single Source of Truth (SSOT) discipline.
  *
@@ -227,10 +97,6 @@ Rules:
    summaries; it does not need to read subagent handoff content. Subagents do
    not update \`task.md\`.
 `.trim();
-
-// ---------------------------------------------------------------------------
-// (d) TASKID_RULE
-// ---------------------------------------------------------------------------
 
 /**
  * (d) taskId format and ownership rule.

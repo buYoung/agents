@@ -138,6 +138,26 @@ export function loadCatalog(projectDirectory?: string): Catalog {
   return catalog;
 }
 
+/**
+ * 런타임 catalog 로드.
+ * managed 프로젝트 catalog 로드 실패 시에만 bundled catalog로 fallback한다.
+ */
+export function loadRuntimeCatalog(projectDirectory: string): Catalog {
+  const source = getCatalogSource(projectDirectory);
+  try {
+    return loadCatalog(projectDirectory);
+  } catch (error) {
+    if (source.kind !== "managed") {
+      throw error;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[agents] managed catalog load failed. bundled catalog로 fallback합니다. doctor로 진단하세요: ${source.path}: ${message}`,
+    );
+    return loadCatalog();
+  }
+}
+
 export function getCatalogChecksum(projectDirectory?: string): string {
   const source = getCatalogSource(projectDirectory);
   const cachedChecksum = cachedChecksumByPath.get(source.path);

@@ -3,7 +3,7 @@
  *
  * 역할: 요청을 분류하고 8개 서브에이전트에 위임하는 primary 에이전트.
  * 소스 코드를 직접 읽거나 쓰지 않고, docs/**와 .agents/** 중심으로 접근한다.
- * 권한 선언은 이 파일에 없다 — permissions.ts가 소유한다.
+ * 권한 선언은 이 파일에 없다 — permissions/가 소유한다.
  *
  * 위임 가능한 서브에이전트 (8개):
  *   intent-checker, worker, planner, research, code-explorer, idea-generator,

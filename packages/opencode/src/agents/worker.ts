@@ -3,9 +3,9 @@
  *
  * 역할: 소스 코드를 직접 읽고 쓰고 수정하는 구현 실행 에이전트.
  * bash·read·write·edit·glob·grep 도구를 사용할 수 있다.
- * 재위임(task 도구 사용)은 금지된다 — permissions.ts가 강제한다.
+ * 재위임(task 도구 사용)은 금지된다 — permissions/가 강제한다.
  *
- * 이 파일에는 권한 선언을 추가하지 않는다 — permissions.ts가 소유한다.
+ * 이 파일에는 권한 선언을 추가하지 않는다 — permissions/가 소유한다.
  */
 
 import type { AgentDefinition } from "@opencode/core/types";

@@ -163,7 +163,7 @@ pnpm --filter cli test
 ## 저장소 작업 규칙
 
 - 에이전트 역할이나 프롬프트를 바꿀 때는 `packages/opencode/src/agents`와 `docs/FDD`의 역할 문서를 함께 확인합니다.
-- 권한, 파일 접근, 도구 제한 변경은 `packages/opencode/src/core/permissions.ts`가 소유합니다.
+- 권한, 파일 접근, 도구 제한 변경은 `packages/opencode/src/core/permissions/`가 소유합니다.
 - 실행 문서 경로와 산출물 계약은 `packages/opencode/src/core/doc-protocol.ts`가 소유합니다.
 - 설정, 모델, 추론 노력 검증은 `packages/opencode/src/core/config.ts`와 `packages/opencode/src/core/catalog.toml`을 기준으로 합니다.
 - 코드 변경 후에는 최소한 `pnpm check-types`를 실행합니다.
