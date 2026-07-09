@@ -9,12 +9,11 @@ import { parse } from "smol-toml";
 
 const packageRoot = process.cwd();
 const codexAgentsDirectory = path.join(packageRoot, "agents");
-const packageJson = JSON.parse(
-  fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
-) as { version: string };
 const codexAgentVersions = JSON.parse(
   fs.readFileSync(path.join(codexAgentsDirectory, "versions.json"), "utf-8"),
 ) as Record<string, string>;
+
+const semanticVersionPattern = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 const expectedModelProfiles: Record<
   string,
@@ -98,7 +97,7 @@ describe("Codex custom agent TOML", () => {
 
       expect(parsed.name).toBe(agentName);
       expect(parsed.version).toBeUndefined();
-      expect(codexAgentVersions[agentName]).toBe(packageJson.version);
+      expect(codexAgentVersions[agentName]).toMatch(semanticVersionPattern);
       expect(typeof parsed.description).toBe("string");
       expect((parsed.description as string).length).toBeGreaterThan(0);
       expect(parsed.model).toBe(profile.model);
@@ -111,5 +110,25 @@ describe("Codex custom agent TOML", () => {
       expect(Array.isArray(parsed.nickname_candidates)).toBe(true);
       expect((parsed.nickname_candidates as unknown[]).length).toBeGreaterThan(0);
     }
+  });
+
+  test("orchestrator uses Codex-native delegation and rejects recursive orchestration", () => {
+    const filePath = path.join(codexAgentsDirectory, "orchestrator.toml");
+    const parsed = parse(fs.readFileSync(filePath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const instructions = parsed.developer_instructions as string;
+
+    expect(instructions).toContain("agent_type");
+    expect(instructions).toContain("message");
+    expect(instructions).toContain(
+      'Never spawn or delegate to `agent_type = "orchestrator"`',
+    );
+    expect(instructions).toContain("Do not paste the user's full request");
+    expect(instructions).not.toContain(
+      "Use only `subagent_type`, `description`, and `prompt`",
+    );
+    expect(instructions).not.toContain('agent: "@code-explorer"');
   });
 });

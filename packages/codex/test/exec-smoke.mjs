@@ -23,6 +23,16 @@ const fixturePath = path.join(
 const defaultTimeoutSeconds = 240;
 const defaultConcurrency = 3;
 const orchestratorAgent = "orchestrator";
+const orchestratorLeafAgents = new Set([
+  "intent-checker",
+  "worker",
+  "planner",
+  "research",
+  "code-explorer",
+  "idea-generator",
+  "adversarial-review",
+  "constructive-feedback",
+]);
 const defaultFixtureByAgent = {
   orchestrator: "orchestrator-normal-001",
   "intent-checker": "intent-checker-normal-001",
@@ -210,20 +220,21 @@ function buildPrompt({ agent, caseName, fixture, fixtureInput }) {
 
   if (agent === orchestratorAgent) {
     return [
-      `Run a Codex custom-agent smoke evaluation for agent "${agent}".`,
+      "오케스트레이션 에이전트로 진행해줘.",
       `Case: ${caseName}`,
       `Fixture id: ${fixture}`,
       `Use taskId: ${fixture}`,
       "",
-      "Spawn exactly one custom subagent with this agent name and return immediately after the spawn_agent call succeeds.",
-      `The spawn_agent call must set agent_type exactly to "${agent}". Do not omit agent_type and do not use any fallback agent type.`,
-      `When delegating, pass taskId: ${fixture} to the custom subagent.`,
-      "Do not wait for or close the subagent in this orchestrator smoke check; the proof target is that the orchestrator custom agent is loadable and invoked by real codex exec.",
-      "Do not solve the fixture in the root session except for delegating it to that custom agent.",
+      "Goal: use the Codex custom orchestrator agent to classify this fixture and perform only the first required leaf-agent delegation.",
+      "Root-session rule: spawn the custom orchestrator agent, wait for it to finish, close it, and return a concise result summary.",
+      `The root spawn_agent call must set agent_type exactly to "${agent}".`,
+      "The root spawn_agent message must contain only this normalized goal, constraints, taskId, and expected proof. Do not paste this full smoke prompt, the fixture table, or any `요청 원문:` block into the orchestrator message.",
+      "Orchestrator rule: from inside the orchestrator agent, never spawn another orchestrator. Spawn exactly one allowed leaf custom agent, then return after that spawn_agent call succeeds. Do not wait for or close that leaf agent in this smoke case.",
+      `When delegating, pass taskId: ${fixture} to the orchestrator and to the leaf custom subagent.`,
       "If the custom agent is unavailable, say so explicitly and fail the smoke evaluation.",
       mcpInstruction,
       "",
-      "Use this exact evaluation input as the subagent task:",
+      "Fixture goal:",
       fixtureInput,
     ].join("\n");
   }
@@ -251,6 +262,7 @@ function summarizeJsonl(stdout) {
   const messages = [];
   const parseErrors = [];
   const spawnedAgentThreadIds = new Set();
+  const spawnCalls = [];
   let closeAgentEventCount = 0;
   let codemapToolEventCount = 0;
   let spawnAgentEventCount = 0;
@@ -267,15 +279,31 @@ function summarizeJsonl(stdout) {
       continue;
     }
 
-    const toolName = String(
-      event.item?.tool ?? event.item?.name ?? event.item?.server ?? "",
-    );
+    const payload = event.payload ?? {};
+    const item = event.item ?? payload.item ?? payload;
+    const toolName = String(item.tool ?? item.name ?? item.server ?? "");
     if (toolName.includes("codemap")) {
       codemapToolEventCount += 1;
     }
     if (toolName === "spawn_agent") {
       spawnAgentEventCount += 1;
-      for (const threadId of event.item?.receiver_thread_ids ?? []) {
+      let argumentsObject = null;
+      if (typeof item.arguments === "string") {
+        try {
+          argumentsObject = JSON.parse(item.arguments);
+        } catch {
+          argumentsObject = null;
+        }
+      } else if (item.arguments && typeof item.arguments === "object") {
+        argumentsObject = item.arguments;
+      }
+      spawnCalls.push({
+        line: lineIndex + 1,
+        agentType: argumentsObject?.agent_type ?? null,
+        message: argumentsObject?.message ?? item.prompt ?? null,
+        receiverThreadIds: item.receiver_thread_ids ?? [],
+      });
+      for (const threadId of item.receiver_thread_ids ?? []) {
         spawnedAgentThreadIds.add(threadId);
       }
     }
@@ -285,11 +313,21 @@ function summarizeJsonl(stdout) {
     if (toolName === "close_agent") {
       closeAgentEventCount += 1;
     }
-    if (event.type === "turn.completed") {
-      usage = event.usage;
+    if (event.type === "turn.completed" || payload.type === "turn_completed") {
+      usage = event.usage ?? payload.usage ?? usage;
     }
-    if (event.type === "item.completed" && event.item?.type === "agent_message") {
-      messages.push(event.item.text ?? "");
+    if (
+      (event.type === "item.completed" && event.item?.type === "agent_message") ||
+      (event.type === "event_msg" && payload.type === "agent_message")
+    ) {
+      messages.push(event.item?.text ?? payload.message ?? "");
+    }
+    if (event.type === "response_item" && payload.type === "message") {
+      for (const contentItem of payload.content ?? []) {
+        if (contentItem.type === "output_text") {
+          messages.push(contentItem.text ?? "");
+        }
+      }
     }
   }
 
@@ -299,6 +337,7 @@ function summarizeJsonl(stdout) {
     messageCount: messages.length,
     codemapToolEventCount,
     spawnAgentEventCount,
+    spawnCalls,
     spawnedAgentThreadCount: spawnedAgentThreadIds.size,
     waitEventCount,
     closeAgentEventCount,
@@ -356,11 +395,25 @@ function summarizeSessionHistory(temporaryCodexHome) {
       const item = payload.item ?? {};
       const toolName = item.tool ?? item.name ?? payload.tool ?? payload.name;
       if (toolName) {
+        let argumentsObject = null;
+        const rawArguments = item.arguments ?? payload.arguments;
+        if (typeof rawArguments === "string") {
+          try {
+            argumentsObject = JSON.parse(rawArguments);
+          } catch {
+            argumentsObject = null;
+          }
+        } else if (rawArguments && typeof rawArguments === "object") {
+          argumentsObject = rawArguments;
+        }
         toolCalls.push({
           line: lineIndex + 1,
           type: event.type,
           tool: toolName,
           namespace: payload.namespace ?? item.namespace ?? null,
+          agentType: argumentsObject?.agent_type ?? null,
+          message: argumentsObject?.message ?? item.prompt ?? null,
+          receiverThreadIds: item.receiver_thread_ids ?? [],
         });
       }
 
@@ -384,6 +437,8 @@ function summarizeSessionHistory(temporaryCodexHome) {
       sessionId: metadata?.id ?? null,
       parentThreadId: metadata?.parent_thread_id ?? null,
       threadSource: metadata?.thread_source ?? null,
+      agentRole: metadata?.agent_role ?? null,
+      agentNickname: metadata?.agent_nickname ?? null,
       source: metadata?.source ?? null,
       toolCalls,
     });
@@ -399,6 +454,10 @@ function summarizeSessionHistory(temporaryCodexHome) {
 }
 
 function prepareWorkspace(temporaryWorkspace) {
+  fs.copyFileSync(
+    path.join(repositoryRoot, "AGENTS.md"),
+    path.join(temporaryWorkspace, "AGENTS.md"),
+  );
   copyDirectory(
     agentsSourceDirectory,
     path.join(temporaryWorkspace, ".codex", "agents"),
@@ -609,6 +668,46 @@ async function runCase({
       summary.error = "missing usage or final message";
     } else if (summary.spawnedAgentThreadCount !== 1) {
       summary.error = `expected exactly one spawned agent, saw ${summary.spawnedAgentThreadCount}`;
+    } else if (agent === orchestratorAgent) {
+      const orchestratorSessions = summary.sessionSummaries.filter(
+        (session) => session.agentRole === orchestratorAgent,
+      );
+      const orchestratorSessionIds = new Set(
+        orchestratorSessions.map((session) => session.sessionId),
+      );
+      const rootSpawn = summary.spawnCalls.find((spawnCall) =>
+        spawnCall.receiverThreadIds.some((threadId) =>
+          orchestratorSessionIds.has(threadId),
+        ),
+      );
+      const orchestratorLeafSpawn = orchestratorSessions
+        .flatMap((session) => session.toolCalls)
+        .find((toolCall) => toolCall.tool === "spawn_agent");
+      if (!rootSpawn) {
+        summary.error = "expected root session to spawn orchestrator";
+      } else if (
+        typeof rootSpawn.message === "string" &&
+        /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
+          rootSpawn.message,
+        )
+      ) {
+        summary.error = "root passed an unsanitized prompt to orchestrator";
+      } else if (orchestratorSessions.length !== 1) {
+        summary.error = `expected exactly one orchestrator child session, saw ${orchestratorSessions.length}`;
+      } else if (!orchestratorLeafSpawn) {
+        summary.error = "expected orchestrator to spawn one leaf agent";
+      } else if (orchestratorLeafSpawn.agentType === orchestratorAgent) {
+        summary.error = "orchestrator recursively spawned orchestrator";
+      } else if (!orchestratorLeafAgents.has(orchestratorLeafSpawn.agentType)) {
+        summary.error = `orchestrator spawned unexpected agent: ${orchestratorLeafSpawn.agentType}`;
+      } else if (
+        typeof orchestratorLeafSpawn.message === "string" &&
+        /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
+          orchestratorLeafSpawn.message,
+        )
+      ) {
+        summary.error = "orchestrator passed an unsanitized prompt to leaf agent";
+      }
     } else if (
       agent === "code-explorer" &&
       caseName === "mcp" &&

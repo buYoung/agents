@@ -27,8 +27,9 @@ This monorepo contains an opencode agents plugin package and a companion CLI for
 - Absolute rule for `codemap-search`: actively use `codemap-search` for code exploration and repository navigation. Prefer it over generic Read, Grep, Find, shell search, or broad file-reading workflows whenever it is available and suitable; do not skip this rule for convenience.
 
 ## 5. Codex Custom Agents
-- Repository-managed Codex custom agent files live in `packages/codex/agents/*.toml`. They are generated from `packages/opencode/src/agents` by `scripts/generate-codex-agents.ts`.
-- For non-trivial Codex work, route directly from the main session to the narrowest useful custom agent instead of requiring the user to invoke a separate orchestration skill.
+- Repository-managed Codex custom agent files live in `packages/codex/agents/*.toml`. They are Codex-adapted from the opencode agent roles; keep Codex runtime behavior changes in `packages/codex/agents` and keep shared role-contract changes aligned with `packages/opencode/src/agents`.
+- If the user uses a short orchestration trigger such as "오케스트레이션", "오케스트레이터", "orchestrator", "agent_type orchestrator", or "orchestrator agent", route immediately to the Codex custom agent `agent_type="orchestrator"`. This is not the `$orchestration` skill.
+- When routing to `agent_type="orchestrator"`, do not do repository exploration, implementation, verification, or document writing in the main session first.
+- Pass only a normalized goal, hard constraints, relevant paths, and expected deliverables in the subagent `message`. Do not paste the user's full message, transcript, or a `요청 원문:` block into the orchestrator prompt.
 - Prefer direct leaf-agent delegation: `code-explorer` for read-only repository reconnaissance, `planner` for convergent implementation planning, `research` for current external facts, `worker` for scoped implementation, `adversarial-review` for defect/security/regression review, `constructive-feedback` for improvement suggestions, `idea-generator` for divergent alternatives, and `intent-checker` only for explicit intent confirmation.
-- Do not spawn the custom `orchestrator` as a routine intermediate agent. Use the main Codex session as the router and spawn leaf agents directly; nested orchestrator delegation requires deeper subagent depth and is more expensive.
-- Keep agent behavior changes in the opencode source first, then regenerate the TOML files so opencode and Codex stay aligned.
+- Do not spawn the custom `orchestrator` as a routine intermediate agent unless the user explicitly invokes orchestration as above. Use the main Codex session as the router and spawn leaf agents directly for ordinary delegated work.
