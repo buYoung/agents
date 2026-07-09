@@ -31,7 +31,7 @@
 #   enable           = false  # 이 에이전트를 비활성화 (기본값: true)
 #
 # 사용 가능한 모델과 reasoning_effort 허용 값은 bundled TOML catalog가 기준입니다:
-#   packages/opencode/src/core/catalog.toml
+#   packages/opencode/src/core/catalog/catalog.toml
 #
 # 현재 bundled catalog의 모델:
 #   ollama-cloud/glm-5.2          — Z.AI GLM-5.2 (오케스트레이터/ideator/adversarial-review 기본값)
