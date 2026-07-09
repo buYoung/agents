@@ -3,11 +3,11 @@
  *
  * This module owns:
  *   - The run-directory root path constant (`RUN_DIR_ROOT`)
- *   - The 1:1 agent → filename map (`AGENT_DOC_MAP`)
+ *   - The 1:1 agent-to-filename map (`AGENT_DOC_MAP`)
  *   - The path-builder helper (`runDocPath`)
  *   - Shared prompt-block strings imported by every agent module
  *
- * No imports from `agents/` or `permissions/` — this module is
+ * No imports from `agents/` or `permissions/`; this module is
  * imported BY them, never the reverse.
  */
 

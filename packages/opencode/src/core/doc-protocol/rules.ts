@@ -1,5 +1,5 @@
 /**
- * doc-protocol/rules.ts — 에이전트 프롬프트 공유 규칙 문구
+ * Shared run-document protocol blocks embedded in agent prompts.
  */
 
 /**
@@ -9,17 +9,13 @@
  * content" delegation discipline used across the agents plugin.
  */
 export const PATHS_ONLY_RULE = `
-## Paths-Only Delegation Rule
+## Paths-Only Handoff
 
-When delegating work to another agent or returning results to the orchestrator:
-- Embed **file paths and one-line summaries only** — never the full working content.
-- Write detailed findings, plans, or output to your handoff file
-  (\`.agents/<taskId>/<your-file>.md\`) and **return the path + one-line summary**.
-- A receiving subagent reads that file directly only when its role and
-  permission policy allow it. The orchestrator passes returned paths and
-  summaries forward without reading full handoff content.
-- Brief excerpts are acceptable only when a fragment is essential context for
-  the next agent to START (not to complete) the work.
+When delegating or returning results:
+- Return only \`Path:\` plus a one-line \`Summary:\`. Do not inline full working content.
+- Put details in your own handoff file: \`.agents/<taskId>/<your-file>.md\`.
+- Receivers read returned paths only when their role and permission policy allow it.
+- Include a short excerpt only when it is required to start the next step.
 
 Example return format:
   Path: .agents/20260702-slug/plan.md
@@ -33,10 +29,10 @@ Example return format:
  * The orchestrator's index file (`task.md`) is orchestrator-only.
  */
 export const APPEND_ONLY_RULE = `
-## Append-Only Rule
+## Handoff File Ownership
 
-You own exactly ONE file inside \`.agents/<taskId>/\`.
-Your file is listed in the map below — write ONLY to that file.
+Each artifact-writing agent owns exactly one file under \`.agents/<taskId>/\`.
+Write only to your mapped file.
 
 \`\`\`yaml
 orchestrator: task.md
@@ -49,19 +45,13 @@ adversarial-review: adversarial-review.md
 constructive-feedback: constructive-feedback.md
 \`\`\`
 
-> \`intent-checker\` owns no file — it is a stateless gate and is not bound by this rule.
+\`intent-checker\` is stateless and owns no file.
 
 Rules:
-1. Create your handoff file directly if it does not exist; append to it only
-   when it is already available as an input artifact. Do not read or list
-   output paths just to check whether they exist. Never overwrite or replace
-   existing content in your handoff file.
-2. **NEVER write to another agent's file.** Cross-file writes corrupt the
-   1:1 ownership contract and will be treated as a violation.
-3. \`task.md\` is the orchestrator's master index — all other agents are
-   READ-ONLY with respect to that file.
-4. Reading files in \`.agents/<taskId>/\` is permitted only when the agent role
-   and permission policy allow it; writing is restricted to your own file only.
+1. Create your file if absent; append only when it already exists as an input artifact.
+2. Never overwrite or replace existing handoff content.
+3. Never write another agent's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
+4. Reading \`.agents/<taskId>/\` files is allowed only when the role and permission policy allow it.
 `.trim();
 
 /**
@@ -71,31 +61,24 @@ Rules:
  * Agents reference that file rather than duplicating its content.
  */
 export const SSOT_RULE = `
-## Single Source of Truth (SSOT) Rule
-
-Every piece of information has exactly ONE authoritative file inside
-\`.agents/<taskId>/\`:
+## Single Source of Truth
 
 \`\`\`yaml
-task_overview_progress_index: task.md  # orchestrator-owned
-implementation_plan_runId: plan.md  # planner-owned
-work_output_code_changes: work.md  # worker-owned
-exploration_findings: explore.md
-research_notes: research.md
-creative_design_ideas: ideas.md
-adversarial_review_results: adversarial-review.md
-constructive_feedback: constructive-feedback.md
+task.md: orchestrator overview, progress, and index
+plan.md: planner implementation path
+work.md: worker changes and verification
+explore.md: code-explorer findings
+research.md: research findings and sources
+ideas.md: idea-generator alternatives
+adversarial-review.md: adversarial risks and failures
+constructive-feedback.md: improvement feedback
 \`\`\`
 
 Rules:
-1. **Return path + one-line summary**, never full content, when handing off
-   information between agents. A receiving subagent reads the file directly
-   only when its role and permission policy allow it.
-2. If a fact already exists in another agent's file, reference it by path —
-   do NOT copy it into your own file (facts must not fork across files).
-3. The orchestrator builds the master index from returned paths and one-line
-   summaries; it does not need to read subagent handoff content. Subagents do
-   not update \`task.md\`.
+1. Store each fact in one authoritative file only.
+2. If a fact already exists elsewhere, reference its path instead of copying it.
+3. Hand off with \`Path:\` and one-line \`Summary:\` only.
+4. Subagents do not update \`task.md\`; the orchestrator builds that index from returned paths and summaries.
 `.trim();
 
 /**
@@ -107,35 +90,16 @@ Rules:
 export const TASKID_RULE = `
 ## Task ID (taskId) Rule
 
-### Format
-  taskId = YYYYMMDD-<slug>
-  Examples:
-    20260702-auth-login
-    20260702-agents-plugin
+Format: \`YYYYMMDD-<slug>\`, for example \`20260702-auth-login\`.
 
-### Who generates it
-Only a **bash-capable agent** may generate the taskId by running a date command:
-  \`date +%Y%m%d\`-<descriptive-slug>
+Generation:
+- Only a bash-capable agent may create a new taskId with \`date +%Y%m%d\` plus a descriptive slug.
+- The orchestrator threads the chosen taskId through later subagent calls.
+- If the first artifact-writing subagent cannot run bash, the orchestrator may use its embedded run date.
 
-Typically this is \`planner\` or \`worker\`. The orchestrator does not run bash
-only to create a taskId. If it must first call an artifact-writing subagent that
-cannot run bash, it uses the run date already embedded in its prompt and threads
-that taskId before dependent handoff files are written.
-
-### Who threads it
-The **orchestrator** threads the taskId through every subsequent subagent call
-as an explicit parameter, whether it received the value from a subagent or
-created it for a non-bash first delegation.
-
-### What agents must NOT do
-- Do NOT re-derive or regenerate the taskId if you already received it.
-- Do NOT hard-code a directory path — reference your bare filename and let
-  \`runDocPath(taskId, agentName)\` resolve the full path:
-    .agents/<taskId>/<your-file>.md
-- Do NOT assume the current date is the taskId date; use the value the
-  orchestrator passed you.
-
-### Scope
-All run files live under \`.agents/<taskId>/\`, which matches the
-\`.agents/**\` read+write scope granted by the permission layer.
+Rules:
+- If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
+- Do not assume today's date is the taskId date.
+- Do not hard-code a full handoff path. Use your bare filename and let \`runDocPath(taskId, agentName)\` resolve \`.agents/<taskId>/<your-file>.md\`.
+- All run files stay under \`.agents/<taskId>/\`, matching the permission layer's \`.agents/**\` scope.
 `.trim();

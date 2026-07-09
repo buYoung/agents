@@ -1,12 +1,12 @@
 /**
- * doc-protocol/names.ts — 에이전트 이름·문서 맵 (데이터)
+ * Canonical agent names and handoff filename mappings.
  */
 
 /**
  * Canonical names for all agents in the agents plugin.
  *
  * SSOT: this is the single source of truth for agent names.
- * `permissions/` imports this type — do NOT redeclare it elsewhere.
+ * `permissions/` imports this type; do NOT redeclare it elsewhere.
  */
 export type AgentName =
   | "orchestrator"
@@ -23,7 +23,7 @@ export type AgentName =
  * Agents that own a handoff file inside `.agents/<taskId>/`.
  * Each documented agent maps 1:1 to exactly one writable file.
  *
- * `intent-checker` is excluded — it is a stateless gate that returns
+ * `intent-checker` is excluded because it is a stateless gate that returns
  * a one-line answer to the orchestrator and writes no file.
  */
 export type DocumentedAgent = Exclude<AgentName, "intent-checker">;
@@ -54,7 +54,7 @@ export const DOCUMENTED_AGENTS: readonly DocumentedAgent[] = (
 
 /**
  * Maps each **documented** agent to the bare filename it owns and appends to.
- * No two agents share a file — one writer per file, enforced by prompt rules.
+ * No two agents share a file. Prompt rules enforce one writer per file.
  *
  * `intent-checker` is intentionally absent: it writes no file.
  */
