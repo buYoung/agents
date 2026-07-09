@@ -89,3 +89,10 @@ export function getInstallStatePath(
     ? path.join(resolveUserConfigDirectory(env), "agents.install.json")
     : path.join(projectDirectory, ".opencode", "agents.install.json");
 }
+
+export function getCodexAgentsDirectory(env: NodeJS.ProcessEnv): string {
+  return path.join(
+    env.CODEX_HOME ?? path.join(os.homedir(), ".codex"),
+    "agents",
+  );
+}

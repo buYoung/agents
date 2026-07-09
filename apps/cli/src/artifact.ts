@@ -2,12 +2,18 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import type { CliArtifactApplyResult, FileSnapshot } from "@cli/types";
+import { parse } from "smol-toml";
+import type {
+  CliArtifactApplyResult,
+  CodexAgentsArtifactApplyResult,
+  FileSnapshot,
+} from "@cli/types";
 import {
   restoreFileSnapshot,
   snapshotFile,
 } from "@cli/fs-utils";
 import { getPackageRoot } from "@cli/paths";
+import { compareVersions } from "@cli/release";
 
 function parseOctal(value: Buffer): number {
   const text = value.toString("utf-8").replace(/\0.*$/, "").trim();
@@ -166,6 +172,104 @@ export function applyCliArtifact(artifact: Buffer): CliArtifactApplyResult {
     }
 
     return { packageRoot, targetSnapshots };
+  } finally {
+    fs.rmSync(stagingDirectory, { recursive: true, force: true });
+  }
+}
+
+function listTomlFiles(directory: string): string[] {
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listTomlFiles(entryPath));
+    } else if (entry.isFile() && entry.name.endsWith(".toml")) {
+      files.push(entryPath);
+    }
+  }
+  return files.sort();
+}
+
+function readTomlStringField(filePath: string, fieldName: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  const parsed = parse(fs.readFileSync(filePath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+  const value = parsed[fieldName];
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+export function applyCodexAgentsArtifact(
+  artifact: Buffer,
+  targetDirectory: string,
+): CodexAgentsArtifactApplyResult {
+  const stagingDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agents-codex-agents-"),
+  );
+  try {
+    unpackTarGz(artifact, stagingDirectory);
+    const sourceFiles = listTomlFiles(stagingDirectory);
+    const updates: Array<{
+      agentName: string;
+      sourcePath: string;
+      targetPath: string;
+    }> = [];
+    const skippedAgents: string[] = [];
+    const seenAgentNames = new Set<string>();
+
+    for (const sourcePath of sourceFiles) {
+      const agentName = readTomlStringField(sourcePath, "name");
+      const sourceVersion = readTomlStringField(sourcePath, "version");
+      if (!agentName) {
+        throw new Error(`${sourcePath} missing Codex agent name`);
+      }
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(agentName)) {
+        throw new Error(`${sourcePath} has unsafe Codex agent name`);
+      }
+      if (seenAgentNames.has(agentName)) {
+        throw new Error(`${sourcePath} duplicates Codex agent name ${agentName}`);
+      }
+      seenAgentNames.add(agentName);
+      if (!sourceVersion) {
+        throw new Error(`${sourcePath} missing Codex agent version`);
+      }
+
+      const targetPath = path.join(targetDirectory, `${agentName}.toml`);
+      let targetVersion: string | null = null;
+      try {
+        targetVersion = readTomlStringField(targetPath, "version");
+      } catch {
+        targetVersion = null;
+      }
+      if (targetVersion && compareVersions(sourceVersion, targetVersion) <= 0) {
+        skippedAgents.push(agentName);
+      } else {
+        updates.push({ agentName, sourcePath, targetPath });
+      }
+    }
+
+    const targetSnapshots = updates.map((update) =>
+      snapshotFile(update.targetPath),
+    );
+
+    try {
+      for (const update of updates) {
+        atomicCopyFile(update.sourcePath, update.targetPath);
+      }
+    } catch (error) {
+      for (const targetSnapshot of [...targetSnapshots].reverse()) {
+        restoreFileSnapshot(targetSnapshot);
+      }
+      throw error;
+    }
+
+    return {
+      targetDirectory,
+      updatedAgents: updates.map((update) => update.agentName).sort(),
+      skippedAgents: skippedAgents.sort(),
+      targetSnapshots,
+    };
   } finally {
     fs.rmSync(stagingDirectory, { recursive: true, force: true });
   }

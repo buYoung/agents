@@ -9,7 +9,11 @@ import {
 } from "opencode/core";
 import { EXIT_BLOCKED, EXIT_VALID } from "@cli/constants";
 import { restoreFileSnapshot, snapshotFile } from "@cli/fs-utils";
-import { getPackageVersion, resolveProjectDirectory } from "@cli/paths";
+import {
+  getCodexAgentsDirectory,
+  getPackageVersion,
+  resolveProjectDirectory,
+} from "@cli/paths";
 import {
   assertLatestManifestCompatibility,
   readLatestManifest,
@@ -19,6 +23,7 @@ import {
   verifyChecksum,
 } from "@cli/release";
 import type { CliIO, LatestManifest, LatestManifestArtifact } from "@cli/types";
+import { applyCodexAgentsArtifact } from "@cli/artifact";
 
 export async function update(
   args: string[],
@@ -27,16 +32,24 @@ export async function update(
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
   let latest: LatestManifest;
   let catalogArtifact: LatestManifestArtifact;
+  let codexAgentsArtifact: LatestManifestArtifact | undefined;
   try {
     latest = await readLatestManifest(io.env);
     assertLatestManifestCompatibility(latest, projectDirectory, "update");
     catalogArtifact = requireLatestManifestArtifact(latest, "catalog");
+    codexAgentsArtifact = latest.codexAgents;
   } catch (error) {
     if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
     throw error;
   }
   const catalogContent = await readLocation(catalogArtifact.url);
   verifyChecksum(catalogContent, catalogArtifact.sha256);
+  const codexAgentsContent = codexAgentsArtifact
+    ? await readLocation(codexAgentsArtifact.url)
+    : null;
+  if (codexAgentsArtifact && codexAgentsContent) {
+    verifyChecksum(codexAgentsContent, codexAgentsArtifact.sha256);
+  }
   const catalog = parseCatalog(catalogContent.toString("utf-8"));
   const managedCatalogPath = getManagedCatalogPath(projectDirectory);
   const managedStatePath = path.join(
@@ -48,10 +61,19 @@ export async function update(
     snapshotFile(managedCatalogPath),
     snapshotFile(managedStatePath),
   ];
+  let codexAgentsApplyResult:
+    | ReturnType<typeof applyCodexAgentsArtifact>
+    | undefined;
   try {
     fs.mkdirSync(path.dirname(managedCatalogPath), { recursive: true });
     fs.writeFileSync(managedCatalogPath, catalogContent, "utf-8");
     invalidateCatalogCache(managedCatalogPath);
+    if (codexAgentsContent) {
+      codexAgentsApplyResult = applyCodexAgentsArtifact(
+        codexAgentsContent,
+        getCodexAgentsDirectory(io.env),
+      );
+    }
     writeManagedState(projectDirectory, {
       pluginVersion: getPackageVersion(),
       cliVersion: getPackageVersion(),
@@ -62,6 +84,13 @@ export async function update(
       lastUpdatedAt: new Date().toISOString(),
     });
   } catch (error) {
+    if (codexAgentsApplyResult) {
+      for (const targetSnapshot of [
+        ...codexAgentsApplyResult.targetSnapshots,
+      ].reverse()) {
+        restoreFileSnapshot(targetSnapshot);
+      }
+    }
     for (const fileSnapshot of [...fileSnapshots].reverse()) {
       restoreFileSnapshot(fileSnapshot);
     }
@@ -70,5 +99,14 @@ export async function update(
   }
   io.stdout(`catalogVersion=${catalog.catalogVersion}`);
   io.stdout(`catalogPath=${managedCatalogPath}`);
+  if (codexAgentsApplyResult) {
+    io.stdout(`codexAgentsPath=${codexAgentsApplyResult.targetDirectory}`);
+    io.stdout(
+      `codexAgentsUpdated=${codexAgentsApplyResult.updatedAgents.length}`,
+    );
+    io.stdout(
+      `codexAgentsSkipped=${codexAgentsApplyResult.skippedAgents.length}`,
+    );
+  }
   return EXIT_VALID;
 }

@@ -157,6 +157,7 @@ export function parseLatestManifest(content: string): LatestManifest {
     ),
     publishedAt: assertLatestManifestStringField(parsed, "publishedAt"),
     catalog: validateLatestManifestArtifact(parsed, "catalog"),
+    codexAgents: validateLatestManifestArtifact(parsed, "codexAgents"),
     cli: validateLatestManifestArtifact(parsed, "cli"),
   };
 }

@@ -119,6 +119,7 @@ function writeLatestManifest(
     cliVersion: string;
     catalogVersion: string;
     catalog: { url: string; sha256: string };
+    codexAgents?: { url: string; sha256: string };
     cli: { url: string; sha256: string };
   },
 ): void {
@@ -229,6 +230,7 @@ describe("update + managed catalog", () => {
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -287,6 +289,7 @@ output_modalities = ["text"]
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -385,6 +388,7 @@ output_modalities = ["text"]
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -490,6 +494,7 @@ output_modalities = ["text"]
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -589,6 +594,139 @@ output_modalities = ["text"]
     });
     expect(validateExit).toBe(0);
   });
+
+  test("update: Codex agent는 로컬 버전이 낮은 파일만 갱신", async () => {
+    await runCli(["install", "--scope", "project"], {
+      cwd: projectDir,
+      env: cliEnv,
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+
+    const bundled = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "..",
+        "..",
+        "packages",
+        "opencode",
+        "src",
+        "core",
+        "catalog",
+        "catalog.toml",
+      ),
+      "utf-8",
+    );
+    const managedContent = bundled.replace(
+      'catalogVersion = "2026.07.05.1"',
+      'catalogVersion = "2026.07.05.2"',
+    );
+    fs.writeFileSync(catalogArtifactPath, managedContent, "utf-8");
+    const catalogChecksum = sha256(fs.readFileSync(catalogArtifactPath));
+
+    const codexHome = path.join(fixtureDir, "codex-home");
+    const codexAgentsDirectory = path.join(codexHome, "agents");
+    fs.mkdirSync(codexAgentsDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(codexAgentsDirectory, "code-explorer.toml"),
+      [
+        'name = "code-explorer"',
+        'version = "0.1.0"',
+        'description = "old local"',
+      ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(codexAgentsDirectory, "worker.toml"),
+      [
+        'name = "worker"',
+        'version = "0.3.0"',
+        'description = "newer local"',
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const codexAgentsArtifactPath = path.join(
+      fixtureDir,
+      "codex-agents-0.2.0.tgz",
+    );
+    fs.writeFileSync(
+      codexAgentsArtifactPath,
+      createTarGz([
+        {
+          name: "code-explorer.toml",
+          content: Buffer.from(
+            [
+              'name = "code-explorer"',
+              'version = "0.2.0"',
+              'description = "updated remote"',
+            ].join("\n"),
+          ),
+        },
+        {
+          name: "worker.toml",
+          content: Buffer.from(
+            [
+              'name = "worker"',
+              'version = "0.2.0"',
+              'description = "older remote"',
+            ].join("\n"),
+          ),
+        },
+        {
+          name: "planner.toml",
+          content: Buffer.from(
+            [
+              'name = "planner"',
+              'version = "0.2.0"',
+              'description = "missing local"',
+            ].join("\n"),
+          ),
+        },
+      ]),
+    );
+    const codexAgentsChecksum = sha256(
+      fs.readFileSync(codexAgentsArtifactPath),
+    );
+
+    writeLatestManifest(latestPath, {
+      cliVersion: "0.1.1",
+      catalogVersion: "2026.07.05.2",
+      catalog: {
+        url: `file://${catalogArtifactPath}`,
+        sha256: catalogChecksum,
+      },
+      codexAgents: {
+        url: `file://${codexAgentsArtifactPath}`,
+        sha256: codexAgentsChecksum,
+      },
+      cli: { url: "file:///dev/null", sha256: "0".repeat(64) },
+    });
+
+    const updateExit = await runCli(["update"], {
+      cwd: projectDir,
+      env: { ...releaseEnv(), CODEX_HOME: codexHome },
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+
+    expect(updateExit).toBe(0);
+    expect(
+      fs.readFileSync(
+        path.join(codexAgentsDirectory, "code-explorer.toml"),
+        "utf-8",
+      ),
+    ).toContain('description = "updated remote"');
+    expect(
+      fs.readFileSync(path.join(codexAgentsDirectory, "worker.toml"), "utf-8"),
+    ).toContain('description = "newer local"');
+    expect(
+      fs.readFileSync(path.join(codexAgentsDirectory, "planner.toml"), "utf-8"),
+    ).toContain('description = "missing local"');
+    expect(io.out).toContain(`codexAgentsPath=${codexAgentsDirectory}`);
+    expect(io.out).toContain("codexAgentsUpdated=2");
+    expect(io.out).toContain("codexAgentsSkipped=1");
+  });
 });
 
 describe("upgrade + checksum", () => {
@@ -641,6 +779,7 @@ describe("upgrade + checksum", () => {
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -726,6 +865,7 @@ describe("upgrade + checksum", () => {
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",
@@ -821,6 +961,7 @@ describe("upgrade + checksum", () => {
         "opencode",
         "src",
         "core",
+        "catalog",
         "catalog.toml",
       ),
       "utf-8",

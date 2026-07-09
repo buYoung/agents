@@ -25,3 +25,10 @@ This monorepo contains an opencode agents plugin package and a companion CLI for
 ## 4. User Custom
 - Absolute rule for `fable5.md`: for any work involving `fable5.md`, read `fable5.md` first and treat its current contents as the source of truth. Do not skip this rule for convenience.
 - Absolute rule for `codemap-search`: actively use `codemap-search` for code exploration and repository navigation. Prefer it over generic Read, Grep, Find, shell search, or broad file-reading workflows whenever it is available and suitable; do not skip this rule for convenience.
+
+## 5. Codex Custom Agents
+- Repository-managed Codex custom agent files live in `packages/codex/agents/*.toml`. They are generated from `packages/opencode/src/agents` by `scripts/generate-codex-agents.ts`.
+- For non-trivial Codex work, route directly from the main session to the narrowest useful custom agent instead of requiring the user to invoke a separate orchestration skill.
+- Prefer direct leaf-agent delegation: `code-explorer` for read-only repository reconnaissance, `planner` for convergent implementation planning, `research` for current external facts, `worker` for scoped implementation, `adversarial-review` for defect/security/regression review, `constructive-feedback` for improvement suggestions, `idea-generator` for divergent alternatives, and `intent-checker` only for explicit intent confirmation.
+- Do not spawn the custom `orchestrator` as a routine intermediate agent. Use the main Codex session as the router and spawn leaf agents directly; nested orchestrator delegation requires deeper subagent depth and is more expensive.
+- Keep agent behavior changes in the opencode source first, then regenerate the TOML files so opencode and Codex stay aligned.

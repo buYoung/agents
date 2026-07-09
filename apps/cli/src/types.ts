@@ -15,13 +15,17 @@ export interface LatestManifest {
     url: string;
     sha256: string;
   };
+  codexAgents?: {
+    url: string;
+    sha256: string;
+  };
   cli?: {
     url: string;
     sha256: string;
   };
 }
 
-export type LatestManifestArtifactName = "catalog" | "cli";
+export type LatestManifestArtifactName = "catalog" | "codexAgents" | "cli";
 
 export interface LatestManifestArtifact {
   url: string;
@@ -44,6 +48,13 @@ export interface FileSnapshot {
 
 export interface CliArtifactApplyResult {
   packageRoot: string;
+  targetSnapshots: FileSnapshot[];
+}
+
+export interface CodexAgentsArtifactApplyResult {
+  targetDirectory: string;
+  updatedAgents: string[];
+  skippedAgents: string[];
   targetSnapshots: FileSnapshot[];
 }
 
