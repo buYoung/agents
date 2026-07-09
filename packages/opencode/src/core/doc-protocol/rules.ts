@@ -36,18 +36,18 @@ export const APPEND_ONLY_RULE = `
 ## Append-Only Rule
 
 You own exactly ONE file inside \`.agents/<taskId>/\`.
-Your file is listed in the table below — write ONLY to that file.
+Your file is listed in the map below — write ONLY to that file.
 
-| Agent                  | Owned file                   |
-|------------------------|------------------------------|
-| orchestrator           | task.md                      |
-| worker                 | work.md                      |
-| planner                | plan.md                      |
-| idea-generator         | ideas.md                     |
-| research               | research.md                  |
-| code-explorer          | explore.md                   |
-| adversarial-review     | adversarial-review.md        |
-| constructive-feedback  | constructive-feedback.md     |
+\`\`\`yaml
+orchestrator: task.md
+worker: work.md
+planner: plan.md
+idea-generator: ideas.md
+research: research.md
+code-explorer: explore.md
+adversarial-review: adversarial-review.md
+constructive-feedback: constructive-feedback.md
+\`\`\`
 
 > \`intent-checker\` owns no file — it is a stateless gate and is not bound by this rule.
 
@@ -76,16 +76,16 @@ export const SSOT_RULE = `
 Every piece of information has exactly ONE authoritative file inside
 \`.agents/<taskId>/\`:
 
-| Information type              | Authoritative file            |
-|-------------------------------|-------------------------------|
-| Task overview, progress index | task.md  (orchestrator-owned) |
-| Implementation plan, runId    | plan.md  (planner-owned)      |
-| Work output, code changes     | work.md  (worker-owned)       |
-| Exploration findings          | explore.md                    |
-| Research notes                | research.md                   |
-| Creative/design ideas         | ideas.md                      |
-| Adversarial review results    | adversarial-review.md         |
-| Constructive feedback         | constructive-feedback.md      |
+\`\`\`yaml
+task_overview_progress_index: task.md  # orchestrator-owned
+implementation_plan_runId: plan.md  # planner-owned
+work_output_code_changes: work.md  # worker-owned
+exploration_findings: explore.md
+research_notes: research.md
+creative_design_ideas: ideas.md
+adversarial_review_results: adversarial-review.md
+constructive_feedback: constructive-feedback.md
+\`\`\`
 
 Rules:
 1. **Return path + one-line summary**, never full content, when handing off
