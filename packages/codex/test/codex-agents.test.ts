@@ -12,6 +12,9 @@ const codexAgentsDirectory = path.join(packageRoot, "agents");
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
 ) as { version: string };
+const codexAgentVersions = JSON.parse(
+  fs.readFileSync(path.join(codexAgentsDirectory, "versions.json"), "utf-8"),
+) as Record<string, string>;
 
 const expectedModelProfiles: Record<
   string,
@@ -94,7 +97,8 @@ describe("Codex custom agent TOML", () => {
       const profile = expectedModelProfiles[agentName];
 
       expect(parsed.name).toBe(agentName);
-      expect(parsed.version).toBe(packageJson.version);
+      expect(parsed.version).toBeUndefined();
+      expect(codexAgentVersions[agentName]).toBe(packageJson.version);
       expect(typeof parsed.description).toBe("string");
       expect((parsed.description as string).length).toBeGreaterThan(0);
       expect(parsed.model).toBe(profile.model);

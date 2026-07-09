@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "intent-checker"
-version = "0.1.0"
 description = "Stateless gate that checks whether the orchestrator understood the user's intent. It only evaluates the received original request, classification, delegation plan, and user confirmation response, then returns a one-line proceed, reclassification, or confirmation-needed signal. File writing, taskId, and SSOT rules do not apply."
 model = "gpt-5.5"
 model_reasoning_effort = "medium"

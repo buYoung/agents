@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "constructive-feedback"
-version = "0.1.0"
 description = "Constructive feedback agent that suggests actionable improvements. Each item includes rationale and recommended action, and the agent does not issue an overall verdict."
 model = "gpt-5.5"
 model_reasoning_effort = "medium"

@@ -631,7 +631,6 @@ output_modalities = ["text"]
       path.join(codexAgentsDirectory, "code-explorer.toml"),
       [
         'name = "code-explorer"',
-        'version = "0.1.0"',
         'description = "old local"',
       ].join("\n"),
       "utf-8",
@@ -640,9 +639,20 @@ output_modalities = ["text"]
       path.join(codexAgentsDirectory, "worker.toml"),
       [
         'name = "worker"',
-        'version = "0.3.0"',
         'description = "newer local"',
       ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(codexAgentsDirectory, "versions.json"),
+      JSON.stringify(
+        {
+          "code-explorer": "0.1.0",
+          worker: "0.3.0",
+        },
+        null,
+        2,
+      ) + "\n",
       "utf-8",
     );
 
@@ -658,7 +668,6 @@ output_modalities = ["text"]
           content: Buffer.from(
             [
               'name = "code-explorer"',
-              'version = "0.2.0"',
               'description = "updated remote"',
             ].join("\n"),
           ),
@@ -668,7 +677,6 @@ output_modalities = ["text"]
           content: Buffer.from(
             [
               'name = "worker"',
-              'version = "0.2.0"',
               'description = "older remote"',
             ].join("\n"),
           ),
@@ -678,9 +686,22 @@ output_modalities = ["text"]
           content: Buffer.from(
             [
               'name = "planner"',
-              'version = "0.2.0"',
               'description = "missing local"',
             ].join("\n"),
+          ),
+        },
+        {
+          name: "versions.json",
+          content: Buffer.from(
+            JSON.stringify(
+              {
+                "code-explorer": "0.2.0",
+                planner: "0.2.0",
+                worker: "0.2.0",
+              },
+              null,
+              2,
+            ) + "\n",
           ),
         },
       ]),
@@ -723,6 +744,18 @@ output_modalities = ["text"]
     expect(
       fs.readFileSync(path.join(codexAgentsDirectory, "planner.toml"), "utf-8"),
     ).toContain('description = "missing local"');
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(codexAgentsDirectory, "versions.json"),
+          "utf-8",
+        ),
+      ),
+    ).toEqual({
+      "code-explorer": "0.2.0",
+      planner: "0.2.0",
+      worker: "0.3.0",
+    });
     expect(io.out).toContain(`codexAgentsPath=${codexAgentsDirectory}`);
     expect(io.out).toContain("codexAgentsUpdated=2");
     expect(io.out).toContain("codexAgentsSkipped=1");

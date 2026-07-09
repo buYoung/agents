@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "code-explorer"
-version = "0.1.0"
 description = "Codebase reconnaissance only. Exploration uses read-only tools, and artifact writing is limited to explore.md. bash, webfetch, editing, and redelegation are forbidden."
 model = "gpt-5.4"
 model_reasoning_effort = "low"

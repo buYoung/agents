@@ -15,6 +15,8 @@ import {
 import { getPackageRoot } from "@cli/paths";
 import { compareVersions } from "@cli/release";
 
+const CODEX_AGENT_VERSIONS_FILE = "versions.json";
+
 function parseOctal(value: Buffer): number {
   const text = value.toString("utf-8").replace(/\0.*$/, "").trim();
   return text ? Number.parseInt(text, 8) : 0;
@@ -200,6 +202,40 @@ function readTomlStringField(filePath: string, fieldName: string): string | null
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
+function readCodexAgentVersions(directory: string): Record<string, string> {
+  const versionsPath = path.join(directory, CODEX_AGENT_VERSIONS_FILE);
+  if (!fs.existsSync(versionsPath)) return {};
+  const parsed = JSON.parse(fs.readFileSync(versionsPath, "utf-8")) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${versionsPath} must be a JSON object`);
+  }
+
+  const versions: Record<string, string> = {};
+  for (const [agentName, version] of Object.entries(parsed)) {
+    if (typeof version === "string" && version.trim() !== "") {
+      versions[agentName] = version;
+    }
+  }
+  return versions;
+}
+
+function writeCodexAgentVersions(
+  directory: string,
+  versions: Record<string, string>,
+): void {
+  const sortedVersions = Object.fromEntries(
+    Object.entries(versions).sort(([leftName], [rightName]) =>
+      leftName.localeCompare(rightName),
+    ),
+  );
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(
+    path.join(directory, CODEX_AGENT_VERSIONS_FILE),
+    JSON.stringify(sortedVersions, null, 2) + "\n",
+    "utf-8",
+  );
+}
+
 export function applyCodexAgentsArtifact(
   artifact: Buffer,
   targetDirectory: string,
@@ -210,8 +246,16 @@ export function applyCodexAgentsArtifact(
   try {
     unpackTarGz(artifact, stagingDirectory);
     const sourceFiles = listTomlFiles(stagingDirectory);
+    const sourceVersions = readCodexAgentVersions(stagingDirectory);
+    let targetVersions: Record<string, string> = {};
+    try {
+      targetVersions = readCodexAgentVersions(targetDirectory);
+    } catch {
+      targetVersions = {};
+    }
     const updates: Array<{
       agentName: string;
+      sourceVersion: string;
       sourcePath: string;
       targetPath: string;
     }> = [];
@@ -220,7 +264,6 @@ export function applyCodexAgentsArtifact(
 
     for (const sourcePath of sourceFiles) {
       const agentName = readTomlStringField(sourcePath, "name");
-      const sourceVersion = readTomlStringField(sourcePath, "version");
       if (!agentName) {
         throw new Error(`${sourcePath} missing Codex agent name`);
       }
@@ -231,31 +274,33 @@ export function applyCodexAgentsArtifact(
         throw new Error(`${sourcePath} duplicates Codex agent name ${agentName}`);
       }
       seenAgentNames.add(agentName);
+      const sourceVersion = sourceVersions[agentName];
       if (!sourceVersion) {
-        throw new Error(`${sourcePath} missing Codex agent version`);
+        throw new Error(`${sourcePath} missing Codex agent version metadata`);
       }
 
       const targetPath = path.join(targetDirectory, `${agentName}.toml`);
-      let targetVersion: string | null = null;
-      try {
-        targetVersion = readTomlStringField(targetPath, "version");
-      } catch {
-        targetVersion = null;
-      }
+      const targetVersion = targetVersions[agentName] ?? null;
       if (targetVersion && compareVersions(sourceVersion, targetVersion) <= 0) {
         skippedAgents.push(agentName);
       } else {
-        updates.push({ agentName, sourcePath, targetPath });
+        updates.push({ agentName, sourceVersion, sourcePath, targetPath });
       }
     }
 
-    const targetSnapshots = updates.map((update) =>
-      snapshotFile(update.targetPath),
-    );
+    const versionsPath = path.join(targetDirectory, CODEX_AGENT_VERSIONS_FILE);
+    const targetSnapshots = [
+      ...updates.map((update) => snapshotFile(update.targetPath)),
+      ...(updates.length > 0 ? [snapshotFile(versionsPath)] : []),
+    ];
 
     try {
       for (const update of updates) {
         atomicCopyFile(update.sourcePath, update.targetPath);
+        targetVersions[update.agentName] = update.sourceVersion;
+      }
+      if (updates.length > 0) {
+        writeCodexAgentVersions(targetDirectory, targetVersions);
       }
     } catch (error) {
       for (const targetSnapshot of [...targetSnapshots].reverse()) {

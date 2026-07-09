@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "adversarial-review"
-version = "0.1.0"
 description = "Skeptical review agent that actively searches for risks, edge cases, counterexamples, and breakage points. Each finding includes severity and a reproduction scenario, but the agent does not issue an overall verdict."
 model = "gpt-5.5"
 model_reasoning_effort = "high"

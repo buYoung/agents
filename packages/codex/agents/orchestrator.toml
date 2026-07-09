@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "orchestrator"
-version = "0.1.0"
 description = "Primary orchestrator that classifies requests and delegates to 8 subagents (intent-checker/worker/planner/research/code-explorer/idea-generator/adversarial-review/constructive-feedback). It performs intent confirmation only when needed and sends executable requests to the narrowest subagent chain. It does not directly read or write source code, and uses bash only for read-only fact checks."
 model = "gpt-5.5"
 model_reasoning_effort = "xhigh"

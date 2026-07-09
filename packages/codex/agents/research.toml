@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "research"
-version = "0.1.0"
 description = "Investigates external documentation, libraries, and the web, then records sourced results in research.md. webfetch is allowed. Source edits are forbidden."
 model = "gpt-5.5"
 model_reasoning_effort = "medium"

@@ -1,7 +1,6 @@
 # Generated from packages/opencode/src/agents for Codex custom agents.
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "worker"
-version = "0.1.0"
 description = "Implementation execution agent that directly reads, writes, and edits source. Uses bash, edit, and write inside the workspace and system temporary directory. Redelegation is forbidden."
 model = "gpt-5.5"
 model_reasoning_effort = "high"
