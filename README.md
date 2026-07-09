@@ -156,8 +156,7 @@ pnpm --filter cli test
 
 | 문서 | 설명 |
 | --- | --- |
-| [docs/specs/agent-prompt-improvement-checklist.md](docs/specs/agent-prompt-improvement-checklist.md) | 에이전트별 개선 순서와 완료 기준입니다. |
-| [docs/specs/agent-prompt-iteration-and-compression-guidelines.md](docs/specs/agent-prompt-iteration-and-compression-guidelines.md) | 반복 강화, 치팅 방지, 압축, clean-run 재검증 기준입니다. |
+| [docs/specs/agent-prompt-improvement-guide.md](docs/specs/agent-prompt-improvement-guide.md) | 프롬프트 개선 규칙, 절차, 평가 기준 통합 문서입니다. |
 | [docs/evals/agent-prompts](docs/evals/agent-prompts) | 에이전트별 평가 결과와 최종 증명 기록입니다. |
 
 ## 저장소 작업 규칙

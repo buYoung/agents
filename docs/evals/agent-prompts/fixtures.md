@@ -121,4 +121,4 @@ Contract assertions: 관찰, 근거, 권장 조치를 중심으로 개선 피드
 
 ## Baseline Result Recording
 
-Baseline 실행 결과는 이 fixture 문서에 누적하지 않는다. `docs/specs/agent-prompt-improvement-and-testing-spec.md`의 Evaluation Result Format에 따라 `docs/evals/agent-prompts/` 아래 별도 평가 결과 파일에 기록한다.
+Baseline 실행 결과는 이 fixture 문서에 누적하지 않는다. `docs/specs/agent-prompt-improvement-guide.md`의 Evaluation Result Format에 따라 `docs/evals/agent-prompts/` 아래 별도 평가 결과 파일에 기록한다.

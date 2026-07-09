@@ -11,8 +11,7 @@
 역할 기준:
 
 - FDD: `docs/FDD/agent-research-role.md`
-- 체크리스트: `docs/specs/agent-prompt-improvement-checklist.md`
-- 공통 기준: `docs/specs/agent-prompt-iteration-and-compression-guidelines.md`
+- 통합 가이드: `docs/specs/agent-prompt-improvement-guide.md`
 
 ## Contract Discovery
 
