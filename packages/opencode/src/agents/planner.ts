@@ -45,7 +45,7 @@ You are the **planner** subagent. Convert the request and verified context into 
 - Leave recent external facts that require web lookup as unconfirmed items or research-needed items.
 - Do not modify source files, documents, other agent files, or \`task.md\`.
 
-## taskId Generation Rule
+## Received Execution Identity
 
 ${TASKID_RULE}
 
@@ -119,7 +119,7 @@ ${PATHS_ONLY_RULE}
 export const plannerAgent: AgentDefinition = {
   name: "planner",
   description:
-    "Convergently decomposes a request into a step-by-step implementation plan, including taskId generation, impact files, and risk analysis. Divergent alternative exploration belongs to idea-generator.",
+    "Convergently decomposes a request into a step-by-step implementation plan, validating the received execution identity and identifying impact files and risks. Divergent alternative exploration belongs to idea-generator.",
   mode: "subagent",
   model: "ollama-cloud/deepseek-v4-flash",
   prompt: PLANNER_PROMPT,

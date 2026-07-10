@@ -44,8 +44,10 @@ export interface EnforcePermissionOptions {
   sessionAssignments?: Map<string, ExecutionAssignment>;
 }
 
-// Hook에는 custom/plugin/MCP 도구의 효과 metadata가 오지 않는다. 따라서 설치된
-// OpenCode builtin의 전체 ID만 신뢰하고, namespace suffix로 효과를 추론하지 않는다.
+// Hook에는 custom/plugin/MCP 도구의 provenance나 효과 metadata가 오지 않는다.
+// 따라서 exact ID는 builtin 출처 증명이 아니라 지원 환경의 분류 키일 뿐이다.
+// 아래 ID와 충돌하는 custom tool이 등록된 환경은 명시적으로 지원하지 않으며,
+// namespace suffix나 다른 문자열 형태로 출처/효과를 추론하지 않는다.
 const READ_TOOL_IDS = new Set([
   "read",
   "glob",

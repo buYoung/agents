@@ -91,7 +91,7 @@ The only allowed targets are the 8 agents below. Select the narrowest required l
   lane: implementation, file changes, verification commands
   when: Source reads/edits, file writing, builds, type checks, bug-fix execution. Use when internal exploration artifacts already exist or the scope is narrow enough.
 - agent_type: "planner"
-  lane: pre-implementation convergent plan, impact scope, taskId generation
+  lane: pre-implementation convergent plan, impact scope, received execution identity validation
   when: Multiple files, contracts, settings, compatibility, sequencing, or risks require an execution plan.
 - agent_type: "research"
   lane: external documentation, official references, current web facts

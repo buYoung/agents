@@ -107,7 +107,7 @@ describe("권한 매트릭스", () => {
       "wc -l .agents/20260702-test/orchestrator-index/task.md",
       "test -f .agents/20260702-test/orchestrator-index/task.md",
       "rg --files .agents/20260702-test/orchestrator-index/task.md | wc -l",
-      "git status --short",
+      "git --no-pager log --oneline -5",
     ];
 
     for (const command of commands) {
@@ -196,6 +196,7 @@ describe("권한 매트릭스", () => {
       "sed -i '' 's/a/b/' .agents/20260702-test/task.md",
       "find .agents/20260702-test -type f -delete",
       "git checkout -- packages/opencode/src/core/permissions.ts",
+      "git status --short",
     ];
 
     for (const command of commands) {
@@ -579,7 +580,7 @@ describe("추가 정책 spot-check", () => {
     ).toBe(false);
   });
 
-  test("worker: workspace/temp 밖 bash 접근과 인라인 스크립트 거부", () => {
+  test("worker: 직접 조회 명령만 허용하고 외부 접근·실행 래퍼 거부", () => {
     const options = {
       workspaceRoot: "/repo/project",
       tempRoots: ["/tmp"],
@@ -590,36 +591,46 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "bash",
           sessionID: "s-worker",
+          args: { command: "rg --files src" },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "rg --files src",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "cat /tmp/worker-output.txt",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
           args: {
             command: "pnpm check",
-            workdir: "/repo/project",
-          },
-        },
-        fullMap,
-        options,
-      ).allowed,
-    ).toBe(true);
-    expect(
-      enforcePermission(
-        {
-          tool: "bash",
-          sessionID: "s-worker",
-          args: {
-            command: "cp src/a.ts /tmp/a.ts",
-            workdir: "/repo/project",
-          },
-        },
-        fullMap,
-        options,
-      ).allowed,
-    ).toBe(true);
-    expect(
-      enforcePermission(
-        {
-          tool: "bash",
-          sessionID: "s-worker",
-          args: {
-            command: "cp src/a.ts /Users/other/a.ts",
             workdir: "/repo/project",
           },
         },
@@ -633,7 +644,66 @@ describe("추가 정책 spot-check", () => {
           tool: "bash",
           sessionID: "s-worker",
           args: {
-            command: "pnpm check",
+            command: "cp src/a.ts /tmp/a.ts",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    for (const command of [
+      "date -s 2030-01-01",
+      "diff src/a.ts src/b.ts --output=src/result.diff",
+    ]) {
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID: "s-worker",
+            args: { command, workdir: "/repo/project" },
+          },
+          fullMap,
+          options,
+        ).allowed,
+        command,
+      ).toBe(false);
+    }
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: 'nice sh -c "cat /Users/other/outside.txt"',
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "cat /Users/other/outside.txt",
+            workdir: "/repo/project",
+          },
+        },
+        fullMap,
+        options,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "s-worker",
+          args: {
+            command: "rg --files src",
             workdir: "/Users/other",
           },
         },

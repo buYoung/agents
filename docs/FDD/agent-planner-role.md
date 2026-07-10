@@ -4,8 +4,8 @@ profile: full
 feature-name: agent-planner-role
 status: active
 created: 2026-07-06
-last-verified: 2026-07-07
-verified-against: current-worktree
+last-verified: 2026-07-10
+verified-against: 926f009
 tags: [agents, planner, planning, convergent]
 related:
   - docs/FDD/agent-worker-role.md
@@ -42,7 +42,7 @@ Planner Agent Role is the convergent planning role that turns a request and avai
 
 - 구현 전 계획을 세우는 agent 역할이다.
 - 소스 읽기와 제한적 검증을 통해 사실 기반 계획을 만든다.
-- 필요 시 taskId 생성이 가능한 bash-capable 계획 역할이다.
+- 오케스트레이터가 할당한 taskId, workItemId, 정확한 산출물 경로로 구성된 실행 식별 정보를 검증하고 그대로 사용하는 계획 역할이다.
 
 ### This feature is not
 
@@ -77,7 +77,7 @@ Planner Agent Role is the convergent planning role that turns a request and avai
 Users should not need to understand:
 
 - 내부 검색 방법.
-- taskId를 만드는 세부 명령.
+- 실행 식별 정보가 할당되는 내부 절차.
 
 ### Core Concepts
 
@@ -86,6 +86,7 @@ Users should not need to understand:
 | Convergent Planning | 여러 가능성 중 실행 경로 하나로 좁히는 계획 |
 | Impact Scope | 변경이 영향을 줄 수 있는 범위 |
 | Risk | 구현 전 식별해야 하는 회귀 또는 호환성 우려 |
+| 실행 식별 정보 | 오케스트레이터가 미리 할당한 taskId, workItemId, 정확한 산출물 경로 |
 | Plan Artifact | 구현 전에 남기는 계획 산출물 |
 
 ---
@@ -107,6 +108,7 @@ Users should not need to understand:
 
 ```text
 구현 전에 범위 판단이 필요하다.
+  -> planner가 전달받은 실행 식별 정보를 검증한다.
   -> planner가 관련 컨텍스트를 확인한다.
   -> 영향 범위와 위험을 정리한다.
   -> 하나의 실행 방향으로 수렴한다.
@@ -135,7 +137,7 @@ Users should not need to understand:
 
 ### 8.1 Behavior
 
-`planner`는 `subagent` 실행 모드다. 소스 읽기와 제한적 명령 실행은 가능하지만 소스 변경, 웹 조회, 재위임은 허용되지 않는다. 산출물은 실행 계획과 영향 범위를 담는 `plan.md`다.
+`planner`는 `subagent` 실행 모드다. 오케스트레이터에게 받은 taskId, workItemId, 정확한 산출물 경로가 모두 유효할 때만 계획을 진행한다. 소스 읽기와 제한적 명령 실행은 가능하지만 소스 변경, 웹 조회, 재위임은 허용되지 않는다. 산출물은 실행 계획과 영향 범위를 담는 `plan.md`다.
 
 ### 8.2 Conceptual Data Model
 
@@ -143,6 +145,7 @@ Users should not need to understand:
 | ------ | ------- |
 | Planning Request | 계획이 필요한 작업 목표 |
 | Verified Context | 읽기와 검증으로 확인한 사실 |
+| 실행 식별 정보 | 오케스트레이터가 할당하고 planner가 검증하는 실행 식별 정보 |
 | Execution Direction | 선택된 단일 실행 경로 |
 | Plan Artifact | 계획 결과 산출물 |
 
@@ -154,14 +157,15 @@ Users should not need to understand:
 | Source Edit Policy | 허용하지 않음 |
 | Web Fetch Policy | 허용하지 않음 |
 | Task Policy | 허용하지 않음 |
-| Owned Artifact | `.agents/<taskId>/plan.md` |
+| Owned Artifact | `.agents/<taskId>/<workItemId>/plan.md` |
 
 ### 8.3 Failure Handling
 
 - 사실 확인이 부족하면 추측하지 않고 미확인 사항으로 남긴다.
 - 소스 변경 시도는 거부된다.
 - 웹 조회가 필요한 문제는 research 역할로 분리되어야 한다.
-- taskId가 이미 주어졌으면 날짜 확인이나 taskId 재생성을 하지 않는다.
+- taskId, workItemId, 정확한 산출물 경로가 누락되거나 유효하지 않으면 쓰기 전에 중단한다.
+- 받은 실행 식별 정보를 재생성, 대체, 정규화하지 않는다.
 - 산출물 경로 확인이나 디렉터리 생성을 위해 명령을 실행하지 않고, 자기 산출물은 write로 직접 기록한다.
 
 ---
@@ -189,7 +193,7 @@ Rationale:
 
 - 계획과 실행이 섞이면 변경 책임이 불명확해진다.
 
-### 9.3 제한적 명령 실행 정책
+### 9.3 제한적 명령 실행 정책 [superseded 2026-07-10 — see Revision History]
 
 Decision:
 
@@ -199,6 +203,19 @@ Decision:
 Rationale:
 
 - 계획 agent가 경로 확인이나 디렉터리 생성을 명령으로 처리하면 산출물 소유권과 실행 책임이 흐려진다.
+
+### 9.4 수신 실행 식별 정보 정책
+
+Decision:
+
+- taskId와 workItemId의 생성 책임은 오케스트레이터에 있다.
+- `planner`는 받은 taskId, workItemId, 정확한 산출물 경로를 검증하고 그대로 사용한다.
+- 실행 식별 정보가 누락되거나 유효하지 않으면 `planner`는 쓰기 전에 중단하며 대체 값을 만들지 않는다.
+- `planner`의 명령 실행은 읽기 검증으로 제한하며 실행 식별 정보 생성에는 사용하지 않는다.
+
+Rationale:
+
+- 실행마다 산출물 소유권을 고유하게 유지하고 계획 역할과 조정 역할의 책임을 분리해야 한다.
 
 ---
 
@@ -241,22 +258,23 @@ Rationale:
 
 ## 12. Scope
 
-### In Scope for as implemented (2026-07-07)
+### In Scope for as implemented (2026-07-10)
 
 - 구현 전 계획.
 - 영향 범위와 위험 정리.
 - 단일 실행 경로 수렴.
-- taskId 생성 가능성.
-- 주어진 taskId와 산출물 경로를 그대로 사용하는 입력 잠금.
+- 오케스트레이터가 할당한 taskId, workItemId, 정확한 산출물 경로 검증.
+- 검증된 실행 식별 정보를 그대로 사용하는 입력 잠금.
 - 산출물 `plan.md` write.
 
-### Out of Scope for as implemented (2026-07-07)
+### Out of Scope for as implemented (2026-07-10)
 
 - 소스 변경.
 - 웹 기반 외부 조사.
 - 여러 대안의 장기 발산.
 - 산출물 경로 확인 또는 디렉터리 생성.
 - 다른 agent 재위임.
+- taskId 또는 workItemId 생성·대체.
 
 ---
 
@@ -266,7 +284,16 @@ Rationale:
 
 - 계획이 과도하게 상세해지면 실행 계획과 경계가 흐려질 수 있다.
 - 미확인 사실이 누락되면 worker가 잘못된 가정으로 구현할 수 있다.
+- 오케스트레이터가 유효한 실행 식별 정보를 전달하지 않으면 계획 산출물을 만들 수 없다.
 
 ### Open Questions
 
 - 계획 산출물의 상세도 기준은 작업 규모에 따라 더 구체화될 수 있다.
+
+---
+
+## Revision History
+
+| Date | Type | Summary |
+| ---- | ---- | ------- |
+| 2026-07-10 | superseded | planner의 taskId 생성 책임을 폐기하고, 오케스트레이터가 할당한 taskId·workItemId·정확한 산출물 경로를 planner가 검증하고 소비하는 정책으로 교체했다. |

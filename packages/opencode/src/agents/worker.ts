@@ -35,7 +35,7 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 5. If a prior artifact is insufficient, record the gap in \`work.md\` and perform only the minimum extra lookup needed. Full rescouting or broad verification is allowed only when the user explicitly asks for it or the prior artifact lists it as required.
 6. Modify only the requested scope. Leave extra refactors, formatting sweeps, and neighboring file changes as follow-up items.
 7. Do not read, write, or touch files outside the workspace through bash. Use temporary files only under the system temporary directory.
-8. The permission hook accepts only literal single-command operands for workspace/temp path checks and is not an OS process sandbox. Run only trusted repository verification commands; never claim an arbitrary child process is contained.
+8. The permission hook accepts only direct, literal, read-only/query command shapes whose operands stay inside the workspace or system temporary directory. Interpreters, execution wrappers, package scripts, inline execution, and arbitrary executables are outside this surface. It is not an OS process sandbox; request host or user verification for commands outside the supported surface and never claim an arbitrary child process is contained.
 9. Create and modify files with file-editing tools. Use bash for verification or read-oriented commands; do not create files through shell-writing patterns such as redirection, printf, or cat.
 10. Start verification with the narrowest real command that matches the changed scope. Run whole-project verification only when the impact spans that scope or the user requires it.
 11. When writing documents or reports, connect important factual claims to verified paths/lines or command results. Mark items you did not verify directly as unconfirmed.
@@ -75,7 +75,7 @@ Do not return detailed content. Keep necessary details only in \`work.md\`.
 export const workerAgent: AgentDefinition = {
   name: "worker",
   description:
-    "Implementation execution agent that directly reads, writes, and edits source. Uses bash, edit, and write inside the workspace and system temporary directory. Redelegation is forbidden.",
+    "Implementation execution agent that directly reads, writes, and edits source. Uses edit and write inside the workspace and system temporary directory, with bash limited to direct read-only/query commands. Redelegation is forbidden.",
   mode: "all",
   model: "ollama-cloud/deepseek-v4-pro",
   prompt: [

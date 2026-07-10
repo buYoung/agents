@@ -87,6 +87,51 @@ const READ_ONLY_BASH_COMMANDS = new Set([
   "[",
 ]);
 
+// worker의 workspace/temp 경계는 임의 실행 파일을 포함하지 않는다. 파일 변경
+// 수단이나 외부 실행 기능이 없는 직접 조회 명령만 명시적으로 허용한다.
+const WORKSPACE_BOUNDED_DIRECT_COMMANDS = new Set([
+  "basename",
+  "cat",
+  "cmp",
+  "comm",
+  "cut",
+  "df",
+  "dirname",
+  "du",
+  "echo",
+  "egrep",
+  "false",
+  "fgrep",
+  "git",
+  "grep",
+  "head",
+  "id",
+  "jq",
+  "ls",
+  "md5",
+  "md5sum",
+  "nl",
+  "paste",
+  "printf",
+  "pwd",
+  "rg",
+  "shasum",
+  "sha1sum",
+  "sha256sum",
+  "stat",
+  "tail",
+  "test",
+  "tr",
+  "true",
+  "type",
+  "uname",
+  "uniq",
+  "wc",
+  "which",
+  "whoami",
+  "[",
+]);
+
 const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   "grep",
   "log",
@@ -94,7 +139,6 @@ const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   "rev-list",
   "rev-parse",
   "show-ref",
-  "status",
 ]);
 
 function optionSet(options: string): ReadonlySet<string> {
@@ -102,7 +146,6 @@ function optionSet(options: string): ReadonlySet<string> {
 }
 
 const SAFE_GIT_OPTIONS: Record<string, ReadonlySet<string>> = {
-  status: optionSet("-s --short -b --branch --show-stash --ahead-behind --no-ahead-behind --renames --no-renames -z"),
   log: optionSet("--oneline --abbrev-commit --no-abbrev-commit --no-decorate --stat --shortstat --numstat --name-only --name-status --summary --graph --all --first-parent --merges --no-merges --reverse --topo-order --date-order --author-date-order --fixed-strings --regexp-ignore-case"),
   "ls-files": optionSet("-c --cached -d --deleted -m --modified -o --others -i --ignored -s --stage -u --unmerged -k --killed --directory --no-empty-directory --error-unmatch --full-name --recurse-submodules -z"),
   "rev-list": optionSet("--all --first-parent --merges --no-merges --reverse --topo-order --date-order --objects --objects-edge --count --quiet"),
@@ -112,7 +155,6 @@ const SAFE_GIT_OPTIONS: Record<string, ReadonlySet<string>> = {
 };
 
 const SAFE_GIT_OPTION_PREFIXES: Record<string, readonly string[]> = {
-  status: "--porcelain= --untracked-files= --ignored= --column= --find-renames=".split(" "),
   log: "--pretty= --format= --decorate= --max-count= --since= --until= --author= --grep= --date= --branches= --tags= --remotes=".split(" "),
   "ls-files": "--abbrev= --format=".split(" "),
   "rev-list": "--max-count= --since= --until= --author=".split(" "),
@@ -133,30 +175,6 @@ const UNSAFE_READ_ONLY_ARGS: Record<string, readonly string[]> = {
   git: ["--paginate", "--exec-path", "--config-env", "--ext-diff", "--textconv"],
   rg: ["--pre", "--pre-glob"],
 };
-
-const INLINE_SCRIPT_COMMANDS = new Set([
-  "bash",
-  "node",
-  "perl",
-  "php",
-  "python",
-  "python3",
-  "ruby",
-  "sh",
-  "zsh",
-]);
-
-const SCRIPT_FILE_PATTERN = /\.(?:bash|cjs|js|mjs|php|pl|py|rb|sh|zsh)$/i;
-const PACKAGE_EXEC_COMMANDS = new Set(["bunx", "npx"]);
-const PACKAGE_EXEC_SUBCOMMANDS = new Set(["dlx", "exec", "x"]);
-const DYNAMIC_EXECUTION_COMMANDS = new Set([
-  ".",
-  "awk",
-  "eval",
-  "sed",
-  "source",
-  "xargs",
-]);
 
 interface BashTokenizeResult {
   tokens: string[];
@@ -414,62 +432,6 @@ function splitBashSegments(tokens: string[]): string[][] {
   return segments.filter((segment) => segment.length > 0);
 }
 
-function getSegmentCommandIndex(tokens: string[]): number {
-  let commandIndex = tokens.findIndex((token) => !isShellAssignment(token));
-  if (commandIndex < 0) return -1;
-
-  const commandName = tokens[commandIndex];
-  if (commandName === "command" || commandName === "builtin") {
-    commandIndex += 1;
-  }
-
-  if (tokens[commandIndex] === "env") {
-    commandIndex += 1;
-    while (
-      commandIndex < tokens.length &&
-      (tokens[commandIndex].startsWith("-") ||
-        isShellAssignment(tokens[commandIndex]))
-    ) {
-      commandIndex += 1;
-    }
-  }
-
-  return commandIndex < tokens.length ? commandIndex : -1;
-}
-
-function hasScriptExecution(tokens: string[]): boolean {
-  return splitBashSegments(tokens).some((segment) => {
-    const commandIndex = getSegmentCommandIndex(segment);
-    if (commandIndex < 0) return false;
-
-    const commandName = segment[commandIndex];
-    const commandArgs = segment.slice(commandIndex + 1);
-    if (INLINE_SCRIPT_COMMANDS.has(commandName)) return true;
-    if (DYNAMIC_EXECUTION_COMMANDS.has(commandName)) return true;
-    if (PACKAGE_EXEC_COMMANDS.has(commandName)) return true;
-    if (
-      ["bun", "npm", "pnpm", "yarn"].includes(commandName) &&
-      commandArgs.some((arg) => PACKAGE_EXEC_SUBCOMMANDS.has(arg))
-    ) {
-      return true;
-    }
-    if (isPathLikeToken(commandName) || SCRIPT_FILE_PATTERN.test(commandName)) {
-      return true;
-    }
-    if (
-      commandName === "find" &&
-      commandArgs.some((arg) =>
-        ["-exec", "-execdir", "-ok", "-okdir"].includes(arg),
-      )
-    ) {
-      return true;
-    }
-    return commandArgs.some(
-      (arg) => !arg.startsWith("-") && SCRIPT_FILE_PATTERN.test(arg),
-    );
-  });
-}
-
 function getAssignmentValue(token: string): string | undefined {
   if (!isShellAssignment(token)) return undefined;
   return token.slice(token.indexOf("=") + 1);
@@ -490,8 +452,7 @@ function getEmbeddedOptionPath(token: string): string | undefined {
 function getPotentialPathTokens(tokens: string[]): string[] {
   const pathTokens: string[] = [];
   for (const segment of splitBashSegments(tokens)) {
-    const commandIndex = getSegmentCommandIndex(segment);
-    if (commandIndex < 0) continue;
+    const commandIndex = 0;
     for (let index = 0; index < segment.length; index += 1) {
       const token = segment[index];
       const assignmentValue = getAssignmentValue(token);
@@ -523,7 +484,7 @@ export function isWorkspaceBoundedBash(
   workspaceRoot: string | undefined,
   tempRoots: readonly string[],
 ): boolean {
-  if (!workspaceRoot) return true;
+  if (!workspaceRoot) return false;
 
   const command = getBashCommand(args);
   if (!command.trim()) return false;
@@ -533,7 +494,12 @@ export function isWorkspaceBoundedBash(
   const segments = splitBashSegments(tokenizeResult.tokens);
   if (segments.length !== 1) return false;
   if (segments[0].some(isShellAssignment)) return false;
-  if (["command", "builtin", "env"].includes(segments[0][0] ?? "")) {
+  const commandName = segments[0][0];
+  if (
+    !commandName ||
+    !WORKSPACE_BOUNDED_DIRECT_COMMANDS.has(commandName) ||
+    !isReadOnlyBashSegment(segments[0])
+  ) {
     return false;
   }
 
@@ -555,10 +521,6 @@ export function isWorkspaceBoundedBash(
     workspaceRoot,
   );
   if (inspectPath(effectiveWorkdir, workspaceRoot).category === "agents") {
-    return false;
-  }
-
-  if (hasScriptExecution(tokenizeResult.tokens)) {
     return false;
   }
 

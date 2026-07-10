@@ -348,6 +348,62 @@ function callsTargetThread(calls, threadId) {
   return calls.some((call) => call.targetThreadIds?.includes(threadId));
 }
 
+function escapeRegularExpression(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function spawnMessageContainsExecutionContract(spawnCall, executionContract) {
+  if (!executionContract.outputPath) return true;
+  if (typeof spawnCall?.message !== "string") return false;
+  return [
+    executionContract.taskId,
+    executionContract.workItemId,
+    executionContract.outputPath,
+  ].every((value) => spawnCall.message.includes(value));
+}
+
+function extractArtifactSpawnContract(spawnCall, taskId) {
+  const artifactFile = artifactFileByAgent[spawnCall.agentType];
+  if (!artifactFile) return null;
+  if (typeof spawnCall.message !== "string") {
+    return {
+      error: `${spawnCall.agentType}: missing spawn message`,
+    };
+  }
+
+  const artifactPathPattern = new RegExp(
+    `\\.agents/${escapeRegularExpression(taskId)}/([a-z0-9]+(?:-[a-z0-9]+)*)/${escapeRegularExpression(artifactFile)}(?![A-Za-z0-9._/-])`,
+    "g",
+  );
+  const pathMatches = [...spawnCall.message.matchAll(artifactPathPattern)];
+  const uniquePaths = new Map(
+    pathMatches.map((match) => [match[0], match[1]]),
+  );
+  if (uniquePaths.size !== 1) {
+    return {
+      error: `${spawnCall.agentType}: expected one exact assigned artifact path, saw ${uniquePaths.size}`,
+    };
+  }
+
+  const [[outputPath, workItemId]] = uniquePaths;
+  if (
+    !spawnCall.message.includes(taskId) ||
+    !spawnCall.message.includes(workItemId) ||
+    !spawnCall.message.includes(outputPath)
+  ) {
+    return {
+      error: `${spawnCall.agentType}: spawn message omitted taskId, workItemId, or exact output path`,
+    };
+  }
+
+  return {
+    agentType: spawnCall.agentType,
+    taskId,
+    workItemId,
+    outputPath,
+  };
+}
+
 function summarizeJsonl(stdout) {
   let usage = null;
   const messages = [];
@@ -860,6 +916,28 @@ async function runCase({
         .filter((toolCall) =>
           ["wait", "wait_agent"].includes(toolCall.tool),
         );
+      const orchestratorCloseCalls = orchestratorSessions
+        .flatMap((session) => session.toolCalls)
+        .filter((toolCall) => toolCall.tool === "close_agent");
+      const artifactLeafSpawns = orchestratorLeafSpawns.filter(
+        (spawnCall) => artifactFileByAgent[spawnCall.agentType],
+      );
+      const artifactLeafContracts = artifactLeafSpawns.map((spawnCall) =>
+        extractArtifactSpawnContract(spawnCall, executionContract.taskId),
+      );
+      const invalidArtifactLeafContracts = artifactLeafContracts.filter(
+        (contract) => contract?.error,
+      );
+      const duplicateWorkItemIds = [];
+      const assignedWorkItemIds = new Set([executionContract.workItemId]);
+      for (const contract of artifactLeafContracts) {
+        if (!contract || contract.error) continue;
+        if (assignedWorkItemIds.has(contract.workItemId)) {
+          duplicateWorkItemIds.push(contract.workItemId);
+        } else {
+          assignedWorkItemIds.add(contract.workItemId);
+        }
+      }
       const incompleteLeafSessions = leafSessions.filter(
         (session) =>
           session.finalMessage.trim() === "" || session.terminalEventCount === 0,
@@ -884,6 +962,9 @@ async function runCase({
       const unwaitedLeafThreadIds = [...leafThreadIds].filter(
         (threadId) => !callsTargetThread(orchestratorWaitCalls, threadId),
       );
+      const unclosedLeafThreadIds = [...leafThreadIds].filter(
+        (threadId) => !callsTargetThread(orchestratorCloseCalls, threadId),
+      );
 
       if (summary.spawnedAgentThreadCount !== 1) {
         summary.error = `expected root to spawn one orchestrator, saw ${summary.spawnedAgentThreadCount} root-level threads`;
@@ -893,6 +974,10 @@ async function runCase({
         summary.error = "expected root session to spawn orchestrator";
       } else if (rootSpawn.agentType !== orchestratorAgent) {
         summary.error = `expected root agent_type ${orchestratorAgent}, saw ${rootSpawn.agentType}`;
+      } else if (
+        !spawnMessageContainsExecutionContract(rootSpawn, executionContract)
+      ) {
+        summary.error = "root orchestrator spawn omitted its assigned taskId, workItemId, or exact output path";
       } else if (
         typeof rootSpawn.message === "string" &&
         /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
@@ -935,6 +1020,10 @@ async function runCase({
         )
       ) {
         summary.error = "orchestrator passed an unsanitized prompt to a leaf agent";
+      } else if (invalidArtifactLeafContracts.length > 0) {
+        summary.error = `artifact-writing leaf spawn contract invalid: ${invalidArtifactLeafContracts.map((contract) => contract.error).join(", ")}`;
+      } else if (duplicateWorkItemIds.length > 0) {
+        summary.error = `artifact-writing spawns reused workItemId values: ${duplicateWorkItemIds.join(", ")}`;
       } else if (
         expectedLeafAgents.length > 0 &&
         orchestratorWaitCalls.length === 0
@@ -948,8 +1037,14 @@ async function runCase({
         summary.error = `leaf sessions missing terminal results: ${incompleteLeafSessions.map((session) => session.agentRole ?? session.sessionId).join(", ")}`;
       } else if (unwaitedLeafThreadIds.length > 0) {
         summary.error = `orchestrator did not wait for leaf threads: ${unwaitedLeafThreadIds.join(", ")}`;
+      } else if (unclosedLeafThreadIds.length > 0) {
+        summary.error = `orchestrator did not close leaf threads: ${unclosedLeafThreadIds.join(", ")}`;
       } else if (expectedLeafAgents.length > 0 && !summary.artifactExists) {
         summary.error = `missing orchestrator artifact: ${executionContract.outputPath}`;
+      } else if (
+        !orchestratorSession.finalMessage.includes(executionContract.outputPath)
+      ) {
+        summary.error = `orchestrator final result did not return assigned artifact path: ${executionContract.outputPath}`;
       }
     } else {
       const rootSpawn = summary.spawnCalls[0];
@@ -968,6 +1063,11 @@ async function runCase({
         summary.error = `expected one spawned custom agent, saw ${summary.spawnedAgentThreadCount}`;
       } else if (!rootSpawn || rootSpawn.agentType !== agent) {
         summary.error = `expected root agent_type ${agent}, saw ${rootSpawn?.agentType ?? "missing"}`;
+      } else if (
+        executionContract.outputPath &&
+        !spawnMessageContainsExecutionContract(rootSpawn, executionContract)
+      ) {
+        summary.error = "root custom-agent spawn omitted its assigned taskId, workItemId, or exact output path";
       } else if (childSessions.length !== 1) {
         summary.error = `expected one concrete child session, saw ${childSessions.length}`;
       } else if (childSession.agentRole !== agent) {

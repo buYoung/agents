@@ -129,6 +129,12 @@ pnpm --filter cli exec agents validate
 pnpm --filter cli exec agents doctor
 ```
 
+### 도구 ID 충돌 지원 경계
+
+OpenCode의 실행 전 훅은 도구의 등록 주체나 효과 정보 없이 도구 ID만 전달합니다. 따라서 사용자 지정 플러그인이 `read`, `glob`, `grep`, `list`, `lsp`, `codesearch`, `edit`, `write`, `apply_patch`, `bash`, `webfetch`, `websearch`, `task` 중 하나와 같은 ID를 등록하는 환경은 지원하지 않습니다. 이 플러그인을 그런 사용자 지정 도구와 함께 사용하지 마세요.
+
+현재 OpenCode 설정과 훅 API는 플러그인 package 목록은 노출하지만 각 package가 등록한 도구 ID의 출처는 노출하지 않으므로, 이 플러그인이 충돌을 정확히 탐지하거나 내장 도구 호출과 구분할 수 없습니다. 네임스페이스가 붙은 ID의 접미사로 권한을 추론하지 않으며, 분류되지 않은 전체 ID는 기본 거부합니다. 충돌 환경에서는 권한 집행 보장을 제공하지 않습니다.
+
 ## 개발 명령
 
 루트에서 실행합니다.
