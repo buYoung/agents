@@ -122,6 +122,6 @@ Rules:
 
 ## Output File
 
-Record review results in `adversarial-review.md`. Create it directly when it is new; append only when an existing file was provided as an input artifact.
+Record review results in `adversarial-review.md`. Create it directly when it is new; append only when the existing file is explicitly assigned as the current Output for continuation, including a reactivated historical Output.
 Do not return detailed content. Keep necessary details only in `adversarial-review.md`.
 '''

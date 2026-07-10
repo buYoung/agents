@@ -17,6 +17,14 @@ export const RUNTIME_NETWORK_TOOL_IDS = ["webfetch", "websearch"] as const;
 
 export const RUNTIME_TASK_TOOL_IDS = ["task"] as const;
 
+/** OpenCode native permission namespace와 충돌하면 안 되는 core 권한 ID. */
+export const RUNTIME_CORE_PERMISSION_IDS = [
+  "doom_loop",
+  "external_directory",
+  "plan_enter",
+  "plan_exit",
+] as const;
+
 export const GENERIC_MCP_RESOURCE_TOOL_IDS = [
   "list_mcp_resources",
   "list_mcp_resource_templates",
@@ -29,6 +37,7 @@ export const RESERVED_RUNTIME_TOOL_IDS = [
   ...RUNTIME_BASH_TOOL_IDS,
   ...RUNTIME_NETWORK_TOOL_IDS,
   ...RUNTIME_TASK_TOOL_IDS,
+  ...RUNTIME_CORE_PERMISSION_IDS,
   ...GENERIC_MCP_RESOURCE_TOOL_IDS,
 ] as const;
 

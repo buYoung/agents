@@ -5,7 +5,7 @@ feature-name: agent-planner-role
 status: active
 created: 2026-07-06
 last-verified: 2026-07-10
-verified-against: 97adf80
+verified-against: a482dd3
 tags: [agents, planner, planning, convergent]
 related:
   - docs/FDD/agent-orchestrator-role.md

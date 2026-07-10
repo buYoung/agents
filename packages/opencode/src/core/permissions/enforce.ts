@@ -129,7 +129,7 @@ export function enforcePermission(
 ): EnforcementResult {
   const rawToolName = input.tool;
   const toolName = rawToolName.toLowerCase();
-  const toolKind = resolveToolKind(toolName);
+  const toolKind = resolveToolKind(rawToolName);
   const configuredMcpTool = toolKind
     ? undefined
     : matchConfiguredMcpTool(options?.configuredMcpPolicy, rawToolName);
@@ -144,7 +144,11 @@ export function enforcePermission(
   const isTaskTool = toolKind === "task";
   const isMcpResourceTool = toolKind === "mcp-resource";
 
-  const targetPaths = extractTargetPaths(input.args, toolName);
+  // 로컬 경로 해석은 exact builtin/resource ID에만 적용한다. configured MCP의
+  // 인자는 서버 고유 schema이므로 builtin path 규칙으로 추론하지 않는다.
+  const targetPaths = toolKind
+    ? extractTargetPaths(input.args, toolName)
+    : [];
   const targetPath = targetPaths[0];
   const inspectedPaths = targetPaths.map((pathValue) => ({
     pathValue,
