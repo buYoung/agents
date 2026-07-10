@@ -110,6 +110,14 @@ export function inspectPath(
     if (isWindowsAbsolutePath(targetPath) && !path.isAbsolute(targetPath)) {
       return "현재 플랫폼에서 해석할 수 없는 절대 경로";
     }
+    if (
+      targetPath.startsWith("~") &&
+      targetPath !== "~" &&
+      !targetPath.startsWith("~/") &&
+      !targetPath.startsWith("~\\")
+    ) {
+      return "지원하지 않는 사용자 홈 축약 경로";
+    }
     return undefined;
   })();
   const safeTargetPath = targetPath.includes("\0") ? "" : targetPath;
@@ -210,8 +218,15 @@ export function resolveTargetPath(
   targetPath: string,
   workspaceRoot?: string,
 ): string {
+  if (targetPath === "~") {
+    return os.homedir();
+  }
+  if (targetPath.startsWith("~/") || targetPath.startsWith("~\\")) {
+    return path.resolve(os.homedir(), targetPath.slice(2));
+  }
   if (targetPath.startsWith("~")) {
-    return path.resolve(os.homedir(), targetPath.slice(1));
+    // `~user` 해석은 shell/OS 계정 데이터에 의존하므로 경계 판별에서 지원하지 않는다.
+    return targetPath;
   }
   if (path.isAbsolute(targetPath)) {
     return path.resolve(targetPath);

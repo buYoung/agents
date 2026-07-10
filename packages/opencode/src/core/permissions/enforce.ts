@@ -5,12 +5,16 @@
 import * as fs from "node:fs";
 import type { AgentName } from "@opencode/core/doc-protocol";
 import {
+  getTaskExecutionAssignment,
+  isSameExecutionAssignment,
+  type ExecutionAssignment,
+} from "./assignment";
+import {
   getBashCommand,
+  inspectBashArtifactAccess,
   isDisabledMcpCommandUsed,
   isReadOnlyBash,
   isWorkspaceBoundedBash,
-  targetsRestrictedOrchestratorArtifact,
-  targetsRunArtifact,
 } from "./bash";
 import {
   getDefaultTempRoots,
@@ -36,67 +40,35 @@ export interface EnforcePermissionOptions {
   workspaceRoot?: string;
   /** 작업공간 밖에서 허용할 임시 디렉터리 루트. 미지정 시 OS/env 기본값을 쓴다. */
   tempRoots?: readonly string[];
+  /** 런타임 task/message lifecycle에서 확인한 세션별 정확한 실행 할당. */
+  sessionAssignments?: Map<string, ExecutionAssignment>;
 }
 
-const READ_TOOL_ALIASES = new Set([
+// Hook에는 custom/plugin/MCP 도구의 효과 metadata가 오지 않는다. 따라서 설치된
+// OpenCode builtin의 전체 ID만 신뢰하고, namespace suffix로 효과를 추론하지 않는다.
+const READ_TOOL_IDS = new Set([
   "read",
-  "read_file",
   "glob",
   "grep",
   "list",
-  "list_files",
   "lsp",
   "codesearch",
-  "ast_grep_search",
 ]);
 
-const EDIT_TOOL_ALIASES = new Set([
+const EDIT_TOOL_IDS = new Set([
   "edit",
-  "edit_file",
   "write",
-  "write_file",
-  "delete_file",
-  "move_file",
   "apply_patch",
-  "ast_grep_replace",
 ]);
 
-const BASH_TOOL_ALIASES = new Set([
-  "bash",
-  "shell",
-  "exec",
-  "execute_command",
-  "terminal",
-]);
+const BASH_TOOL_IDS = new Set(["bash"]);
 
-const WEBFETCH_TOOL_ALIASES = new Set([
+const NETWORK_TOOL_IDS = new Set([
   "webfetch",
-  "web_fetch",
-  "fetch_url",
-  "http_request",
+  "websearch",
 ]);
 
-const TASK_TOOL_ALIASES = new Set([
-  "task",
-  "delegate",
-  "spawn_agent",
-  "spawn_task",
-]);
-
-const ARTIFACT_DESTRUCTIVE_TOOL_ALIASES = new Set([
-  "delete_file",
-  "move_file",
-]);
-
-function getToolAliasCandidates(toolName: string): string[] {
-  const normalized = toolName.toLowerCase();
-  const candidates = [normalized];
-  for (const separator of ["__", ".", ":", "/"]) {
-    const parts = normalized.split(separator).filter(Boolean);
-    if (parts.length > 1) candidates.push(parts.at(-1) ?? normalized);
-  }
-  return candidates;
-}
+const TASK_TOOL_IDS = new Set(["task"]);
 
 function resolveToolKind(toolName: string):
   | "read"
@@ -105,22 +77,11 @@ function resolveToolKind(toolName: string):
   | "webfetch"
   | "task"
   | undefined {
-  const candidates = getToolAliasCandidates(toolName);
-  if (candidates.some((candidate) => READ_TOOL_ALIASES.has(candidate))) {
-    return "read";
-  }
-  if (candidates.some((candidate) => EDIT_TOOL_ALIASES.has(candidate))) {
-    return "edit";
-  }
-  if (candidates.some((candidate) => BASH_TOOL_ALIASES.has(candidate))) {
-    return "bash";
-  }
-  if (candidates.some((candidate) => WEBFETCH_TOOL_ALIASES.has(candidate))) {
-    return "webfetch";
-  }
-  if (candidates.some((candidate) => TASK_TOOL_ALIASES.has(candidate))) {
-    return "task";
-  }
+  if (READ_TOOL_IDS.has(toolName)) return "read";
+  if (EDIT_TOOL_IDS.has(toolName)) return "edit";
+  if (BASH_TOOL_IDS.has(toolName)) return "bash";
+  if (NETWORK_TOOL_IDS.has(toolName)) return "webfetch";
+  if (TASK_TOOL_IDS.has(toolName)) return "task";
   return undefined;
 }
 
@@ -235,16 +196,19 @@ export function enforcePermission(
     const artifactPaths = inspectedPaths.filter(
       ({ inspection }) => inspection.category === "agents",
     );
-    const toolAliasCandidates = getToolAliasCandidates(toolName);
-    if (
-      artifactPaths.length > 0 &&
-      toolAliasCandidates.some((candidate) =>
-        ARTIFACT_DESTRUCTIVE_TOOL_ALIASES.has(candidate),
-      )
-    ) {
+    const patchOperations = extractPatchOperations(input.args);
+    const deletesArtifact = patchOperations.some(
+      (operation) =>
+        operation.kind === "delete" &&
+        inspectPath(operation.path, options?.workspaceRoot).category === "agents",
+    );
+    const movesArtifact =
+      patchOperations.some((operation) => operation.kind === "move") &&
+      artifactPaths.length > 0;
+    if (deletesArtifact || movesArtifact) {
       return {
         allowed: false,
-        reason: `[baseline] 산출물 delete/move 도구 거부 — tool=${toolName}`,
+        reason: `[baseline] 산출물 patch Delete/Move 거부 — tool=${toolName}`,
       };
     }
     for (const artifactPath of artifactPaths) {
@@ -264,11 +228,46 @@ export function enforcePermission(
           reason: `[baseline] ${agent}는 ${identity.owner} 소유 산출물 쓰기 불가 — path=${artifactPath.pathValue}`,
         };
       }
+      if (isEditTool) {
+        let assignment = options?.sessionAssignments?.get(input.sessionID);
+        if (
+          !assignment &&
+          agent === "orchestrator" &&
+          identity.owner === "orchestrator" &&
+          options?.sessionAssignments
+        ) {
+          // Root orchestrator에는 부모 task metadata가 없다. 명시 입력 경로가
+          // 없을 때에만 첫 task.md 쓰기를 세션 할당으로 고정한다(TOFU 경계).
+          assignment = {
+            agent: identity.owner,
+            taskId: identity.taskId,
+            workItemId: identity.workItemId,
+            artifactPath: identity.relativePath,
+          };
+          options.sessionAssignments.set(input.sessionID, assignment);
+        }
+        if (!assignment) {
+          return {
+            allowed: false,
+            reason: `[baseline] ${agent}: lifecycle에서 확인된 실행 할당 없는 산출물 쓰기 거부 — path=${artifactPath.pathValue}`,
+          };
+        }
+        const requestedAssignment: ExecutionAssignment = {
+          agent: identity.owner,
+          taskId: identity.taskId,
+          workItemId: identity.workItemId,
+          artifactPath: identity.relativePath,
+        };
+        if (!isSameExecutionAssignment(assignment, requestedAssignment)) {
+          return {
+            allowed: false,
+            reason: `[baseline] ${agent}: 다른 실행 할당의 산출물 쓰기 거부 — assigned=${assignment.taskId}/${assignment.workItemId}/${assignment.agent}, requested=${identity.taskId}/${identity.workItemId}/${identity.owner}`,
+          };
+        }
+      }
       if (
         isEditTool &&
-        toolAliasCandidates.some((candidate) =>
-          ["write", "write_file"].includes(candidate),
-        ) &&
+        toolName === "write" &&
         fs.existsSync(artifactPath.inspection.canonicalPath)
       ) {
         return {
@@ -334,6 +333,34 @@ export function enforcePermission(
       }
       const targetAgent = subagentType.trim();
       if ((allowedSubagentNames as readonly string[]).includes(targetAgent)) {
+        const assignment = getTaskExecutionAssignment(
+          input.args,
+          options?.workspaceRoot,
+        );
+        if (targetAgent !== "intent-checker" && !assignment) {
+          return {
+            allowed: false,
+            reason: `[policy] ${agent}: task → ${targetAgent}는 고유 taskId/workItemId와 정확한 역할 산출물 경로가 prompt에 하나 있어야 함`,
+          };
+        }
+        const continuedSessionID = input.args["task_id"];
+        if (typeof continuedSessionID === "string" && assignment) {
+          const existingAssignment = options?.sessionAssignments?.get(
+            continuedSessionID,
+          );
+          if (!existingAssignment) {
+            return {
+              allowed: false,
+              reason: `[policy] ${agent}: lifecycle 할당이 없는 task continuation 거부 — session=${continuedSessionID}`,
+            };
+          }
+          if (!isSameExecutionAssignment(existingAssignment, assignment)) {
+            return {
+              allowed: false,
+              reason: `[policy] ${agent}: task continuation 실행 할당 변경 거부 — session=${continuedSessionID}`,
+            };
+          }
+        }
         return {
           allowed: true,
           reason: `[policy] ${agent}: task → ${targetAgent} 허용`,
@@ -363,10 +390,17 @@ export function enforcePermission(
         reason: `[policy] 비활성 MCP 명령은 bash로 우회 실행 불가 — command=${disabledMcpCommand}`,
       };
     }
-    if (
-      targetsRunArtifact(bashCommand, options?.workspaceRoot) &&
-      !isReadOnlyBash(bashCommand)
-    ) {
+    const artifactAccess = inspectBashArtifactAccess(
+      input.args,
+      options?.workspaceRoot,
+    );
+    if (artifactAccess.invalidReason) {
+      return {
+        allowed: false,
+        reason: `[baseline] bash 산출물 경로 거부 — ${artifactAccess.invalidReason}`,
+      };
+    }
+    if (artifactAccess.identities.length > 0 && !isReadOnlyBash(bashCommand)) {
       return {
         allowed: false,
         reason: "[baseline] .agents 산출물을 대상으로 한 변경 가능 bash 거부 — 파일 도구와 역할 소유 경로를 사용하라",
@@ -374,9 +408,8 @@ export function enforcePermission(
     }
     if (
       agent === "orchestrator" &&
-      targetsRestrictedOrchestratorArtifact(
-        bashCommand,
-        options?.workspaceRoot,
+      artifactAccess.identities.some(
+        (identity) => identity.owner !== "orchestrator",
       )
     ) {
       return {
@@ -486,43 +519,22 @@ function extractTargetPaths(
     return [];
   }
 
-  if (getToolAliasCandidates(toolName).includes("glob")) {
+  if (toolName === "glob") {
     const scopePath = args["path"] ?? args["glob"];
     return typeof scopePath === "string" && scopePath.length > 0
       ? [scopePath]
       : [];
   }
 
-  if (getToolAliasCandidates(toolName).includes("grep")) {
+  if (toolName === "grep") {
     const scopePath = args["path"];
     return typeof scopePath === "string" && scopePath.length > 0
       ? [scopePath]
       : [];
   }
 
-  if (getToolAliasCandidates(toolName).includes("apply_patch")) {
-    const input = args["input"] ?? args["patchText"];
-    if (typeof input === "string") {
-      const paths = new Set<string>();
-      const patterns = [
-        /^\*\*\* Add File: (.+)$/gm,
-        /^\*\*\* Update File: (.+)$/gm,
-        /^\*\*\* Delete File: (.+)$/gm,
-        /^\*\*\* Move to: (.+)$/gm,
-        /^--- a\/(.+)$/gm,
-        /^\+\+\+ b\/(.+)$/gm,
-      ];
-
-      for (const pattern of patterns) {
-        let match: RegExpExecArray | null;
-        while ((match = pattern.exec(input)) !== null) {
-          if (match[1]) paths.add(match[1].trim());
-        }
-      }
-
-      return [...paths];
-    }
-    return [];
+  if (toolName === "apply_patch") {
+    return [...new Set(extractPatchOperations(args).map(({ path }) => path))];
   }
 
   const pathKeys = [
@@ -555,4 +567,38 @@ function extractTargetPaths(
   }
 
   return [...new Set(paths)];
+}
+
+interface PatchOperation {
+  kind: "add" | "update" | "delete" | "move";
+  path: string;
+}
+
+function extractPatchOperations(
+  args: Record<string, unknown>,
+): PatchOperation[] {
+  const input = args["input"] ?? args["patchText"];
+  if (typeof input !== "string") return [];
+
+  const operations: PatchOperation[] = [];
+  const patterns: Array<{
+    kind: PatchOperation["kind"];
+    pattern: RegExp;
+  }> = [
+    { kind: "add", pattern: /^\*\*\* Add File: (.+)$/gm },
+    { kind: "update", pattern: /^\*\*\* Update File: (.+)$/gm },
+    { kind: "delete", pattern: /^\*\*\* Delete File: (.+)$/gm },
+    { kind: "move", pattern: /^\*\*\* Move to: (.+)$/gm },
+    { kind: "delete", pattern: /^--- a\/(.+)\r?\n\+\+\+ \/dev\/null$/gm },
+    { kind: "update", pattern: /^--- a\/(.+)$/gm },
+    { kind: "update", pattern: /^\+\+\+ b\/(.+)$/gm },
+  ];
+
+  for (const { kind, pattern } of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(input)) !== null) {
+      if (match[1]) operations.push({ kind, path: match[1].trim() });
+    }
+  }
+  return operations;
 }

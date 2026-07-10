@@ -7,8 +7,12 @@
 import type { Config } from "@opencode-ai/plugin";
 import type { AgentDefinition } from "@opencode/core/types";
 import type { AgentName } from "@opencode/core/doc-protocol";
+import { AGENT_NAMES } from "@opencode/core/doc-protocol";
 import {
   enforcePermission,
+  getAgentExecutionAssignment,
+  getTaskExecutionAssignment,
+  type ExecutionAssignment,
   type createSessionAgentMap,
 } from "@opencode/core/permissions";
 import { buildProviderConfig, type Catalog } from "@opencode/core/catalog";
@@ -25,7 +29,10 @@ export interface PluginHookHandlers {
   ) => Promise<void>;
   "chat.message": (
     input: { sessionID: string; agent?: string; [key: string]: unknown },
-    output?: { message?: { agent?: string } },
+    output?: {
+      message?: { agent?: string };
+      parts?: Array<{ type?: string; text?: string }>;
+    },
   ) => Promise<void>;
   event: (input: {
     event: { type: string; properties?: unknown };
@@ -48,7 +55,25 @@ export function createPluginHookHandlers(options: {
     workspaceRoot,
     sessionAgentMap,
   } = options;
-  const { map, updateSessionAgent, deleteSession } = sessionAgentMap;
+  const {
+    map,
+    assignmentMap,
+    updateSessionAgent,
+    bindSessionAssignment,
+    deleteSession,
+  } = sessionAgentMap;
+
+  function bindAssignmentOrThrow(
+    sessionID: string,
+    assignment: ExecutionAssignment,
+  ): void {
+    if (!bindSessionAssignment(sessionID, assignment)) {
+      const existing = assignmentMap.get(sessionID);
+      throw new Error(
+        `[agents] 실행 할당 충돌 — sessionID=${sessionID}, existing=${existing?.taskId}/${existing?.workItemId}/${existing?.agent}, requested=${assignment.taskId}/${assignment.workItemId}/${assignment.agent}`,
+      );
+    }
+  }
 
   const config = async (opencodeConfig: Config): Promise<void> => {
     const cfg = opencodeConfig as Record<string, unknown>;
@@ -163,29 +188,80 @@ export function createPluginHookHandlers(options: {
       {
         subagentNames: enabledSubagentNames,
         workspaceRoot,
+        sessionAssignments: assignmentMap,
       },
     );
 
     if (!result.allowed) {
       throw new Error(`[agents] 권한 거부 — ${result.reason}`);
     }
+
+    if (input.tool.toLowerCase() === "task") {
+      const continuedSessionID = args["task_id"];
+      const assignment = getTaskExecutionAssignment(args, workspaceRoot);
+      if (typeof continuedSessionID === "string" && assignment) {
+        bindAssignmentOrThrow(continuedSessionID, assignment);
+      }
+    }
   };
 
   const chatMessage = async (
     input: { sessionID: string; agent?: string; [key: string]: unknown },
-    output?: { message?: { agent?: string } },
+    output?: {
+      message?: { agent?: string };
+      parts?: Array<{ type?: string; text?: string }>;
+    },
   ): Promise<void> => {
     // output.message.agent가 OpenCode가 실제로 해소한 역할이다. 입력 힌트보다
     // 우선하고, custom/built-in 이름이면 updateSessionAgent가 stale 매핑을 지운다.
     const agent = output?.message?.agent ?? input.agent;
     if (agent) {
       updateSessionAgent(input.sessionID, agent);
+      if ((AGENT_NAMES as readonly string[]).includes(agent)) {
+        const prompt = (output?.parts ?? [])
+          .filter((part) => part.type === "text" && typeof part.text === "string")
+          .map((part) => part.text)
+          .join("\n");
+        const assignment = getAgentExecutionAssignment(
+          agent as AgentName,
+          prompt,
+          workspaceRoot,
+        );
+        if (assignment) bindAssignmentOrThrow(input.sessionID, assignment);
+      }
     }
   };
 
   const event = async (input: {
     event: { type: string; properties?: unknown };
   }): Promise<void> => {
+    if (input.event.type === "message.part.updated") {
+      const props = input.event.properties as
+        | {
+            part?: {
+              type?: string;
+              tool?: string;
+              state?: {
+                input?: Record<string, unknown>;
+                metadata?: Record<string, unknown>;
+              };
+            };
+          }
+        | undefined;
+      const part = props?.part;
+      const taskInput = part?.state?.input;
+      const childSessionID = part?.state?.metadata?.["sessionId"];
+      if (
+        part?.type === "tool" &&
+        part.tool === "task" &&
+        taskInput &&
+        typeof childSessionID === "string"
+      ) {
+        const assignment = getTaskExecutionAssignment(taskInput, workspaceRoot);
+        if (assignment) bindAssignmentOrThrow(childSessionID, assignment);
+      }
+    }
+
     if (input.event.type === "session.deleted") {
       const props = input.event.properties as
         | { info?: { id?: string }; sessionID?: string }

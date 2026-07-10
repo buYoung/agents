@@ -4,6 +4,10 @@
 
 import type { AgentName } from "@opencode/core/doc-protocol";
 import { AGENT_NAMES as AGENT_NAMES_IMPL } from "@opencode/core/doc-protocol";
+import {
+  isSameExecutionAssignment,
+  type ExecutionAssignment,
+} from "./assignment";
 
 /**
  * 세션→에이전트 맵과 업데이트 함수를 함께 반환한다.
@@ -12,10 +16,16 @@ import { AGENT_NAMES as AGENT_NAMES_IMPL } from "@opencode/core/doc-protocol";
  */
 export function createSessionAgentMap(): {
   map: Map<string, AgentName>;
+  assignmentMap: Map<string, ExecutionAssignment>;
   updateSessionAgent: (sessionID: string, agent: string | undefined) => void;
+  bindSessionAssignment: (
+    sessionID: string,
+    assignment: ExecutionAssignment,
+  ) => boolean;
   deleteSession: (sessionID: string) => void;
 } {
   const map = new Map<string, AgentName>();
+  const assignmentMap = new Map<string, ExecutionAssignment>();
 
   function updateSessionAgent(
     sessionID: string,
@@ -23,22 +33,47 @@ export function createSessionAgentMap(): {
   ): void {
     if (!agent) {
       map.delete(sessionID);
+      assignmentMap.delete(sessionID);
       return;
     }
     // 알려진 에이전트 이름만 저장한다. built-in/custom/unknown 전환은
     // 이전 역할의 권한이 남지 않도록 즉시 매핑을 지운다.
     if ((AGENT_NAMES_IMPL as readonly string[]).includes(agent)) {
       map.set(sessionID, agent as AgentName);
+      const assignment = assignmentMap.get(sessionID);
+      if (assignment && assignment.agent !== agent) {
+        assignmentMap.delete(sessionID);
+      }
     } else {
       map.delete(sessionID);
+      assignmentMap.delete(sessionID);
     }
+  }
+
+  function bindSessionAssignment(
+    sessionID: string,
+    assignment: ExecutionAssignment,
+  ): boolean {
+    const existing = assignmentMap.get(sessionID);
+    if (existing && !isSameExecutionAssignment(existing, assignment)) {
+      return false;
+    }
+    assignmentMap.set(sessionID, assignment);
+    return true;
   }
 
   function deleteSession(sessionID: string): void {
     map.delete(sessionID);
+    assignmentMap.delete(sessionID);
   }
 
-  return { map, updateSessionAgent, deleteSession };
+  return {
+    map,
+    assignmentMap,
+    updateSessionAgent,
+    bindSessionAssignment,
+    deleteSession,
+  };
 }
 
 /**

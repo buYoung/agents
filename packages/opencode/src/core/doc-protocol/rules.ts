@@ -97,9 +97,9 @@ export const TASKID_RULE = `
 Format: \`YYYYMMDD-<slug>\`, for example \`20260702-auth-login\`.
 
 Generation:
-- Only a bash-capable agent may create a new taskId with \`date +%Y%m%d\` plus a descriptive slug.
-- The orchestrator threads the chosen taskId through later subagent calls.
-- If the first artifact-writing subagent cannot run bash, the orchestrator may use its embedded run date.
+- The orchestrator allocates a new taskId from its session date plus a descriptive slug before the first artifact-writing delegation.
+- The orchestrator threads that taskId and a unique workItemId through later subagent calls.
+- Artifact-writing leaf agents never generate either identifier; they stop when the exact assignment is missing.
 
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.

@@ -30,7 +30,7 @@ describe("플러그인 로드", () => {
   test("9개 에이전트 + 모드 검증", async () => {
     const hooks = await pluginFactory(stubInput, {});
     const agentRecord = (hooks as unknown as Record<string, unknown>)
-      .agent as Record<string, { name: string; mode: string }>;
+      .agent as Record<string, { name: string; mode: string; prompt: string }>;
 
     expect(agentRecord).toBeTypeOf("object");
     expect(agentRecord).not.toBeNull();
@@ -56,6 +56,28 @@ describe("플러그인 로드", () => {
     expect(agentRecord["code-explorer"]?.mode).toBe("subagent");
     expect(agentRecord["planner"]?.mode).toBe("subagent");
     expect(agentRecord["intent-checker"]?.mode).toBe("subagent");
+    const orchestratorPrompt = agentRecord["orchestrator"]?.prompt ?? "";
+    expect(orchestratorPrompt).toContain(
+      "`intent-checker`, `planner`, and `idea-generator` are optional singletons",
+    );
+    expect(orchestratorPrompt).toContain(
+      "Only `worker`, `research`, and `code-explorer` may have adaptive multiple active instances",
+    );
+    expect(orchestratorPrompt).toContain(
+      "At least two explicit work items are ready now",
+    );
+    expect(orchestratorPrompt).toContain(
+      "Never hard-code a host slot count and never spawn to fill idle capacity",
+    );
+    expect(orchestratorPrompt).toContain(
+      "independent work, independent corroboration, transient-failure replacement, or changed-input re-review",
+    );
+    expect(orchestratorPrompt).toContain(
+      "Review only an immutable integrated result",
+    );
+    expect(orchestratorPrompt).toContain(
+      "not a bespoke runtime scheduler",
+    );
   });
 
   test("훅 존재: config, tool.execute.before, chat.message, event", async () => {

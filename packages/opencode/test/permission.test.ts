@@ -8,7 +8,33 @@ import {
   enforcePermission,
   createSessionAgentMap,
   type AgentName,
+  type ExecutionAssignment,
 } from "@opencode/core/permissions";
+
+function executionAssignment(
+  agent: ExecutionAssignment["agent"],
+  taskId: string,
+  workItemId: string,
+  filename: string,
+): ExecutionAssignment {
+  return {
+    agent,
+    taskId,
+    workItemId,
+    artifactPath: `.agents/${taskId}/${workItemId}/${filename}`,
+  };
+}
+
+function artifactTaskArgs(
+  agent: ExecutionAssignment["agent"],
+  workItemId: string,
+  filename: string,
+): Record<string, unknown> {
+  return {
+    subagent_type: agent,
+    prompt: `taskId=20260702-test workItemId=${workItemId} output=.agents/20260702-test/${workItemId}/${filename}`,
+  };
+}
 
 function makeMap(entries: [AgentName, string][]): Map<string, AgentName> {
   const { map, updateSessionAgent } = createSessionAgentMap();
@@ -33,6 +59,26 @@ describe("권한 매트릭스", () => {
     ["orchestrator", "session-orch"],
     ["code-explorer", "session-explore"],
     ["worker", "session-worker"],
+  ]);
+  const testAssignments = new Map<string, ExecutionAssignment>([
+    [
+      "session-orch",
+      executionAssignment(
+        "orchestrator",
+        "20260702-test",
+        "orchestrator-index",
+        "task.md",
+      ),
+    ],
+    [
+      "session-explore",
+      executionAssignment(
+        "code-explorer",
+        "20260702-test",
+        "explorer-01",
+        "explore.md",
+      ),
+    ],
   ]);
 
   test("orchestrator: source edit 거부", () => {
@@ -187,7 +233,10 @@ describe("권한 매트릭스", () => {
         },
       },
       testMap,
-      { workspaceRoot: "/Users/buyong/workspace/private/buyong-agents" },
+      {
+        workspaceRoot: "/Users/buyong/workspace/private/buyong-agents",
+        sessionAssignments: testAssignments,
+      },
     );
     expect(result.allowed).toBe(true);
     expect(classifyPath("src/not.agents.md")).toBe("source");
@@ -203,6 +252,7 @@ describe("권한 매트릭스", () => {
         },
       },
       testMap,
+      { sessionAssignments: testAssignments },
     );
     expect(result.allowed).toBe(true);
   });
@@ -252,7 +302,7 @@ describe("위임(task 도구)", () => {
       {
         tool: "task",
         sessionID: "session-orch",
-        args: { subagent_type: "worker" },
+        args: artifactTaskArgs("worker", "worker-01", "work.md"),
       },
       testMap,
     );
@@ -264,7 +314,7 @@ describe("위임(task 도구)", () => {
       {
         tool: "task",
         sessionID: "session-orch",
-        args: { subagent_type: "planner" },
+        args: artifactTaskArgs("planner", "planner-01", "plan.md"),
       },
       testMap,
     );
@@ -274,7 +324,7 @@ describe("위임(task 도구)", () => {
       {
         tool: "task",
         sessionID: "session-orch",
-        args: { subagent_type: "planner" },
+        args: artifactTaskArgs("planner", "planner-01", "plan.md"),
       },
       testMap,
       { subagentNames: ["worker"] },
@@ -322,6 +372,26 @@ describe("추가 정책 spot-check", () => {
     ["adversarial-review", "s-adv"],
     ["constructive-feedback", "s-cf"],
   ]);
+  const fullAssignments = new Map<string, ExecutionAssignment>([
+    [
+      "s-research",
+      executionAssignment(
+        "research",
+        "20260702-test",
+        "research-01",
+        "research.md",
+      ),
+    ],
+    [
+      "s-planner",
+      executionAssignment(
+        "planner",
+        "20260707-test",
+        "planner-01",
+        "plan.md",
+      ),
+    ],
+  ]);
 
   test("research: webfetch 허용", () => {
     const result = enforcePermission(
@@ -332,7 +402,10 @@ describe("추가 정책 spot-check", () => {
   });
 
   test("research: source 쓰기 거부, workspace 내부 산출물 쓰기만 허용", () => {
-    const options = { workspaceRoot: "/repo/project" };
+    const options = {
+      workspaceRoot: "/repo/project",
+      sessionAssignments: fullAssignments,
+    };
 
     expect(
       enforcePermission(
@@ -395,7 +468,10 @@ describe("추가 정책 spot-check", () => {
           {
             tool: "bash",
             sessionID,
-            args: { command: "wc -l .agents/20260707-test/plan.md" },
+            args: {
+              command:
+                "wc -l .agents/20260707-test/planner-01/plan.md",
+            },
           },
           fullMap,
         ).allowed,
@@ -435,7 +511,7 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "bash",
           sessionID: "s-planner",
-          args: { command: "git log --oneline -5" },
+          args: { command: "git --no-pager log --oneline -5" },
         },
         fullMap,
       ).allowed,
@@ -590,6 +666,7 @@ describe("추가 정책 spot-check", () => {
           args: { path: ".agents/20260707-test/planner-01/plan.md" },
         },
         fullMap,
+        { sessionAssignments: fullAssignments },
       ).allowed,
     ).toBe(true);
     expect(
@@ -600,6 +677,7 @@ describe("추가 정책 spot-check", () => {
           args: { path: ".agents/20260707-test/planner-01/plan.md" },
         },
         fullMap,
+        { sessionAssignments: fullAssignments },
       ).allowed,
     ).toBe(true);
   });

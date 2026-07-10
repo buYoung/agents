@@ -2,11 +2,13 @@
  * permissions/bash.ts — bash 토큰화·읽기전용/워크스페이스 경계 판별
  */
 
+import path from "node:path";
 import {
   getRunArtifactIdentity,
   inspectPath,
   isPathWithinAllowedRoots,
   resolveTargetPath,
+  type RunArtifactIdentity,
 } from "./path";
 
 export function getBashCommand(args: Record<string, unknown>): string {
@@ -94,6 +96,36 @@ const READ_ONLY_GIT_SUBCOMMANDS = new Set([
   "show-ref",
   "status",
 ]);
+
+function optionSet(options: string): ReadonlySet<string> {
+  return new Set(options.split(" "));
+}
+
+const SAFE_GIT_OPTIONS: Record<string, ReadonlySet<string>> = {
+  status: optionSet("-s --short -b --branch --show-stash --ahead-behind --no-ahead-behind --renames --no-renames -z"),
+  log: optionSet("--oneline --abbrev-commit --no-abbrev-commit --no-decorate --stat --shortstat --numstat --name-only --name-status --summary --graph --all --first-parent --merges --no-merges --reverse --topo-order --date-order --author-date-order --fixed-strings --regexp-ignore-case"),
+  "ls-files": optionSet("-c --cached -d --deleted -m --modified -o --others -i --ignored -s --stage -u --unmerged -k --killed --directory --no-empty-directory --error-unmatch --full-name --recurse-submodules -z"),
+  "rev-list": optionSet("--all --first-parent --merges --no-merges --reverse --topo-order --date-order --objects --objects-edge --count --quiet"),
+  "rev-parse": optionSet("--verify --quiet -q --short --symbolic --symbolic-full-name --abbrev-ref --show-toplevel --show-prefix --show-cdup --show-superproject-working-tree --is-inside-work-tree --is-bare-repository --is-shallow-repository --git-dir --absolute-git-dir"),
+  "show-ref": optionSet("--head --heads --tags -d --dereference --verify --exists --hash --abbrev --quiet -q"),
+  grep: optionSet("-n --line-number -i --ignore-case -w --word-regexp -v --invert-match -E --extended-regexp -G --basic-regexp -F --fixed-strings -P --perl-regexp -l --files-with-matches -L --files-without-match -c --count --break --heading -h -H --full-name --recurse-submodules"),
+};
+
+const SAFE_GIT_OPTION_PREFIXES: Record<string, readonly string[]> = {
+  status: "--porcelain= --untracked-files= --ignored= --column= --find-renames=".split(" "),
+  log: "--pretty= --format= --decorate= --max-count= --since= --until= --author= --grep= --date= --branches= --tags= --remotes=".split(" "),
+  "ls-files": "--abbrev= --format=".split(" "),
+  "rev-list": "--max-count= --since= --until= --author=".split(" "),
+  "rev-parse": "--short= --abbrev-ref=".split(" "),
+  "show-ref": "--hash= --abbrev=".split(" "),
+  grep: "--max-depth= --threads= --context= --after-context= --before-context=".split(" "),
+};
+
+const SAFE_GIT_OPTIONS_WITH_VALUE: Record<string, ReadonlySet<string>> = {
+  log: optionSet("-n --max-count --since --until --author --grep --format --pretty --date"),
+  "rev-list": optionSet("-n --max-count --since --until --author"),
+  grep: optionSet("-e --regexp -A -B -C --after-context --before-context --context --max-depth --threads"),
+};
 
 const SHELL_SEPARATORS = new Set([";", "|", "&&", "||"]);
 
@@ -263,12 +295,51 @@ function isUnsafeReadOnlyArgument(commandName: string, args: string[]): boolean 
 }
 
 function isReadOnlyGitCommand(args: string[]): boolean {
-  const subcommand = args.find((arg) => !arg.startsWith("-"));
-  return (
-    typeof subcommand === "string" &&
-    READ_ONLY_GIT_SUBCOMMANDS.has(subcommand) &&
-    !args.some((arg) => arg === "-c" || arg.startsWith("-c="))
-  );
+  let subcommandIndex = 0;
+  let hasNoPager = false;
+  while (subcommandIndex < args.length && args[subcommandIndex].startsWith("-")) {
+    const option = args[subcommandIndex];
+    if (option !== "--no-pager" && option !== "-P") return false;
+    hasNoPager = true;
+    subcommandIndex += 1;
+  }
+
+  const subcommand = args[subcommandIndex];
+  if (!subcommand || !READ_ONLY_GIT_SUBCOMMANDS.has(subcommand)) return false;
+  if ((subcommand === "log" || subcommand === "grep") && !hasNoPager) {
+    return false;
+  }
+
+  const safeOptions = SAFE_GIT_OPTIONS[subcommand] ?? new Set<string>();
+  const safePrefixes = SAFE_GIT_OPTION_PREFIXES[subcommand] ?? [];
+  const optionsWithValue =
+    SAFE_GIT_OPTIONS_WITH_VALUE[subcommand] ?? new Set<string>();
+  const subcommandArgs = args.slice(subcommandIndex + 1);
+  let afterPathSeparator = false;
+  for (let index = 0; index < subcommandArgs.length; index += 1) {
+    const argument = subcommandArgs[index];
+    if (afterPathSeparator) continue;
+    if (argument === "--") {
+      afterPathSeparator = true;
+      continue;
+    }
+    if (!argument.startsWith("-")) continue;
+    if (
+      (subcommand === "log" || subcommand === "rev-list") &&
+      /^-\d+$/.test(argument)
+    ) {
+      continue;
+    }
+    if (safeOptions.has(argument)) continue;
+    if (safePrefixes.some((prefix) => argument.startsWith(prefix))) continue;
+    if (optionsWithValue.has(argument)) {
+      index += 1;
+      if (index >= subcommandArgs.length) return false;
+      continue;
+    }
+    return false;
+  }
+  return true;
 }
 
 function isReadOnlyBashSegment(tokens: string[]): boolean {
@@ -421,11 +492,8 @@ function getPotentialPathTokens(tokens: string[]): string[] {
   for (const segment of splitBashSegments(tokens)) {
     const commandIndex = getSegmentCommandIndex(segment);
     if (commandIndex < 0) continue;
-    for (const token of segment.slice(0, commandIndex)) {
-      const assignmentValue = getAssignmentValue(token);
-      if (assignmentValue) pathTokens.push(assignmentValue);
-    }
-    for (const token of segment.slice(commandIndex + 1)) {
+    for (let index = 0; index < segment.length; index += 1) {
+      const token = segment[index];
       const assignmentValue = getAssignmentValue(token);
       if (assignmentValue !== undefined) {
         if (assignmentValue) pathTokens.push(assignmentValue);
@@ -436,10 +504,18 @@ function getPotentialPathTokens(tokens: string[]): string[] {
         pathTokens.push(embeddedPath);
         continue;
       }
-      if (!token.startsWith("-")) pathTokens.push(token);
+      if (index !== commandIndex && !token.startsWith("-")) {
+        pathTokens.push(token);
+      }
     }
   }
   return pathTokens;
+}
+
+function hasDynamicBoundedShellSyntax(command: string): boolean {
+  // Shell expansion semantics are intentionally outside this classifier. A
+  // bounded worker invocation must use literal operands and one command only.
+  return /[\r\n<>;|&()`$*?\[\]{}~]/.test(command);
 }
 
 export function isWorkspaceBoundedBash(
@@ -451,14 +527,34 @@ export function isWorkspaceBoundedBash(
 
   const command = getBashCommand(args);
   if (!command.trim()) return false;
+  if (hasDynamicBoundedShellSyntax(command)) return false;
   const tokenizeResult = tokenizeBashCommand(command);
   if (tokenizeResult.error) return false;
-  if (/\$(?:\{|[A-Za-z_0-9@*#?$!-])/.test(command)) return false;
+  const segments = splitBashSegments(tokenizeResult.tokens);
+  if (segments.length !== 1) return false;
+  if (segments[0].some(isShellAssignment)) return false;
+  if (["command", "builtin", "env"].includes(segments[0][0] ?? "")) {
+    return false;
+  }
 
   const workdir = args["workdir"];
-  const effectiveWorkdir =
+  const effectiveWorkdirInput =
     typeof workdir === "string" && workdir.length > 0 ? workdir : workspaceRoot;
-  if (!isPathWithinAllowedRoots(effectiveWorkdir, workspaceRoot, tempRoots)) {
+  if (!effectiveWorkdirInput) return false;
+  if (
+    !isPathWithinAllowedRoots(
+      effectiveWorkdirInput,
+      workspaceRoot,
+      tempRoots,
+    )
+  ) {
+    return false;
+  }
+  const effectiveWorkdir = resolveTargetPath(
+    effectiveWorkdirInput,
+    workspaceRoot,
+  );
+  if (inspectPath(effectiveWorkdir, workspaceRoot).category === "agents") {
     return false;
   }
 
@@ -467,6 +563,7 @@ export function isWorkspaceBoundedBash(
   }
 
   return getPotentialPathTokens(tokenizeResult.tokens).every((token) =>
+    !token.split(/[\\/]/).includes("..") &&
     isPathWithinAllowedRoots(
       resolveTargetPath(token, effectiveWorkdir),
       workspaceRoot,
@@ -475,30 +572,81 @@ export function isWorkspaceBoundedBash(
   );
 }
 
-export function targetsRunArtifact(
-  command: string,
-  workspaceRoot: string | undefined,
-): boolean {
-  const tokenizeResult = tokenizeBashCommand(command);
-  if (tokenizeResult.error) return false;
-
-  return tokenizeResult.tokens.some((token) => {
-    if (!isPathLikeToken(token)) return false;
-    return inspectPath(token, workspaceRoot).category === "agents";
-  });
+export interface BashArtifactAccess {
+  identities: RunArtifactIdentity[];
+  invalidReason?: string;
 }
 
-export function targetsRestrictedOrchestratorArtifact(
-  command: string,
+export function inspectBashArtifactAccess(
+  args: Record<string, unknown>,
   workspaceRoot: string | undefined,
-): boolean {
+): BashArtifactAccess {
+  const command = getBashCommand(args);
   const tokenizeResult = tokenizeBashCommand(command);
-  if (tokenizeResult.error) return false;
+  if (tokenizeResult.error) {
+    return { identities: [], invalidReason: tokenizeResult.error };
+  }
 
-  return tokenizeResult.tokens.some((token) => {
-    if (!isPathLikeToken(token)) return false;
-    const inspectedPath = inspectPath(token, workspaceRoot);
-    if (inspectedPath.category !== "agents") return false;
-    return getRunArtifactIdentity(token, workspaceRoot)?.owner !== "orchestrator";
-  });
+  const workdir = args["workdir"];
+  const hasExplicitWorkdir = typeof workdir === "string" && workdir.length > 0;
+  const effectiveWorkdirInput =
+    hasExplicitWorkdir ? workdir : (workspaceRoot ?? process.cwd());
+  const workdirInspection =
+    workspaceRoot || hasExplicitWorkdir
+      ? inspectPath(effectiveWorkdirInput, workspaceRoot)
+      : undefined;
+  if (workdirInspection && !workdirInspection.valid) {
+    return {
+      identities: [],
+      invalidReason: `유효하지 않은 workdir: ${workdirInspection.reason ?? effectiveWorkdirInput}`,
+    };
+  }
+  if (workdirInspection?.category === "agents") {
+    return {
+      identities: [],
+      invalidReason: "산출물 디렉터리를 bash workdir로 사용할 수 없음",
+    };
+  }
+  const effectiveWorkdir = resolveTargetPath(
+    effectiveWorkdirInput,
+    workspaceRoot,
+  );
+
+  const rawPathTokens = new Set<string>();
+  for (const token of tokenizeResult.tokens) {
+    const assignmentValue = getAssignmentValue(token);
+    if (assignmentValue && isPathLikeToken(assignmentValue)) {
+      rawPathTokens.add(assignmentValue);
+    }
+    const embeddedPath = getEmbeddedOptionPath(token);
+    if (embeddedPath && isPathLikeToken(embeddedPath)) {
+      rawPathTokens.add(embeddedPath);
+    }
+    if (isPathLikeToken(token)) rawPathTokens.add(token);
+  }
+
+  const identities = new Map<string, RunArtifactIdentity>();
+  for (const targetPath of rawPathTokens) {
+    if (targetPath.split(/[\\/]/).includes("..")) {
+      return {
+        identities: [...identities.values()],
+        invalidReason: `bash 경로 traversal 거부: ${targetPath}`,
+      };
+    }
+    const resolvedPath = resolveTargetPath(targetPath, effectiveWorkdir);
+    const candidatePath =
+      workspaceRoot || path.isAbsolute(targetPath) ? resolvedPath : targetPath;
+    const inspection = inspectPath(candidatePath, workspaceRoot);
+    if (inspection.category !== "agents") continue;
+    const identity = getRunArtifactIdentity(candidatePath, workspaceRoot);
+    if (!identity) {
+      return {
+        identities: [...identities.values()],
+        invalidReason: `산출물 경로는 정확한 .agents/<taskId>/<workItemId>/<role-file>.md 형식이어야 함: ${targetPath}`,
+      };
+    }
+    identities.set(identity.relativePath, identity);
+  }
+
+  return { identities: [...identities.values()] };
 }

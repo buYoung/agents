@@ -107,9 +107,9 @@ Rules:
 Format: `YYYYMMDD-<slug>`, for example `20260702-auth-login`.
 
 Generation:
-- Only a bash-capable agent may create a new taskId with `date +%Y%m%d` plus a descriptive slug.
-- The orchestrator threads the chosen taskId through later subagent calls.
-- If the first artifact-writing subagent cannot run bash, the orchestrator may use its embedded run date.
+- The orchestrator allocates taskId and workItemId before this artifact-writing leaf is spawned.
+- This leaf uses the received identifiers and exact output path only; it never generates replacements.
+- This leaf never spawns or delegates to another agent.
 
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.

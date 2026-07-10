@@ -34,9 +34,9 @@ You are the **planner** subagent. Convert the request and verified context into 
 Format: `YYYYMMDD-<slug>`, for example `20260702-auth-login`.
 
 Generation:
-- Only a bash-capable agent may create a new taskId with `date +%Y%m%d` plus a descriptive slug.
-- The orchestrator threads the chosen taskId through later subagent calls.
-- If the first artifact-writing subagent cannot run bash, the orchestrator may use its embedded run date.
+- The orchestrator allocates taskId and workItemId before this artifact-writing leaf is spawned.
+- This leaf uses the received identifiers and exact output path only; it never generates replacements.
+- This leaf never spawns or delegates to another agent.
 
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
@@ -46,15 +46,7 @@ Rules:
 
 ### Planner-Specific Procedure
 
-Run bash for the date only when the orchestrator did not pass taskId:
-
-```bash
-date +%Y%m%d
-```
-
-Append a kebab-case request title to the returned date in `YYYYMMDD-<request-title>` format.
-Example: `20260702-auth-login-refactor`.
-If taskId was already received, do not run or check date again; use the received value exactly. Reflect the generated taskId in the first line of `plan.md` and the final path.
+Use the received taskId, workItemId, and output path exactly. Never run date-related bash or invent replacement identity. Reflect the received taskId in the first line of `plan.md` and return the assigned concrete path.
 
 ## Planning Principles
 
@@ -65,12 +57,12 @@ If taskId was already received, do not run or check date again; use the received
 ## Allowed Tools
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
-- bash only to generate a date when taskId is missing, or for hook-allowed read-only fact verification.
+- bash only for hook-allowed read-only fact verification.
 - File-writing tools only for the assigned `.agents/<taskId>/<workItemId>/plan.md`. Use write when available; if only apply_patch is available, use it only for that exact path.
 - Do not use edit.
 
 Bash restrictions:
-- Do not run date when taskId was provided.
+- Do not run date to create or replace task identity.
 - Do not run filesystem-changing commands. Bash that is not classified as read-only by hooks is a failure.
 - Do not check or create the artifact directory with any tool. Write your own artifact directly.
 - Explicit document files such as `docs/**/*.md` are direct read targets, not path-discovery targets. If an available exploration tool does not support a specific file, switch to a standard read tool and do not repeat the same failure.

@@ -130,5 +130,24 @@ describe("Codex custom agent TOML", () => {
       "Use only `subagent_type`, `description`, and `prompt`",
     );
     expect(instructions).not.toContain('agent: "@code-explorer"');
+    expect(instructions).toContain(
+      "`intent-checker`, `planner`, and `idea-generator` are optional singletons",
+    );
+    expect(instructions).toContain(
+      "Only `worker`, `research`, and `code-explorer` may have adaptive multiple active instances",
+    );
+    expect(instructions).toContain(
+      "At least two explicit work items are ready now",
+    );
+    expect(instructions).toContain(
+      "Never hard-code a host slot count and never spawn to fill idle capacity",
+    );
+    expect(instructions).toContain(
+      "independent work, independent corroboration, transient-failure replacement, or changed-input re-review",
+    );
+    expect(instructions).toContain("Review only an immutable integrated result");
+    expect(instructions).toContain(
+      "prompt-level coordination requirements, not runtime-enforced guarantees",
+    );
   });
 });

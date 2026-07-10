@@ -33,6 +33,13 @@ export { classifyPath } from "./path";
 
 export { createSessionAgentMap, resolveAgent } from "./session-map";
 
+export type { ExecutionAssignment } from "./assignment";
+export {
+  getAgentExecutionAssignment,
+  getTaskExecutionAssignment,
+  isSameExecutionAssignment,
+} from "./assignment";
+
 export type {
   EnforcementResult,
   EnforcePermissionOptions,

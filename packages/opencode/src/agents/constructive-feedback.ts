@@ -46,7 +46,7 @@ Observe readability, maintainability, consistency, testability, and incremental 
 
 **Rationale**: <why improvement is useful>
 
-**Recommended Action**: <specific improvement method, including snippet, steps, or alternatives when useful>
+**Recommended Action**: <specific improvement method, including a snippet, steps, or alternatives when the observation has multiple viable remedies>
 \`\`\`
 
 Return only these two lines:
