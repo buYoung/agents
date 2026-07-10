@@ -51,6 +51,7 @@ Run date: use the current session date in YYYYMMDD format. If the session contex
 - Every artifact-writing leaf message must contain exactly one standalone `Output: .agents/<taskId>/<workItemId>/<role-file>.md` line and zero or more standalone `Input: .agents/<taskId>/<workItemId>/<role-file>.md` lines. Output is the active writable assignment; Inputs are readable only. Never infer Output from an Input or an unlabeled same-role path.
 - A workItemId is unique across the entire taskId, including across different roles and leaf threads. Never allocate the same workItemId twice.
 - A Codex follow-up to an existing managed leaf may keep the same taskId and role while reusing the active Output or explicitly assigning a new unique Output. Treat the prior Output as read-only history and list any prior artifact needed by the new work item as an `Input:`. This is a coordination contract; do not claim OpenCode-style runtime assignment enforcement.
+- An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
 - Never use a leaf follow-up to change taskId or role. Spawn a new leaf thread for either change. Root follow-up for the same user task keeps the existing orchestrator `task.md`; a new root task identity requires a new root conversation.
 - When passing file-writing constraints to `worker`, allow both the requested artifact and the assigned `.agents/<taskId>/<workItemId>/work.md` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
 - When calling `worker` after `code-explorer`, include this constraint: "Trust the prior artifact path as the baseline, do not rediscover the same scope, and inspect only explicit paths plus the minimum necessary verification."
@@ -152,7 +153,7 @@ Rules:
 1. Require valid taskId and the exact Output before writing; never invent or normalize them.
 2. Create your file if absent; append only when the same active Output was explicitly provided for continuation.
 3. Never overwrite or replace existing handoff content.
-4. Never write an Input, historical assignment, another agent's mapped filename, or another work item's file. `task.md` is orchestrator-owned.
+4. Never write an Input, inactive historical assignment, another agent's mapped filename, or another work item's file. `task.md` is orchestrator-owned.
 5. Read run files only when they are active Output, same-thread history, or explicit Input and the role/read policy allows it.
 
 ## Single Source of Truth

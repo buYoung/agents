@@ -9,6 +9,10 @@
 
 import type { AgentName } from "@opencode/core/doc-protocol";
 import type { PluginConfig } from "@opencode/core/config";
+import {
+  RESERVED_RUNTIME_TOOL_IDS,
+  RESERVED_RUNTIME_TOOL_ID_SET,
+} from "./runtime-tool-ids";
 
 export interface ConfiguredMcpServerPolicy {
   /** native `mcp` 객체의 원래 서버 키. `disabled_mcp`와 대소문자까지 비교한다. */
@@ -74,6 +78,14 @@ export function compileConfiguredMcpPolicy(
       }
       const sanitizedServerKey = sanitizeMcpServerKey(serverKey);
       const toolPrefix = `${sanitizedServerKey}_`;
+      const reservedToolId = RESERVED_RUNTIME_TOOL_IDS.find((toolId) =>
+        toolId.startsWith(toolPrefix),
+      );
+      if (reservedToolId) {
+        throw new Error(
+          `[agents] MCP 서버 도구 접두사 예약 충돌 — "${serverKey}"(${toolPrefix})가 예약 runtime 도구 "${reservedToolId}"와 충돌합니다.`,
+        );
+      }
       return {
         serverKey,
         sanitizedServerKey,
@@ -127,7 +139,7 @@ export function matchConfiguredMcpTool(
   policy: ConfiguredMcpPolicy | undefined,
   rawToolId: string,
 ): ConfiguredMcpToolMatch | undefined {
-  if (!policy) return undefined;
+  if (!policy || RESERVED_RUNTIME_TOOL_ID_SET.has(rawToolId)) return undefined;
   const server = policy.servers.find(
     ({ toolPrefix }) =>
       rawToolId.startsWith(toolPrefix) && rawToolId.length > toolPrefix.length,

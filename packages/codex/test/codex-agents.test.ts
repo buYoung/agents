@@ -107,6 +107,11 @@ describe("Codex custom agent TOML", () => {
       expect(parsed.developer_instructions as string).toContain(
         profile.promptMarker,
       );
+      if (agentName !== "intent-checker") {
+        expect(parsed.developer_instructions as string).toContain(
+          "An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.",
+        );
+      }
       if (agentName === "planner") {
         expect(parsed.description as string).toContain(
           "validating the received execution identity",
@@ -283,6 +288,10 @@ describe("Codex custom agent TOML", () => {
       [
         "unique workItemId per execution",
         "Allocate a unique kebab-case workItemId for every new artifact-writing work item",
+      ],
+      [
+        "historical Output reactivation",
+        "An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.",
       ],
       [
         "enforcement honesty",

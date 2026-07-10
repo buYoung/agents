@@ -283,6 +283,17 @@ describe("플러그인 로드", () => {
       { tool: "task", sessionID: "lifecycle-root", callID: "call-1" },
       { args: firstTaskArgs },
     );
+    for (const sessionID of ["unrelated-child", "lifecycle-child"]) {
+      await expect(
+        chatHook(
+          { sessionID },
+          {
+            message: { agent: "planner" },
+            parts: [{ type: "text", text: firstTaskArgs.prompt }],
+          },
+        ),
+      ).rejects.toThrow("실행 할당 충돌");
+    }
     await eventHook({
       event: {
         type: "message.part.updated",
@@ -597,6 +608,15 @@ describe("config 훅", () => {
         },
       }),
     ).rejects.toThrow("MCP 서버 도구 접두사 모호성");
+    for (const serverKey of ["apply", "list", "read"]) {
+      await expect(
+        configHook({
+          mcp: {
+            [serverKey]: { type: "local", command: ["reserved-collision"] },
+          },
+        }),
+      ).rejects.toThrow("MCP 서버 도구 접두사 예약 충돌");
+    }
   });
 
   test("기존 사용자 provider 설정과 병합 (덮어쓰지 않음)", async () => {

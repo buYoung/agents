@@ -108,10 +108,11 @@ constructive-feedback: constructive-feedback.md
 `intent-checker` is stateless and owns no file.
 
 Rules:
-1. Require the exact assigned workItemId; never invent or reuse one. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
-2. Never overwrite or replace existing handoff content.
-3. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-4. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
+1. Require the exact assigned workItemId; never invent or reuse one without explicit assignment. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
+2. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
+3. Never overwrite or replace existing handoff content.
+4. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
+5. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
 
 ---
 

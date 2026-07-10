@@ -10,6 +10,7 @@ import {
   createSessionAgentMap,
   getTaskExecutionContext,
   type AgentName,
+  type ConfiguredMcpPolicy,
   type ExecutionAssignment,
 } from "@opencode/core/permissions";
 
@@ -109,6 +110,19 @@ describe("권한 매트릭스", () => {
   });
 
   test("orchestrator: 읽기 전용 bash 허용", () => {
+    const sessionExecution = createSessionAgentMap();
+    expect(
+      sessionExecution.updateSessionAgent("session-orch", "orchestrator"),
+    ).toBe(true);
+    const assignment = testAssignments.get("session-orch");
+    if (!assignment) throw new Error("orchestrator assignment must exist");
+    expect(
+      sessionExecution.bindRootAssignment("session-orch", assignment),
+    ).toBe(true);
+    const options = {
+      sessionAssignments: sessionExecution.assignmentMap,
+      sessionExecution,
+    };
     const commands = [
       "ls .agents/20260702-test/orchestrator-index/task.md",
       "wc -l .agents/20260702-test/orchestrator-index/task.md",
@@ -125,6 +139,7 @@ describe("권한 매트릭스", () => {
           args: { command },
         },
         testMap,
+        options,
       );
       expect(result.allowed, command).toBe(true);
     }
@@ -143,6 +158,7 @@ describe("권한 매트릭스", () => {
           args: { command },
         },
         testMap,
+        options,
       );
       expect(result.allowed, command).toBe(false);
     }
@@ -488,6 +504,54 @@ describe("추가 정책 spot-check", () => {
         { configuredMcpPolicy },
       ).allowed,
     ).toBe(false);
+    const reservedCollisionPolicy: ConfiguredMcpPolicy = {
+      servers: [
+        {
+          serverKey: "apply",
+          sanitizedServerKey: "apply",
+          toolPrefix: "apply_",
+          nativePermissionKey: "apply_*",
+        },
+        {
+          serverKey: "list",
+          sanitizedServerKey: "list",
+          toolPrefix: "list_",
+          nativePermissionKey: "list_*",
+        },
+        {
+          serverKey: "read",
+          sanitizedServerKey: "read",
+          toolPrefix: "read_",
+          nativePermissionKey: "read_*",
+        },
+      ],
+      disabledByAgent: new Map<AgentName, ReadonlySet<string>>(
+        [...new Set(fullMap.values())].map((agentName) => [
+          agentName,
+          new Set<string>(),
+        ]),
+      ),
+    };
+    expect(
+      enforcePermission(
+        { tool: "apply_patch", sessionID: "s-planner", args: {} },
+        fullMap,
+        { configuredMcpPolicy: reservedCollisionPolicy },
+      ).allowed,
+    ).toBe(false);
+    for (const tool of [
+      "list_mcp_resources",
+      "list_mcp_resource_templates",
+      "read_mcp_resource",
+    ]) {
+      expect(
+        enforcePermission(
+          { tool, sessionID: "s-planner", args: {} },
+          fullMap,
+          { configuredMcpPolicy: reservedCollisionPolicy },
+        ).allowed,
+      ).toBe(false);
+    }
     const unmanagedRolePolicy = compileConfiguredMcpPolicy(
       { "Code.Map": { type: "local", command: ["codemap-search", "mcp"] } },
       {},
@@ -569,6 +633,16 @@ describe("추가 정책 spot-check", () => {
           {
             tool: "bash",
             sessionID,
+            args: { command: "wc -l README.md" },
+          },
+          fullMap,
+        ).allowed,
+      ).toBe(true);
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID,
             args: {
               command:
                 "wc -l .agents/20260707-test/planner-01/plan.md",
@@ -576,7 +650,7 @@ describe("추가 정책 spot-check", () => {
           },
           fullMap,
         ).allowed,
-      ).toBe(true);
+      ).toBe(false);
       expect(
         enforcePermission(
           {
@@ -872,6 +946,12 @@ describe("추가 정책 spot-check", () => {
       }),
     ).toBe(true);
     expect(
+      lifecycle.bindSessionExecutionContext("unrelated-planner", firstContext),
+    ).toBe(false);
+    expect(
+      lifecycle.bindSessionExecutionContext("planner-child", firstContext),
+    ).toBe(false);
+    expect(
       lifecycle.completeDelegation({
         parentSessionID: "parent",
         callID: "call-1",
@@ -930,6 +1010,9 @@ describe("추가 정책 spot-check", () => {
       }),
     ).toBe(true);
     expect(
+      lifecycle.bindSessionExecutionContext("planner-child", secondContext),
+    ).toBe(true);
+    expect(
       lifecycle.completeDelegation({
         parentSessionID: "parent",
         callID: "call-2",
@@ -956,6 +1039,84 @@ describe("추가 정책 spot-check", () => {
         ).allowed,
       ).toBe(true);
     }
+    for (const path of [
+      delegatedInput,
+      firstContext.output.artifactPath,
+      secondContext.output.artifactPath,
+    ]) {
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID: "planner-child",
+            args: { command: `wc -l ${path}` },
+          },
+          lifecycle.map,
+          lifecycleOptions,
+        ).allowed,
+      ).toBe(true);
+    }
+    for (const path of [
+      ".agents/20260702-test/planner-unregistered/plan.md",
+      ".agents/20260702-test/worker-unregistered/work.md",
+      ".agents/20260703-other/planner-unregistered/plan.md",
+    ]) {
+      expect(
+        enforcePermission(
+          {
+            tool: "bash",
+            sessionID: "planner-child",
+            args: { command: `wc -l ${path}` },
+          },
+          lifecycle.map,
+          lifecycleOptions,
+        ).allowed,
+      ).toBe(false);
+    }
+    const rootLifecycle = createSessionAgentMap();
+    expect(
+      rootLifecycle.updateSessionAgent("root-session", "orchestrator"),
+    ).toBe(true);
+    const rootAssignment = executionAssignment(
+      "orchestrator",
+      "20260702-test",
+      "orchestrator-index",
+      "task.md",
+    );
+    expect(
+      rootLifecycle.bindRootAssignment("root-session", rootAssignment),
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "root-session",
+          args: { command: `wc -l ${rootAssignment.artifactPath}` },
+        },
+        rootLifecycle.map,
+        {
+          sessionAssignments: rootLifecycle.assignmentMap,
+          sessionExecution: rootLifecycle,
+        },
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "root-session",
+          args: {
+            command:
+              "wc -l .agents/20260703-other/orchestrator-index/task.md",
+          },
+        },
+        rootLifecycle.map,
+        {
+          sessionAssignments: rootLifecycle.assignmentMap,
+          sessionExecution: rootLifecycle,
+        },
+      ).allowed,
+    ).toBe(false);
     expect(
       enforcePermission(
         {

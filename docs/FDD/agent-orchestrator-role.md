@@ -5,7 +5,7 @@ feature-name: agent-orchestrator-role
 status: active
 created: 2026-07-06
 last-verified: 2026-07-10
-verified-against: 44d8317
+verified-against: 97adf80
 tags: [agents, orchestrator, delegation, primary-agent]
 related:
   - docs/FDD/agent-intent-checker-role.md
@@ -92,7 +92,7 @@ Users should not need to understand:
 | Master index | 작업 진행을 대표하는 조정자 소유 산출물 |
 | Protected agent | 비활성화 오버라이드로 제거되지 않는 핵심 agent |
 | 활성 출력 | child 세션이 현재 읽고 쓸 수 있는 정확히 하나의 역할 산출물 |
-| 이력 출력 | 같은 세션의 이전 활성 출력으로서 읽기만 가능한 산출물 |
+| 이력 출력 | 같은 세션의 이전 활성 출력으로서, 같은 taskId·역할의 명시적 재할당으로 다시 활성화되기 전에는 읽기만 가능한 산출물 |
 | 명시적 입력 | 위임 메시지의 `Input:`으로 등록된 읽기 전용 산출물 |
 | 작업 원장 | taskId 전체에서 workItemId 중복과 소유 충돌을 막는 예약 기록 |
 
@@ -145,7 +145,7 @@ Users should not need to understand:
 
 `orchestrator`는 `primary` 실행 모드의 agent다. 사용자가 별도 기본 agent를 지정하지 않으면 이 역할이 기본 진입점이 된다. 이 역할은 소스 변경, 웹 조회, 구현 검증을 직접 수행하지 않고, 허용된 subagent 위임을 통해 작업을 진행한다. bash는 산출물 존재, 줄 수, git 상태 같은 읽기 전용 사실 확인에만 제한된다.
 
-산출물 위임에는 정확히 하나의 `Output:`과 필요한 만큼의 `Input:`을 구분해 전달한다. 같은 child 세션은 같은 taskId와 같은 역할 안에서 활성 work item을 유지하거나 새 work item으로 전환할 수 있다. 새 work item이 활성화되면 이전 출력은 읽기 전용 이력이 되고, 쓰기는 새 활성 출력에만 허용된다. workItemId는 역할별이 아니라 taskId 전체에서 고유하다. root 세션의 후속 의견은 기존 대표 산출물을 계속 사용하며, 새 root task identity는 새 대화에서 시작한다.
+산출물 위임에는 정확히 하나의 `Output:`과 필요한 만큼의 `Input:`을 구분해 전달한다. 같은 child 세션은 같은 taskId와 같은 역할 안에서 활성 work item을 유지하거나 새 work item으로 전환할 수 있다. 새 work item이 활성화되면 이전 출력은 읽기 전용 이력이 되고, 쓰기는 새 활성 출력에만 허용된다. 같은 taskId·역할의 명시적 후속 실행이 이력 Output을 현재 Output으로 다시 할당하면 그 이력은 활성·쓰기 가능 상태로 돌아가고 직전 활성 출력은 이력이 된다. fresh child는 부모 호출과 실제 child를 연결하는 신뢰된 lifecycle 정보가 확인된 뒤에만 최초 할당을 얻는다. workItemId는 역할별이 아니라 taskId 전체에서 고유하다. root 세션의 후속 의견은 기존 대표 산출물을 계속 사용하며, 새 root task identity는 새 대화에서 시작한다.
 
 ### 8.2 Conceptual Data Model
 
@@ -176,6 +176,8 @@ Users should not need to understand:
 - 같은 세션에서 taskId 또는 역할을 바꾸려 하면 거부한다.
 - 같은 taskId 안에서 이미 예약된 workItemId를 다른 역할이나 세션이 사용하려 하면 거부한다.
 - 정리된 MCP 서버 키가 충돌하거나 도구 접두사가 모호하면 구성을 적용하지 않는다.
+- 구성 MCP 접두사가 예약 runtime 도구 ID와 충돌할 수 있으면 구성을 적용하지 않는다.
+- fresh child의 부모 호출과 실제 child가 lifecycle 정보로 연결되기 전에는 prompt만으로 할당하지 않는다.
 
 ---
 
@@ -231,6 +233,8 @@ Decision:
 
 - 같은 child 세션은 같은 taskId와 같은 역할에서만 새 work item을 활성화할 수 있다.
 - 명시적 부모 연속 실행이 전이를 승인하며, 이전 활성 출력은 읽기 전용 이력으로 이동한다.
+- 같은 taskId·역할의 명시적 후속 실행은 이력 Output을 다시 활성화할 수 있으며, 재활성화된 Output만 쓰기 가능해진다.
+- fresh child의 최초 활성화는 부모 호출과 실제 child를 식별하는 lifecycle 정보가 확인된 뒤에만 허용한다.
 - workItemId는 taskId 전체에서 고유하며, 역할이나 세션이 달라도 재사용하지 않는다.
 - root 후속 의견은 같은 대표 산출물을 사용하고 같은 대화에서 root task identity를 회전하지 않는다.
 
@@ -245,6 +249,8 @@ Decision:
 - native 설정에서 활성화한 MCP 서버는 사용자가 신뢰한 capability로 취급한다.
 - `orchestrator`는 구성 MCP 서버 도구를 기본 거부하며 `disabled_mcp`는 다른 역할의 허용 범위를 추가로 줄인다.
 - 이 정책은 서버 도구 호출에 적용하고 generic MCP resource API의 완전 격리를 보장하지 않는다.
+- builtin/core와 generic MCP resource의 정확한 예약 ID를 서버 도구보다 먼저 분류하며, 이 ID와 충돌 가능한 서버 접두사는 구성 오류로 거부한다.
+- generic MCP resource API는 구성 서버 도구 권한으로 승격하지 않는다.
 
 Rationale:
 
@@ -295,6 +301,7 @@ Why not chosen:
 - 직접 변경 권한 없이 위임 권한만 갖도록 제한해 권한 범위를 줄인다.
 - 활성 출력만 쓰게 하고 workItemId를 task-wide로 예약해 같은 산출물의 중복 소유를 막는다.
 - 구성 MCP의 효과와 provenance를 추론하지 않으며 충돌·모호성은 거부한다.
+- read-only bash로 찾은 산출물도 직접 파일 읽기와 같은 활성·이력·명시 Input 범위를 적용한다.
 
 ### 11.2 Privacy
 
@@ -334,6 +341,7 @@ Why not chosen:
 - 같은 taskId·역할의 same-session 활성 work item 전이와 읽기 전용 이력.
 - task-wide workItemId 예약과 root task identity 고정.
 - 구성 MCP 서버 도구의 역할별 감쇠.
+- 예약 runtime 도구 ID의 구성 MCP 승격 차단.
 
 ### Out of Scope for as implemented (2026-07-10)
 
@@ -354,6 +362,7 @@ Why not chosen:
 - subagent 비활성화 상태가 사용자에게 충분히 드러나지 않으면 위임 실패가 혼란스럽게 보일 수 있다.
 - MCP 최종 도구 ID는 provenance 증명이 아니므로 custom/plugin ID 충돌 환경은 지원 경계 밖이다.
 - lifecycle event가 누락된 연속 실행은 안전하게 거부되어 재시도가 필요할 수 있다.
+- 신뢰된 child lifecycle 정보보다 먼저 도착한 fresh-child prompt는 안전하게 거부되어 event 뒤 재시도가 필요할 수 있다.
 
 ### Open Questions
 
@@ -366,16 +375,19 @@ Why not chosen:
 ### 14.1 Common Design
 
 - OpenCode와 Codex 모두 같은 taskId·역할 안에서 활성 Output, 읽기 전용 이력, 명시적 Input 의미를 공유한다.
+- 두 플랫폼 모두 같은 taskId·역할의 명시적 후속 실행으로 이력 Output을 현재 Output에 다시 할당하면 재활성화된 Output이 쓰기 가능해지고 직전 활성 Output은 이력이 된다는 의미를 공유한다.
 - 두 플랫폼 모두 새 work item의 task-wide 고유 workItemId와 안정된 root task identity를 요구한다.
 
 ### 14.2 OpenCode
 
-- 기존 child 연속 실행과 lifecycle metadata를 이용해 활성 할당 전이를 runtime에서 확인한다.
+- 기존 child 연속 실행과 lifecycle metadata를 이용해 활성 할당 전이를 runtime에서 확인하며, fresh child는 부모 호출과 실제 child가 확인된 event 뒤에만 최초 활성화한다.
 - native MCP 구성과 agent permission을 결합하고 실행 전 경계에서 같은 서버 도구 정책을 다시 확인한다.
+- 직접 파일 읽기와 read-only bash 산출물 읽기에 같은 세션 readable set을 적용한다.
 
 ### 14.3 Codex
 
 - 기존 leaf 후속 실행과 새 leaf spawn의 의미를 프롬프트 계약으로 구분한다.
+- 같은 taskId·역할의 명시적 leaf 후속 실행이 historical Output을 현재 Output으로 재할당하는 의미를 프롬프트 계약으로 표현한다.
 - OpenCode 전용 task 필드를 복제하거나 Codex에 같은 runtime 할당 집행이 있다고 주장하지 않는다.
 
 ---
@@ -385,3 +397,4 @@ Why not chosen:
 | Date | Type | Summary |
 | ---- | ---- | ------- |
 | 2026-07-10 | updated | Output/Input 분리, same-session 활성·이력 work item 전이, task-wide 고유성, root identity 고정과 구성 MCP 감쇠 경계를 반영했다. |
+| 2026-07-10 | updated | 예약 runtime 도구 ID 우선 분류, bash 산출물 readable set, fresh-child lifecycle 상관관계와 양 플랫폼의 historical Output 재활성화 의미를 반영했다. |

@@ -32,6 +32,14 @@ import {
   matchConfiguredMcpTool,
   type ConfiguredMcpPolicy,
 } from "./mcp-policy";
+import {
+  GENERIC_MCP_RESOURCE_TOOL_IDS,
+  RUNTIME_BASH_TOOL_IDS,
+  RUNTIME_EDIT_TOOL_IDS,
+  RUNTIME_NETWORK_TOOL_IDS,
+  RUNTIME_READ_TOOL_IDS,
+  RUNTIME_TASK_TOOL_IDS,
+} from "./runtime-tool-ids";
 
 /** 집행 결과 */
 export interface EnforcementResult {
@@ -73,29 +81,14 @@ export interface EnforcePermissionOptions {
 // 따라서 exact ID는 builtin 출처 증명이 아니라 지원 환경의 분류 키일 뿐이다.
 // 아래 ID와 충돌하는 custom tool이 등록된 환경은 명시적으로 지원하지 않으며,
 // namespace suffix나 다른 문자열 형태로 출처/효과를 추론하지 않는다.
-const READ_TOOL_IDS = new Set([
-  "read",
-  "glob",
-  "grep",
-  "list",
-  "lsp",
-  "codesearch",
-]);
-
-const EDIT_TOOL_IDS = new Set([
-  "edit",
-  "write",
-  "apply_patch",
-]);
-
-const BASH_TOOL_IDS = new Set(["bash"]);
-
-const NETWORK_TOOL_IDS = new Set([
-  "webfetch",
-  "websearch",
-]);
-
-const TASK_TOOL_IDS = new Set(["task"]);
+const READ_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_READ_TOOL_IDS);
+const EDIT_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_EDIT_TOOL_IDS);
+const BASH_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_BASH_TOOL_IDS);
+const NETWORK_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_NETWORK_TOOL_IDS);
+const TASK_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_TASK_TOOL_IDS);
+const MCP_RESOURCE_TOOL_IDS: ReadonlySet<string> = new Set(
+  GENERIC_MCP_RESOURCE_TOOL_IDS,
+);
 
 function resolveToolKind(toolName: string):
   | "read"
@@ -103,12 +96,14 @@ function resolveToolKind(toolName: string):
   | "bash"
   | "webfetch"
   | "task"
+  | "mcp-resource"
   | undefined {
   if (READ_TOOL_IDS.has(toolName)) return "read";
   if (EDIT_TOOL_IDS.has(toolName)) return "edit";
   if (BASH_TOOL_IDS.has(toolName)) return "bash";
   if (NETWORK_TOOL_IDS.has(toolName)) return "webfetch";
   if (TASK_TOOL_IDS.has(toolName)) return "task";
+  if (MCP_RESOURCE_TOOL_IDS.has(toolName)) return "mcp-resource";
   return undefined;
 }
 
@@ -135,10 +130,9 @@ export function enforcePermission(
   const rawToolName = input.tool;
   const toolName = rawToolName.toLowerCase();
   const toolKind = resolveToolKind(toolName);
-  const configuredMcpTool = matchConfiguredMcpTool(
-    options?.configuredMcpPolicy,
-    rawToolName,
-  );
+  const configuredMcpTool = toolKind
+    ? undefined
+    : matchConfiguredMcpTool(options?.configuredMcpPolicy, rawToolName);
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
   const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
   const tempRoots = options?.tempRoots ?? getDefaultTempRoots();
@@ -148,6 +142,7 @@ export function enforcePermission(
   const isBashTool = toolKind === "bash";
   const isWebfetchTool = toolKind === "webfetch";
   const isTaskTool = toolKind === "task";
+  const isMcpResourceTool = toolKind === "mcp-resource";
 
   const targetPaths = extractTargetPaths(input.args, toolName);
   const targetPath = targetPaths[0];
@@ -218,6 +213,13 @@ export function enforcePermission(
     return {
       allowed: true,
       reason: `[policy] ${agent}: 사용자가 구성한 MCP 서버 ${configuredMcpTool.server.serverKey}의 신뢰 capability 허용 — tool=${rawToolName}`,
+    };
+  }
+
+  if (isMcpResourceTool) {
+    return {
+      allowed: false,
+      reason: `[policy] ${agent}: generic MCP resource API는 구성 서버 도구 정책으로 승격하지 않음 — tool=${rawToolName}`,
     };
   }
 
@@ -541,6 +543,31 @@ export function enforcePermission(
         allowed: false,
         reason: "[policy] orchestrator는 bash로 .agents 루트/전체 산출물 목록 열람 금지",
       };
+    }
+    if (
+      artifactAccess.identities.length > 0 &&
+      policy.tools.sourceRead === "deny"
+    ) {
+      return {
+        allowed: false,
+        reason: `[policy] ${agent}는 bash로 실행 산출물 읽기 불가`,
+      };
+    }
+    if (artifactAccess.identities.length > 0) {
+      const unreadableIdentity = artifactAccess.identities.find((identity) =>
+        options?.sessionExecution?.canReadSessionArtifact(input.sessionID, {
+          agent: identity.owner,
+          taskId: identity.taskId,
+          workItemId: identity.workItemId,
+          artifactPath: identity.relativePath,
+        }) !== true,
+      );
+      if (unreadableIdentity) {
+        return {
+          allowed: false,
+          reason: `[baseline] ${agent}: 활성·이력·명시 Input에 없는 산출물 bash 읽기 거부 — path=${unreadableIdentity.relativePath}`,
+        };
+      }
     }
     if (policy.tools.bash === "read-only") {
       if (isReadOnlyBash(bashCommand)) {

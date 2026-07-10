@@ -153,16 +153,7 @@ export function createSessionAgentMap() {
     return [...pendingDelegations.values()].find(
       (pending) =>
         sameExecutionContext(pending.context, context) &&
-        (pending.continuedSessionID === sessionID ||
-          (pending.continuedSessionID === undefined &&
-            workItemLedger.get(taskWorkItemKey(context.output))?.owner.kind ===
-              "pending" &&
-            (
-              workItemLedger.get(taskWorkItemKey(context.output))?.owner as {
-                kind: "pending";
-                delegationKey: string;
-              }
-            ).delegationKey === pending.key)),
+        pending.continuedSessionID === sessionID,
     );
   }
 
@@ -268,18 +259,17 @@ export function createSessionAgentMap() {
     return true;
   }
 
-  /** chat.message 초기 결합 또는 같은 활성 할당 재확인용. */
+  /** lifecycle로 확인된 세션의 활성 할당 재확인 또는 continuation 사전 결합용. */
   function bindSessionExecutionContext(
     sessionID: string,
     context: ExecutionContext,
   ): boolean {
     const existingState = stateMap.get(sessionID);
+    // 새 child의 최초 상태는 parent/call/child metadata를 확인하는
+    // completeDelegation만 만든다. chat prompt만으로 fresh child를 결합하지 않는다.
+    if (!existingState) return false;
     const isTransition = Boolean(
-      existingState &&
-        !isSameExecutionAssignment(
-          existingState.activeAssignment,
-          context.output,
-        ),
+      !isSameExecutionAssignment(existingState.activeAssignment, context.output),
     );
     const authorization = findPendingAuthorization(sessionID, context);
     if (isTransition && !authorization) return false;
