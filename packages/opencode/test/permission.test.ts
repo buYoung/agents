@@ -57,10 +57,10 @@ describe("권한 매트릭스", () => {
 
   test("orchestrator: 읽기 전용 bash 허용", () => {
     const commands = [
-      "ls .agents/20260702-test",
-      "wc -l .agents/20260702-test/task.md",
-      "test -f .agents/20260702-test/task.md",
-      "find .agents/20260702-test -type f | wc -l",
+      "ls .agents/20260702-test/orchestrator-index/task.md",
+      "wc -l .agents/20260702-test/orchestrator-index/task.md",
+      "test -f .agents/20260702-test/orchestrator-index/task.md",
+      "rg --files .agents/20260702-test/orchestrator-index/task.md | wc -l",
       "git status --short",
     ];
 
@@ -99,7 +99,9 @@ describe("권한 매트릭스", () => {
       {
         tool: "read",
         sessionID: "session-orch",
-        args: { path: ".agents/20260702-test/task.md" },
+        args: {
+          path: ".agents/20260702-test/orchestrator-index/task.md",
+        },
       },
       testMap,
     );
@@ -107,7 +109,9 @@ describe("권한 매트릭스", () => {
       {
         tool: "read",
         sessionID: "session-orch",
-        args: { path: ".agents/20260702-test/explore.md" },
+        args: {
+          path: ".agents/20260702-test/explorer-01/explore.md",
+        },
       },
       testMap,
     );
@@ -179,10 +183,11 @@ describe("권한 매트릭스", () => {
         tool: "write",
         sessionID: "session-orch",
         args: {
-          path: "/Users/buyong/workspace/private/buyong-agents/.agents/20260702-test/task.md",
+          path: "/Users/buyong/workspace/private/buyong-agents/.agents/20260702-test/orchestrator-index/task.md",
         },
       },
       testMap,
+      { workspaceRoot: "/Users/buyong/workspace/private/buyong-agents" },
     );
     expect(result.allowed).toBe(true);
     expect(classifyPath("src/not.agents.md")).toBe("source");
@@ -193,7 +198,9 @@ describe("권한 매트릭스", () => {
       {
         tool: "write",
         sessionID: "session-explore",
-        args: { path: ".agents/20260702-test/explore.md" },
+        args: {
+          path: ".agents/20260702-test/explorer-01/explore.md",
+        },
       },
       testMap,
     );
@@ -343,7 +350,9 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "write",
           sessionID: "s-research",
-          args: { path: "/repo/project/.agents/task/research.md" },
+          args: {
+            path: "/repo/project/.agents/20260702-test/research-01/research.md",
+          },
         },
         fullMap,
         options,
@@ -354,7 +363,9 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "write",
           sessionID: "s-research",
-          args: { path: "/tmp/.agents/task/research.md" },
+          args: {
+            path: "/tmp/.agents/20260702-test/research-01/research.md",
+          },
         },
         fullMap,
         options,
@@ -570,23 +581,23 @@ describe("추가 정책 spot-check", () => {
     ).toBe(false);
   });
 
-  test("planner: .agents/** 산출물 edit 거부, write 허용", () => {
+  test("planner: 자기 work-item 산출물 continuation edit/write 허용", () => {
     expect(
       enforcePermission(
         {
           tool: "edit",
           sessionID: "s-planner",
-          args: { path: ".agents/20260707-test/plan.md" },
+          args: { path: ".agents/20260707-test/planner-01/plan.md" },
         },
         fullMap,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
           tool: "write",
           sessionID: "s-planner",
-          args: { path: ".agents/20260707-test/plan.md" },
+          args: { path: ".agents/20260707-test/planner-01/plan.md" },
         },
         fullMap,
       ).allowed,
@@ -634,7 +645,7 @@ describe("추가 정책 spot-check", () => {
       {
         tool: "read",
         sessionID: "s-intent",
-        args: { path: ".agents/20260702-test/work.md" },
+        args: { path: ".agents/20260702-test/worker-01/work.md" },
       },
       fullMap,
     );

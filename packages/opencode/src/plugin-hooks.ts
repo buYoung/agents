@@ -52,6 +52,7 @@ export function createPluginHookHandlers(options: {
 
   const config = async (opencodeConfig: Config): Promise<void> => {
     const cfg = opencodeConfig as Record<string, unknown>;
+    let runtimeAgentRecord = finalAgentRecord;
 
     try {
       const provider = buildProviderConfig(catalog);
@@ -93,8 +94,16 @@ export function createPluginHookHandlers(options: {
       );
     }
 
-    // default_agent: 사용자가 이미 설정한 경우 건드리지 않는다 (non-destructive)
+    // default_agent: 사용자가 이미 설정한 built-in/custom 값은 보존한다.
+    // 단, 이번 설정에서 명시적으로 비활성화한 플러그인 에이전트는
+    // 실제 레코드에서도 제거되므로 안전한 orchestrator로 되돌린다.
     if (!(cfg as { default_agent?: string }).default_agent) {
+      (cfg as { default_agent?: string }).default_agent = "orchestrator";
+    } else if (
+      disabledNames.includes(
+        (cfg as { default_agent?: string }).default_agent ?? "",
+      )
+    ) {
       (cfg as { default_agent?: string }).default_agent = "orchestrator";
     }
 
@@ -104,17 +113,24 @@ export function createPluginHookHandlers(options: {
       const disabledNote =
         `\n\n## 비활성화된 서브에이전트\n` +
         `다음 서브에이전트는 비활성화되어 있으므로 위임해서는 안 됩니다: ${disabledList}.`;
-      finalAgentRecord["orchestrator"] = {
-        ...finalAgentRecord["orchestrator"],
-        prompt: finalAgentRecord["orchestrator"].prompt + disabledNote,
+      runtimeAgentRecord = {
+        ...finalAgentRecord,
+        orchestrator: {
+          ...finalAgentRecord["orchestrator"],
+          prompt: finalAgentRecord["orchestrator"].prompt + disabledNote,
+        },
       };
     }
 
     // 에이전트 레코드 병합 (slim 패턴)
     if (!cfg.agent) {
-      cfg.agent = { ...finalAgentRecord };
+      cfg.agent = { ...runtimeAgentRecord };
     } else {
-      for (const [name, pluginAgent] of Object.entries(finalAgentRecord)) {
+      const configuredAgents = cfg.agent as Record<string, unknown>;
+      for (const disabledName of disabledNames) {
+        delete configuredAgents[disabledName];
+      }
+      for (const [name, pluginAgent] of Object.entries(runtimeAgentRecord)) {
         const existing = (cfg.agent as Record<string, unknown>)[name] as
           | Record<string, unknown>
           | undefined;
@@ -159,7 +175,9 @@ export function createPluginHookHandlers(options: {
     input: { sessionID: string; agent?: string; [key: string]: unknown },
     output?: { message?: { agent?: string } },
   ): Promise<void> => {
-    const agent = input.agent ?? output?.message?.agent;
+    // output.message.agent가 OpenCode가 실제로 해소한 역할이다. 입력 힌트보다
+    // 우선하고, custom/built-in 이름이면 updateSessionAgent가 stale 매핑을 지운다.
+    const agent = output?.message?.agent ?? input.agent;
     if (agent) {
       updateSessionAgent(input.sessionID, agent);
     }

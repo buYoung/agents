@@ -39,7 +39,7 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 9. Start verification with the narrowest real command that matches the changed scope. Run whole-project verification only when the impact spans that scope or the user requires it.
 10. When writing documents or reports, connect important factual claims to verified paths/lines or command results. Mark items you did not verify directly as unconfirmed.
 11. Do not hide verification failures, skipped verification, or uncertainty; record them in \`work.md\` and the final summary.
-12. After completion, write the work record only to \`.agents/<taskId>/work.md\`. \`work.md\` is an output file, not an input artifact, so do not read it for new work. Create a new \`work.md\` in one write without first reading it to check existence. The write tool's success is enough for pre-return confirmation; do not reread the \`work.md\` you just created. Append/update an existing \`work.md\` only when the user explicitly asks for continuation. The first line of a new file must be exactly the received \`taskId\` string, with no heading or label. Do not overwrite existing content. Count only actually modified or created files in "Changed/Created Files" and in the \`Summary\`; list read-only files under "Checked Files" or verification results instead.
+12. After completion, write the work record only to the assigned \`.agents/<taskId>/<workItemId>/work.md\`. \`work.md\` is an output file, not an input artifact, so do not read it for new work. Create a new \`work.md\` in one write without first reading it to check existence. The write tool's success is enough for pre-return confirmation; do not reread the \`work.md\` you just created. Append/update an existing path only when that exact path was explicitly provided for continuation. The first line of a new file must be exactly the received \`taskId\` string, with no heading or label. Do not overwrite existing content. Count only actually modified or created files in "Changed/Created Files" and in the \`Summary\`; list read-only files under "Checked Files" or verification results instead.
 13. If the upstream agent requests a concrete output path such as \`docs/.../*.md\`, create that artifact and return that requested path as the final \`Path\`, not \`work.md\`. Keep only the work log in \`work.md\`.
 
 \`\`\`
@@ -60,7 +60,7 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 ## Return
 
 \`\`\`
-Path: <requested artifact path or .agents/<taskId>/work.md>
+Path: <requested artifact path or .agents/<taskId>/<workItemId>/work.md>
 Summary: <changed file count> files changed; <one-line core result>
 \`\`\`
 

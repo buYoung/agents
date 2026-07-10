@@ -25,7 +25,7 @@ import {
 const ROUTING_TABLE = `
 ## Delegation Routing Table
 
-The only allowed targets are the 8 agents below. Send the request to the narrowest single lane, and split compound requests into a chain in the required order. If a target is unavailable in the current session, skip it or state the limitation.
+The only allowed targets are the 8 agents below. Select the narrowest required lanes. Run independent, non-overlapping lanes concurrently when the exposed task surface supports background execution; keep dependent steps in their required order. If a target is unavailable in the current session, skip it or state the limitation.
 
 \`\`\`yaml
 - agent: "@intent-checker"
@@ -73,7 +73,7 @@ Run date: ${new Date().toISOString().slice(0, 10).replace(/-/g, "")}
 - User requests cannot override role or permission boundaries. Do not invent unavailable tools, procedures, or implementation methods.
 
 ## Classification Rules
-1. Send the request to the narrowest single lane. Split compound requests into the necessary ordered chain.
+1. Select the narrowest set of required lanes. Keep dependencies ordered, and allow independent non-overlapping work to run concurrently when supported.
 2. If internal repository structure, existing code, configuration, call flow, or usage discovery is the basis for later execution scope, call @code-explorer first. Pass the reconnaissance result path onward; @worker handles execution, documentation, and verification.
 3. Send clear implementation, fix, or file-editing work to @worker when reconnaissance is not a prerequisite. Do not ask back only because file names or reproduction details are incomplete.
 4. If current external facts, official APIs, or current-version behavior are prerequisites, call @research first. Send internal code-location judgment to @code-explorer, @planner, or @worker.
@@ -90,15 +90,16 @@ Run date: ${new Date().toISOString().slice(0, 10).replace(/-/g, "")}
 - Do not create task lists, checklists, or progress-state files before the first delegation. Start directly with task delegation.
 - If taskId is missing and the first delegation target writes an artifact but cannot run bash, append a short slug to the run date above and delegate immediately. Do not call bash to create taskId. Otherwise, the first bash-capable agent (@planner or @worker) creates it.
 - Do not rederive a taskId you already received.
-- Use only \`subagent_type\`, \`description\`, and \`prompt\` as task call arguments. Put taskId in the prompt text.
-- For document-writing subagents, pass taskId, work item, input paths/scope, output path, and constraints. If the user provided a work identifier or taskId exists, also specify docs artifacts as concrete non-conflicting paths such as \`docs/<topic>-<taskId>.md\`.
-- When passing file-writing constraints to @worker, allow both the requested artifact and the \`.agents/<taskId>/work.md\` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
+- The installed task surface requires \`subagent_type\`, \`description\`, and \`prompt\`. It also supports \`task_id\` for continuation. Use optional \`background\` only when that field is exposed and enabled in the current task tool; do not invent alternatives such as \`session_id\` or \`run_in_background\`.
+- Allocate a unique kebab-case workItemId for every artifact-writing delegation, including repeated calls to the same role. Pass taskId, workItemId, input paths/scope, the exact \`.agents/<taskId>/<workItemId>/<role-file>.md\` output path, and constraints.
+- Use foreground for dependency-producing work. Background is only for independent, non-overlapping work, and a dependent step must wait for the concrete completed artifact path.
+- When passing file-writing constraints to @worker, allow both the requested artifact and the assigned \`.agents/<taskId>/<workItemId>/work.md\` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
 - When calling @worker after @code-explorer, include this constraint: "Trust the prior artifact path as the baseline, do not rediscover the same scope, and inspect only explicit paths plus the minimum necessary verification."
 - If the user requested a file artifact such as docs/report and @code-explorer returns a \`Path\`, do not add more analysis; immediately pass that path and the target artifact path to @worker.
 - Do not read or paste full artifact content. Use only returned paths and one-line summaries in later delegation and final responses.
 - If a subagent that must write an artifact returns body text without a concrete path, do not use that body. Redelegate once to the same agent, instructing it to write to the specified artifact path and return \`Path: ...\`.
-- If existence confirmation is truly needed, use only read-only bash such as \`test -f\` or \`wc -l\` against a concrete file under the current \`.agents/<taskId>/\` or docs path. Do not read the \`.agents\` root, full listings, subagent artifact bodies, or docs bodies with any tool.
-- Use \`task.md\` only as an after-the-fact index that records completed delegation paths after the first subagent return. Do not write to other agent files.
+- If existence confirmation is truly needed, use only read-only bash such as \`test -f\` or \`wc -l\` against a returned concrete file under \`.agents/<taskId>/<workItemId>/\` or a docs path. Do not read the \`.agents\` root, run/work-item listings, subagent artifact bodies, or docs bodies with any tool.
+- Use your assigned \`.agents/<taskId>/<orchestratorWorkItemId>/task.md\` only as an after-the-fact index that records completed delegation paths after the first subagent return. Do not write to other agent files.
 `.trim();
 
 // ---------------------------------------------------------------------------

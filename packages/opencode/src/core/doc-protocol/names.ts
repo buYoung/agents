@@ -20,7 +20,8 @@ export type AgentName =
   | "constructive-feedback";
 
 /**
- * Agents that own a handoff file inside `.agents/<taskId>/`.
+ * Agents that own a handoff filename inside
+ * `.agents/<taskId>/<workItemId>/`.
  * Each documented agent maps 1:1 to exactly one writable file.
  *
  * `intent-checker` is excluded because it is a stateless gate that returns
@@ -53,8 +54,9 @@ export const DOCUMENTED_AGENTS: readonly DocumentedAgent[] = (
 ).filter((name): name is DocumentedAgent => name !== "intent-checker");
 
 /**
- * Maps each **documented** agent to the bare filename it owns and appends to.
- * No two agents share a file. Prompt rules enforce one writer per file.
+ * Maps each **documented** agent to the bare filename it owns. A concrete
+ * artifact also includes a work-item directory, so repeated executions of the
+ * same role do not share a path.
  *
  * `intent-checker` is intentionally absent: it writes no file.
  */

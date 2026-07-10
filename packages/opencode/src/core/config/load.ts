@@ -86,8 +86,11 @@ function loadConfigFromPath(
       options?.catalog,
       options?.agentRecord,
     );
-    const invalidMessages = validationMessages.filter((message) =>
-      ["invalid-model", "protected-agent-disabled"].includes(message.kind),
+    // 보호 에이전트 disable은 해당 필드만 무시할 수 있는 진단이다. 파일
+    // 전체를 버리면 같은 파일의 정상 오버라이드까지 사라지므로 fatal로
+    // 취급하지 않는다.
+    const invalidMessages = validationMessages.filter(
+      (message) => message.kind === "invalid-model",
     );
     for (const validationMessage of validationMessages) {
       options?.onWarning?.({

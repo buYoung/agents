@@ -2,17 +2,20 @@
  * permissions/enforce.ts — tool.execute.before 권한 집행
  */
 
+import * as fs from "node:fs";
 import type { AgentName } from "@opencode/core/doc-protocol";
 import {
   getBashCommand,
   isDisabledMcpCommandUsed,
   isReadOnlyBash,
   isWorkspaceBoundedBash,
-  targetsAgentsRootEnumeration,
+  targetsRestrictedOrchestratorArtifact,
+  targetsRunArtifact,
 } from "./bash";
 import {
-  classifyPath,
   getDefaultTempRoots,
+  getRunArtifactIdentity,
+  inspectPath,
   isAgentsRootEnumerationPath,
   isOrchestratorTaskIndexPath,
   isPathWithinAllowedRoots,
@@ -35,13 +38,99 @@ export interface EnforcePermissionOptions {
   tempRoots?: readonly string[];
 }
 
+const READ_TOOL_ALIASES = new Set([
+  "read",
+  "read_file",
+  "glob",
+  "grep",
+  "list",
+  "list_files",
+  "lsp",
+  "codesearch",
+  "ast_grep_search",
+]);
+
+const EDIT_TOOL_ALIASES = new Set([
+  "edit",
+  "edit_file",
+  "write",
+  "write_file",
+  "delete_file",
+  "move_file",
+  "apply_patch",
+  "ast_grep_replace",
+]);
+
+const BASH_TOOL_ALIASES = new Set([
+  "bash",
+  "shell",
+  "exec",
+  "execute_command",
+  "terminal",
+]);
+
+const WEBFETCH_TOOL_ALIASES = new Set([
+  "webfetch",
+  "web_fetch",
+  "fetch_url",
+  "http_request",
+]);
+
+const TASK_TOOL_ALIASES = new Set([
+  "task",
+  "delegate",
+  "spawn_agent",
+  "spawn_task",
+]);
+
+const ARTIFACT_DESTRUCTIVE_TOOL_ALIASES = new Set([
+  "delete_file",
+  "move_file",
+]);
+
+function getToolAliasCandidates(toolName: string): string[] {
+  const normalized = toolName.toLowerCase();
+  const candidates = [normalized];
+  for (const separator of ["__", ".", ":", "/"]) {
+    const parts = normalized.split(separator).filter(Boolean);
+    if (parts.length > 1) candidates.push(parts.at(-1) ?? normalized);
+  }
+  return candidates;
+}
+
+function resolveToolKind(toolName: string):
+  | "read"
+  | "edit"
+  | "bash"
+  | "webfetch"
+  | "task"
+  | undefined {
+  const candidates = getToolAliasCandidates(toolName);
+  if (candidates.some((candidate) => READ_TOOL_ALIASES.has(candidate))) {
+    return "read";
+  }
+  if (candidates.some((candidate) => EDIT_TOOL_ALIASES.has(candidate))) {
+    return "edit";
+  }
+  if (candidates.some((candidate) => BASH_TOOL_ALIASES.has(candidate))) {
+    return "bash";
+  }
+  if (candidates.some((candidate) => WEBFETCH_TOOL_ALIASES.has(candidate))) {
+    return "webfetch";
+  }
+  if (candidates.some((candidate) => TASK_TOOL_ALIASES.has(candidate))) {
+    return "task";
+  }
+  return undefined;
+}
+
 /**
  * tool.execute.before 훅에서 호출하는 권한 집행 함수.
  *
  * 처리 흐름:
  * 1. 호출 에이전트를 sessionAgentMap에서 해석
  * 2. 도구 종류를 정규화
- * 3. `.agents/**` 대상이면 모든 에이전트에 즉시 허용 (베이스라인)
+ * 3. `.agents/**` 대상이면 정규 run 경로와 역할 소유권을 검증
  * 4. 정책 테이블 조회 후 허용/거부 판단
  * 5. Fail-safe: 에이전트 미확인 시 변경 도구 거부, 읽기 허용
  */
@@ -55,28 +144,32 @@ export function enforcePermission(
   options?: EnforcePermissionOptions,
 ): EnforcementResult {
   const toolName = input.tool.toLowerCase();
+  const toolKind = resolveToolKind(toolName);
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
   const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
   const tempRoots = options?.tempRoots ?? getDefaultTempRoots();
 
-  const isReadTool =
-    toolName === "read" ||
-    toolName === "glob" ||
-    toolName === "grep" ||
-    toolName === "list" ||
-    toolName === "lsp" ||
-    toolName === "codesearch" ||
-    toolName === "ast_grep_search";
+  const isReadTool = toolKind === "read";
+  const isEditTool = toolKind === "edit";
+  const isBashTool = toolKind === "bash";
+  const isWebfetchTool = toolKind === "webfetch";
+  const isTaskTool = toolKind === "task";
 
-  const isEditTool =
-    toolName === "edit" ||
-    toolName === "write" ||
-    toolName === "apply_patch" ||
-    toolName === "ast_grep_replace";
-
-  const isBashTool = toolName === "bash";
-  const isWebfetchTool = toolName === "webfetch";
-  const isTaskTool = toolName === "task";
+  const targetPaths = extractTargetPaths(input.args, toolName);
+  const targetPath = targetPaths[0];
+  const inspectedPaths = targetPaths.map((pathValue) => ({
+    pathValue,
+    inspection: inspectPath(pathValue, options?.workspaceRoot),
+  }));
+  const invalidPath = inspectedPaths.find(
+    ({ inspection }) => !inspection.valid,
+  );
+  if (invalidPath) {
+    return {
+      allowed: false,
+      reason: `[policy] 정규화할 수 없는 경로 거부 — tool=${toolName}, path=${invalidPath.pathValue}, reason=${invalidPath.inspection.reason ?? "invalid"}`,
+    };
+  }
 
   if (!agent) {
     if (isReadTool) {
@@ -99,8 +192,12 @@ export function enforcePermission(
     };
   }
 
-  const targetPaths = extractTargetPaths(input.args, toolName);
-  const targetPath = targetPaths[0];
+  if (!toolKind) {
+    return {
+      allowed: false,
+      reason: `[policy] ${agent}: 분류되지 않은 도구(${toolName}) 기본 거부`,
+    };
+  }
 
   if (targetPaths.length > 0) {
     const boundaryPolicy = isEditTool
@@ -132,17 +229,53 @@ export function enforcePermission(
   }
 
   if (targetPaths.length > 0) {
-    const categories = targetPaths.map(classifyPath);
+    const categories = inspectedPaths.map(
+      ({ inspection }) => inspection.category,
+    );
+    const artifactPaths = inspectedPaths.filter(
+      ({ inspection }) => inspection.category === "agents",
+    );
+    const toolAliasCandidates = getToolAliasCandidates(toolName);
     if (
-      categories.every((category) => category === "agents") &&
-      agent === "planner" &&
-      toolName === "edit"
+      artifactPaths.length > 0 &&
+      toolAliasCandidates.some((candidate) =>
+        ARTIFACT_DESTRUCTIVE_TOOL_ALIASES.has(candidate),
+      )
     ) {
       return {
         allowed: false,
-        reason:
-          "[policy] planner는 plan.md 산출물에 write만 허용 — edit 금지",
+        reason: `[baseline] 산출물 delete/move 도구 거부 — tool=${toolName}`,
       };
+    }
+    for (const artifactPath of artifactPaths) {
+      const identity = getRunArtifactIdentity(
+        artifactPath.pathValue,
+        options?.workspaceRoot,
+      );
+      if (!identity) {
+        return {
+          allowed: false,
+          reason: `[baseline] 산출물 경로는 .agents/<taskId>/<workItemId>/<role-file>.md 형식이어야 함 — path=${artifactPath.pathValue}`,
+        };
+      }
+      if (isEditTool && identity.owner !== agent) {
+        return {
+          allowed: false,
+          reason: `[baseline] ${agent}는 ${identity.owner} 소유 산출물 쓰기 불가 — path=${artifactPath.pathValue}`,
+        };
+      }
+      if (
+        isEditTool &&
+        toolAliasCandidates.some((candidate) =>
+          ["write", "write_file"].includes(candidate),
+        ) &&
+        fs.existsSync(artifactPath.inspection.canonicalPath)
+      ) {
+        return {
+          allowed: false,
+          reason: `[baseline] 기존 산출물 write 덮어쓰기 거부 — continuation은 edit/apply_patch 사용: path=${artifactPath.pathValue}`,
+        };
+      }
     }
     if (categories.every((category) => category === "agents")) {
       const outsideWorkspaceArtifactPath = targetPaths.find(
@@ -178,7 +311,7 @@ export function enforcePermission(
       }
       return {
         allowed: true,
-        reason: `[baseline] .agents/** 경로는 모든 에이전트에 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
+        reason: `[baseline] 역할 소유권이 확인된 .agents 산출물 접근 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
       };
     }
   }
@@ -195,8 +328,8 @@ export function enforcePermission(
       const subagentType = input.args["subagent_type"];
       if (typeof subagentType !== "string" || subagentType.trim() === "") {
         return {
-          allowed: true,
-          reason: `[policy] ${agent}: task — subagent_type 미지정, 허용 (하위 처리에서 검증)`,
+          allowed: false,
+          reason: `[policy] ${agent}: task — subagent_type 미지정 거부`,
         };
       }
       const targetAgent = subagentType.trim();
@@ -231,8 +364,20 @@ export function enforcePermission(
       };
     }
     if (
+      targetsRunArtifact(bashCommand, options?.workspaceRoot) &&
+      !isReadOnlyBash(bashCommand)
+    ) {
+      return {
+        allowed: false,
+        reason: "[baseline] .agents 산출물을 대상으로 한 변경 가능 bash 거부 — 파일 도구와 역할 소유 경로를 사용하라",
+      };
+    }
+    if (
       agent === "orchestrator" &&
-      targetsAgentsRootEnumeration(bashCommand, options?.workspaceRoot)
+      targetsRestrictedOrchestratorArtifact(
+        bashCommand,
+        options?.workspaceRoot,
+      )
     ) {
       return {
         allowed: false,
@@ -300,7 +445,10 @@ export function enforcePermission(
           reason: `[policy] ${agent}는 docs/**만 읽기 허용 — 탐색 범위 미지정(repo 전체) 거부: tool=${toolName}. docs/ 하위 경로를 명시하라`,
         };
       }
-      const category = classifyPath(targetPath);
+      const category = inspectPath(
+        targetPath,
+        options?.workspaceRoot,
+      ).category;
       if (category === "source") {
         return {
           allowed: false,
@@ -316,8 +464,8 @@ export function enforcePermission(
   }
 
   return {
-    allowed: true,
-    reason: `[policy] ${agent}: 기타 도구(${toolName}) 기본 허용`,
+    allowed: false,
+    reason: `[policy] ${agent}: 분류되지 않은 도구(${toolName}) 기본 거부`,
   };
 }
 
@@ -325,33 +473,34 @@ function extractTargetPaths(
   args: Record<string, unknown>,
   toolName: string,
 ): string[] {
-  if (toolName === "bash") {
+  const toolKind = resolveToolKind(toolName);
+  if (toolKind === "bash") {
     return [];
   }
 
-  if (toolName === "webfetch") {
+  if (toolKind === "webfetch") {
     return [];
   }
 
-  if (toolName === "task") {
+  if (toolKind === "task") {
     return [];
   }
 
-  if (toolName === "glob") {
+  if (getToolAliasCandidates(toolName).includes("glob")) {
     const scopePath = args["path"] ?? args["glob"];
     return typeof scopePath === "string" && scopePath.length > 0
       ? [scopePath]
       : [];
   }
 
-  if (toolName === "grep") {
+  if (getToolAliasCandidates(toolName).includes("grep")) {
     const scopePath = args["path"];
     return typeof scopePath === "string" && scopePath.length > 0
       ? [scopePath]
       : [];
   }
 
-  if (toolName === "apply_patch") {
+  if (getToolAliasCandidates(toolName).includes("apply_patch")) {
     const input = args["input"] ?? args["patchText"];
     if (typeof input === "string") {
       const paths = new Set<string>();
@@ -359,6 +508,8 @@ function extractTargetPaths(
         /^\*\*\* Add File: (.+)$/gm,
         /^\*\*\* Update File: (.+)$/gm,
         /^\*\*\* Delete File: (.+)$/gm,
+        /^\*\*\* Move to: (.+)$/gm,
+        /^--- a\/(.+)$/gm,
         /^\+\+\+ b\/(.+)$/gm,
       ];
 
@@ -381,13 +532,27 @@ function extractTargetPaths(
     "file",
     "directory",
     "dir",
+    "source",
+    "sourcePath",
+    "source_path",
+    "destination",
+    "destinationPath",
+    "destination_path",
+    "target",
+    "targetPath",
+    "target_path",
+    "oldPath",
+    "old_path",
+    "newPath",
+    "new_path",
   ] as const;
+  const paths: string[] = [];
   for (const key of pathKeys) {
     const value = args[key];
     if (typeof value === "string" && value.length > 0) {
-      return [value];
+      paths.push(value);
     }
   }
 
-  return [];
+  return [...new Set(paths)];
 }

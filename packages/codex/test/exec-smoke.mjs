@@ -34,7 +34,7 @@ const orchestratorLeafAgents = new Set([
   "constructive-feedback",
 ]);
 const defaultFixtureByAgent = {
-  orchestrator: "orchestrator-normal-001",
+  orchestrator: "orchestrator-deep-dev-001",
   "intent-checker": "intent-checker-normal-001",
   worker: "worker-normal-001",
   planner: "planner-normal-001",
@@ -43,6 +43,18 @@ const defaultFixtureByAgent = {
   "idea-generator": "idea-generator-normal-001",
   "adversarial-review": "adversarial-review-normal-001",
   "constructive-feedback": "constructive-feedback-normal-001",
+};
+
+const orchestratorExpectedLeafAgentsByFixture = {
+  "orchestrator-normal-001": ["worker"],
+  "orchestrator-deep-dev-001": [
+    "research",
+    "planner",
+    "worker",
+    "adversarial-review",
+  ],
+  "orchestrator-boundary-001": ["worker"],
+  "orchestrator-ambiguous-001": [],
 };
 
 function readAgentNames() {
@@ -219,17 +231,24 @@ function buildPrompt({ agent, caseName, fixture, fixtureInput }) {
       : "codemap-search MCP is intentionally unavailable in this run. The subagent must not try to run a same-named codemap-search executable through shell; it should use the ordinary available tools instead.";
 
   if (agent === orchestratorAgent) {
+    const expectedLeafAgents =
+      orchestratorExpectedLeafAgentsByFixture[fixture];
+    if (!expectedLeafAgents) {
+      throw new Error(`No orchestrator leaf expectation for fixture: ${fixture}`);
+    }
     return [
       "오케스트레이션 에이전트로 진행해줘.",
       `Case: ${caseName}`,
       `Fixture id: ${fixture}`,
       `Use taskId: ${fixture}`,
       "",
-      "Goal: use the Codex custom orchestrator agent to classify this fixture and perform only the first required leaf-agent delegation.",
+      "Goal: use the Codex custom orchestrator agent to classify this fixture and complete the requested leaf-agent workflow.",
       "Root-session rule: spawn the custom orchestrator agent, wait for it to finish, close it, and return a concise result summary.",
       `The root spawn_agent call must set agent_type exactly to "${agent}".`,
       "The root spawn_agent message must contain only this normalized goal, constraints, taskId, and expected proof. Do not paste this full smoke prompt, the fixture table, or any `요청 원문:` block into the orchestrator message.",
-      "Orchestrator rule: from inside the orchestrator agent, never spawn another orchestrator. Spawn exactly one allowed leaf custom agent, then return after that spawn_agent call succeeds. Do not wait for or close that leaf agent in this smoke case.",
+      `Expected completed leaf roles in order: ${expectedLeafAgents.join(", ") || "none"}.`,
+      `Expected completed leaf count: ${expectedLeafAgents.length}.`,
+      "Orchestrator rule: never spawn another orchestrator. Run every required leaf role, wait for each dependency/result, and return only after the requested workflow reaches a terminal result. Independent roles may run concurrently.",
       `When delegating, pass taskId: ${fixture} to the orchestrator and to the leaf custom subagent.`,
       "If the custom agent is unavailable, say so explicitly and fail the smoke evaluation.",
       mcpInstruction,
@@ -245,7 +264,7 @@ function buildPrompt({ agent, caseName, fixture, fixtureInput }) {
     `Fixture id: ${fixture}`,
     `Use taskId: ${fixture}`,
     "",
-    "Spawn exactly one custom subagent with this agent name, wait for it to finish, close it, and return a concise result summary.",
+    "Spawn the requested custom subagent, wait for it to finish, close it, and return a concise result summary.",
     `The spawn_agent call must set agent_type exactly to "${agent}". Do not omit agent_type and do not use any fallback agent type.`,
     `When delegating, pass taskId: ${fixture} to the custom subagent.`,
     "Do not solve the fixture in the root session except for delegating it to that custom agent.",
@@ -371,7 +390,9 @@ function summarizeSessionHistory(temporaryCodexHome) {
 
   for (const sessionPath of sessionFiles) {
     const toolCalls = [];
+    const messages = [];
     let metadata = null;
+    let terminalEventCount = 0;
 
     for (const [lineIndex, line] of fs
       .readFileSync(sessionPath, "utf-8")
@@ -393,6 +414,27 @@ function summarizeSessionHistory(temporaryCodexHome) {
 
       const payload = event.payload ?? {};
       const item = payload.item ?? {};
+      if (
+        event.type === "turn.completed" ||
+        payload.type === "turn_completed" ||
+        payload.type === "task_complete"
+      ) {
+        terminalEventCount += 1;
+      }
+      if (
+        (event.type === "item.completed" &&
+          event.item?.type === "agent_message") ||
+        (event.type === "event_msg" && payload.type === "agent_message")
+      ) {
+        messages.push(event.item?.text ?? payload.message ?? "");
+      }
+      if (event.type === "response_item" && payload.type === "message") {
+        for (const contentItem of payload.content ?? []) {
+          if (contentItem.type === "output_text") {
+            messages.push(contentItem.text ?? "");
+          }
+        }
+      }
       const toolName = item.tool ?? item.name ?? payload.tool ?? payload.name;
       if (toolName) {
         let argumentsObject = null;
@@ -440,6 +482,8 @@ function summarizeSessionHistory(temporaryCodexHome) {
       agentRole: metadata?.agent_role ?? null,
       agentNickname: metadata?.agent_nickname ?? null,
       source: metadata?.source ?? null,
+      finalMessage: messages.at(-1) ?? "",
+      terminalEventCount,
       toolCalls,
     });
   }
@@ -666,24 +710,52 @@ async function runCase({
       summary.error = `codex exec exited with ${result.exitCode}`;
     } else if (!summary.usage || summary.finalMessage.trim() === "") {
       summary.error = "missing usage or final message";
-    } else if (summary.spawnedAgentThreadCount !== 1) {
-      summary.error = `expected exactly one spawned agent, saw ${summary.spawnedAgentThreadCount}`;
     } else if (agent === orchestratorAgent) {
+      const expectedLeafAgents =
+        orchestratorExpectedLeafAgentsByFixture[fixture] ?? [];
       const orchestratorSessions = summary.sessionSummaries.filter(
         (session) => session.agentRole === orchestratorAgent,
       );
       const orchestratorSessionIds = new Set(
         orchestratorSessions.map((session) => session.sessionId),
       );
-      const rootSpawn = summary.spawnCalls.find((spawnCall) =>
+      const rootSpawns = summary.spawnCalls.filter((spawnCall) =>
         spawnCall.receiverThreadIds.some((threadId) =>
           orchestratorSessionIds.has(threadId),
         ),
       );
-      const orchestratorLeafSpawn = orchestratorSessions
+      const rootSpawn = rootSpawns[0];
+      const orchestratorLeafSpawns = orchestratorSessions
         .flatMap((session) => session.toolCalls)
-        .find((toolCall) => toolCall.tool === "spawn_agent");
-      if (!rootSpawn) {
+        .filter((toolCall) => toolCall.tool === "spawn_agent");
+      const actualLeafAgents = orchestratorLeafSpawns.map(
+        (spawnCall) => spawnCall.agentType,
+      );
+      const leafThreadIds = new Set(
+        orchestratorLeafSpawns.flatMap(
+          (spawnCall) => spawnCall.receiverThreadIds ?? [],
+        ),
+      );
+      const leafSessions = summary.sessionSummaries.filter(
+        (session) =>
+          leafThreadIds.has(session.sessionId) ||
+          orchestratorSessionIds.has(session.parentThreadId),
+      );
+      const orchestratorWaitCalls = orchestratorSessions
+        .flatMap((session) => session.toolCalls)
+        .filter((toolCall) =>
+          ["wait", "wait_agent"].includes(toolCall.tool),
+        );
+      const incompleteLeafSessions = leafSessions.filter(
+        (session) =>
+          session.finalMessage.trim() === "" || session.terminalEventCount === 0,
+      );
+
+      if (summary.spawnedAgentThreadCount !== 1) {
+        summary.error = `expected root to spawn one orchestrator, saw ${summary.spawnedAgentThreadCount} root-level threads`;
+      } else if (rootSpawns.length !== 1) {
+        summary.error = `expected one root orchestrator spawn, saw ${rootSpawns.length}`;
+      } else if (!rootSpawn) {
         summary.error = "expected root session to spawn orchestrator";
       } else if (
         typeof rootSpawn.message === "string" &&
@@ -694,20 +766,42 @@ async function runCase({
         summary.error = "root passed an unsanitized prompt to orchestrator";
       } else if (orchestratorSessions.length !== 1) {
         summary.error = `expected exactly one orchestrator child session, saw ${orchestratorSessions.length}`;
-      } else if (!orchestratorLeafSpawn) {
-        summary.error = "expected orchestrator to spawn one leaf agent";
-      } else if (orchestratorLeafSpawn.agentType === orchestratorAgent) {
+      } else if (summary.waitEventCount === 0 || summary.closeAgentEventCount === 0) {
+        summary.error = "root did not wait for and close the orchestrator";
+      } else if (actualLeafAgents.includes(orchestratorAgent)) {
         summary.error = "orchestrator recursively spawned orchestrator";
-      } else if (!orchestratorLeafAgents.has(orchestratorLeafSpawn.agentType)) {
-        summary.error = `orchestrator spawned unexpected agent: ${orchestratorLeafSpawn.agentType}`;
       } else if (
-        typeof orchestratorLeafSpawn.message === "string" &&
-        /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
-          orchestratorLeafSpawn.message,
+        actualLeafAgents.some(
+          (agentType) => !orchestratorLeafAgents.has(agentType),
         )
       ) {
-        summary.error = "orchestrator passed an unsanitized prompt to leaf agent";
+        summary.error = `orchestrator spawned unexpected roles: ${actualLeafAgents.join(", ")}`;
+      } else if (
+        JSON.stringify(actualLeafAgents) !== JSON.stringify(expectedLeafAgents)
+      ) {
+        summary.error = `expected leaf roles ${expectedLeafAgents.join(", ") || "none"}, saw ${actualLeafAgents.join(", ") || "none"}`;
+      } else if (
+        orchestratorLeafSpawns.some(
+          (spawnCall) =>
+            typeof spawnCall.message === "string" &&
+            /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
+              spawnCall.message,
+            ),
+        )
+      ) {
+        summary.error = "orchestrator passed an unsanitized prompt to a leaf agent";
+      } else if (
+        expectedLeafAgents.length > 0 &&
+        orchestratorWaitCalls.length === 0
+      ) {
+        summary.error = "orchestrator returned without waiting for leaf results";
+      } else if (leafSessions.length !== expectedLeafAgents.length) {
+        summary.error = `expected ${expectedLeafAgents.length} leaf sessions, saw ${leafSessions.length}`;
+      } else if (incompleteLeafSessions.length > 0) {
+        summary.error = `leaf sessions missing terminal results: ${incompleteLeafSessions.map((session) => session.agentRole ?? session.sessionId).join(", ")}`;
       }
+    } else if (summary.spawnedAgentThreadCount !== 1) {
+      summary.error = `expected one spawned custom agent, saw ${summary.spawnedAgentThreadCount}`;
     } else if (
       agent === "code-explorer" &&
       caseName === "mcp" &&

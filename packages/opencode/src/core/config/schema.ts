@@ -4,7 +4,10 @@
 
 import { z } from "zod";
 import type { AgentDefinition } from "@opencode/core/types";
-import type { AgentName } from "@opencode/core/doc-protocol";
+import {
+  AGENT_NAMES,
+  type AgentName,
+} from "@opencode/core/doc-protocol";
 import {
   getCatalogModelIds,
   getReasoningEfforts,
@@ -51,19 +54,27 @@ export const AgentOverrideSchema = z
   })
   .strict();
 
+const AgentNameSchema = z.enum(
+  AGENT_NAMES as unknown as [AgentName, ...AgentName[]],
+);
+const AgentOverridesSchema = z.partialRecord(
+  AgentNameSchema,
+  AgentOverrideSchema,
+);
+
 /**
  * 플러그인 전체 설정 스키마.
  * - preset: 적용할 preset 이름 (presets 섹션에 정의)
  * - agents: 에이전트별 오버라이드 맵
  * - presets: 여러 오버라이드 셋을 이름으로 묶은 맵
  */
-export const PluginConfigSchema = z.object({
-  preset: z.string().optional(),
-  agents: z.record(z.string(), AgentOverrideSchema).optional(),
-  presets: z
-    .record(z.string(), z.record(z.string(), AgentOverrideSchema))
-    .optional(),
-});
+export const PluginConfigSchema = z
+  .object({
+    preset: z.string().optional(),
+    agents: AgentOverridesSchema.optional(),
+    presets: z.record(z.string(), AgentOverridesSchema).optional(),
+  })
+  .strict();
 
 export type AgentOverride = z.infer<typeof AgentOverrideSchema>;
 export type PluginConfig = z.infer<typeof PluginConfigSchema>;

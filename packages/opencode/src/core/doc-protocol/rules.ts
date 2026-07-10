@@ -13,12 +13,13 @@ export const PATHS_ONLY_RULE = `
 
 When delegating or returning results:
 - Return only \`Path:\` plus a one-line \`Summary:\`. Do not inline full working content.
-- Put details in your own handoff file: \`.agents/<taskId>/<your-file>.md\`.
+- Put details in your assigned handoff file: \`.agents/<taskId>/<workItemId>/<your-file>.md\`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
+- Downstream agents discover artifacts only from the concrete \`Path:\` returned by the producing agent or from the orchestrator index. Never scan work-item directories.
 
 Example return format:
-  Path: .agents/20260702-slug/plan.md
+  Path: .agents/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 `.trim();
 
@@ -31,8 +32,10 @@ Example return format:
 export const APPEND_ONLY_RULE = `
 ## Handoff File Ownership
 
-Each artifact-writing agent owns exactly one file under \`.agents/<taskId>/\`.
-Write only to your mapped file.
+Each artifact-writing execution owns exactly one file under
+\`.agents/<taskId>/<workItemId>/\`. The orchestrator assigns a unique
+\`workItemId\` for every delegation, including repeated or parallel calls to
+the same role. Write only to that assigned path.
 
 \`\`\`yaml
 orchestrator: task.md
@@ -48,10 +51,11 @@ constructive-feedback: constructive-feedback.md
 \`intent-checker\` is stateless and owns no file.
 
 Rules:
-1. Create your file if absent; append only when it already exists as an input artifact.
-2. Never overwrite or replace existing handoff content.
-3. Never write another agent's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
-4. Reading \`.agents/<taskId>/\` files is allowed only when the role and permission policy allow it.
+1. Require both a valid taskId and the exact assigned workItemId before writing. Never invent, reuse, or normalize either identifier.
+2. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
+3. Never overwrite or replace existing handoff content.
+4. Never write another agent's mapped filename or another work item's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
+5. Reading run files is allowed only through explicit concrete paths when the role and permission policy allow it.
 `.trim();
 
 /**
@@ -78,7 +82,7 @@ Rules:
 1. Store each fact in one authoritative file only.
 2. If a fact already exists elsewhere, reference its path instead of copying it.
 3. Hand off with \`Path:\` and one-line \`Summary:\` only.
-4. Subagents do not update \`task.md\`; the orchestrator builds that index from returned paths and summaries.
+4. Subagents do not update \`task.md\`; the orchestrator builds its own indexed work-item artifact from returned concrete paths and summaries.
 `.trim();
 
 /**
@@ -88,7 +92,7 @@ Rules:
  * reference it without re-deriving it.
  */
 export const TASKID_RULE = `
-## Task ID (taskId) Rule
+## Run Identity Rule
 
 Format: \`YYYYMMDD-<slug>\`, for example \`20260702-auth-login\`.
 
@@ -100,6 +104,9 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Do not hard-code a full handoff path. Use your bare filename and let \`runDocPath(taskId, agentName)\` resolve \`.agents/<taskId>/<your-file>.md\`.
-- All run files stay under \`.agents/<taskId>/\`, matching the permission layer's \`.agents/**\` scope.
+- Every artifact-writing delegation must also receive a unique kebab-case workItemId, such as \`planner-01\` or \`worker-parse-fix-02\`. The orchestrator allocates it once and never reuses it within the taskId.
+- If either identifier is missing or invalid, stop before writing and request the missing identity. Do not substitute an absolute path, path separator, \`..\`, or another task's identifier.
+- Do not hard-code or derive a different handoff path. Use \`runDocPath(taskId, workItemId, agentName)\` to resolve \`.agents/<taskId>/<workItemId>/<your-file>.md\`.
+- Return the exact concrete path so downstream agents do not need directory discovery.
+- All run files stay under the canonical workspace \`.agents/<taskId>/<workItemId>/\` scope.
 `.trim();

@@ -1,11 +1,11 @@
 {
-  "adversarial-review": "0.1.0",
-  "code-explorer": "0.1.0",
-  "constructive-feedback": "0.1.0",
-  "idea-generator": "0.1.0",
+  "adversarial-review": "0.1.1",
+  "code-explorer": "0.1.1",
+  "constructive-feedback": "0.1.1",
+  "idea-generator": "0.1.1",
   "intent-checker": "0.1.0",
-  "orchestrator": "0.1.1",
-  "planner": "0.1.0",
-  "research": "0.1.0",
-  "worker": "0.1.0"
+  "orchestrator": "0.1.2",
+  "planner": "0.1.1",
+  "research": "0.1.1",
+  "worker": "0.1.1"
 }

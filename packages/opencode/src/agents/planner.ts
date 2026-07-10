@@ -71,7 +71,7 @@ If taskId was already received, do not run or check date again; use the received
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
 - bash only to generate a date when taskId is missing, or for hook-allowed read-only fact verification.
-- File-writing tools only for \`.agents/<taskId>/${OUTPUT_FILE}\`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to your own \`${OUTPUT_FILE}\`.
+- File-writing tools only for the assigned \`.agents/<taskId>/<workItemId>/${OUTPUT_FILE}\`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to that exact path.
 - Do not use edit.
 
 Bash restrictions:

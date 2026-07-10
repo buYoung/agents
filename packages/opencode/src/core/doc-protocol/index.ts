@@ -18,7 +18,14 @@ export {
   AGENT_DOC_MAP,
 } from "./names";
 
-export { RUN_DIR_ROOT, runDocPath } from "./paths";
+export {
+  RUN_DIR_ROOT,
+  TASK_ID_PATTERN,
+  WORK_ITEM_ID_PATTERN,
+  isValidTaskId,
+  isValidWorkItemId,
+  runDocPath,
+} from "./paths";
 
 export {
   PATHS_ONLY_RULE,

@@ -8,9 +8,12 @@ import * as path from "node:path";
 import { runDocPath, AGENT_DOC_MAP } from "@opencode/core/doc-protocol";
 
 describe("runDocPath", () => {
-  test("planner → .agents/<taskId>/plan.md", () => {
+  test("planner → .agents/<taskId>/<workItemId>/plan.md", () => {
     const taskId = "20260702-smoke-roundtrip";
-    expect(runDocPath(taskId, "planner")).toBe(`.agents/${taskId}/plan.md`);
+    const workItemId = "planner-01";
+    expect(runDocPath(taskId, workItemId, "planner")).toBe(
+      `.agents/${taskId}/${workItemId}/plan.md`,
+    );
   });
 });
 
@@ -31,18 +34,29 @@ describe("AGENT_DOC_MAP 왕복 매핑", () => {
 describe("doc round-trip", () => {
   test("서브에이전트 파일 → 오케스트레이터 task.md 참조 합성", () => {
     const smokeTaskId = "20260702-smoke-roundtrip";
+    const plannerWorkItemId = "planner-01";
+    const orchestratorWorkItemId = "orchestrator-index";
 
     const smokeRunDir = path.join(".agents", smokeTaskId);
-    fs.mkdirSync(smokeRunDir, { recursive: true });
 
-    const plannerDocPath = runDocPath(smokeTaskId, "planner");
+    const plannerDocPath = runDocPath(
+      smokeTaskId,
+      plannerWorkItemId,
+      "planner",
+    );
+    fs.mkdirSync(path.dirname(plannerDocPath), { recursive: true });
     const plannerContent = `# plan.md — round-trip test\n\ntaskId: ${smokeTaskId}\nPlanned 2 files to change.\n`;
     fs.writeFileSync(plannerDocPath, plannerContent, "utf-8");
 
     expect(fs.existsSync(plannerDocPath)).toBe(true);
     expect(fs.readFileSync(plannerDocPath, "utf-8")).toContain(smokeTaskId);
 
-    const orchestratorDocPath = runDocPath(smokeTaskId, "orchestrator");
+    const orchestratorDocPath = runDocPath(
+      smokeTaskId,
+      orchestratorWorkItemId,
+      "orchestrator",
+    );
+    fs.mkdirSync(path.dirname(orchestratorDocPath), { recursive: true });
     const taskMdContent = `# task.md — orchestrator index\n\ntaskId: ${smokeTaskId}\n\n## References\n- plan: ${plannerDocPath}\n`;
     fs.writeFileSync(orchestratorDocPath, taskMdContent, "utf-8");
 

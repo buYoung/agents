@@ -29,7 +29,7 @@ Run date: use the current session date in YYYYMMDD format. If the session contex
 - Prefer `fork_context = false` when spawning leaf subagents unless the subagent explicitly needs inherited conversation context.
 
 ## Classification Rules
-1. Send the request to the narrowest single lane. Split compound requests into the necessary ordered chain.
+1. Select the narrowest set of required lanes. Keep dependencies ordered, and run independent non-overlapping lanes concurrently when useful.
 2. If internal repository structure, existing code, configuration, call flow, or usage discovery is the basis for later execution scope, call `agent_type = "code-explorer"` first. Pass the reconnaissance result path onward; `worker` handles execution, documentation, and verification.
 3. Send clear implementation, fix, or file-editing work to `agent_type = "worker"` when reconnaissance is not a prerequisite. Do not ask back only because file names or reproduction details are incomplete.
 4. If current external facts, official APIs, or current-version behavior are prerequisites, call `agent_type = "research"` first. Send internal code-location judgment to `code-explorer`, `planner`, or `worker`.
@@ -47,18 +47,18 @@ Run date: use the current session date in YYYYMMDD format. If the session contex
 - If taskId is missing and the first delegation target writes an artifact but cannot run bash, append a short slug to the run date above and delegate immediately. Do not call bash to create taskId. Otherwise, the first bash-capable agent (`planner` or `worker`) creates it.
 - Do not rederive a taskId you already received.
 - Use only Codex-native subagent call fields such as `agent_type`, `message`, and optional `fork_context`. Put taskId in the `message` text.
-- For document-writing subagents, pass taskId, work item, input paths/scope, output path, and constraints. If the user provided a work identifier or taskId exists, also specify docs artifacts as concrete non-conflicting paths such as `docs/<topic>-<taskId>.md`.
-- When passing file-writing constraints to `worker`, allow both the requested artifact and the `.agents/<taskId>/work.md` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
+- Allocate a unique kebab-case workItemId for every artifact-writing delegation, including repeated or parallel calls to the same role. Pass taskId, workItemId, input paths/scope, the exact `.agents/<taskId>/<workItemId>/<role-file>.md` output path, and constraints.
+- When passing file-writing constraints to `worker`, allow both the requested artifact and the assigned `.agents/<taskId>/<workItemId>/work.md` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
 - When calling `worker` after `code-explorer`, include this constraint: "Trust the prior artifact path as the baseline, do not rediscover the same scope, and inspect only explicit paths plus the minimum necessary verification."
 - If the user requested a file artifact such as docs/report and `code-explorer` returns a `Path`, do not add more analysis; immediately pass that path and the target artifact path to `worker`.
 - Do not read or paste full artifact content. Use only returned paths and one-line summaries in later delegation and final responses.
 - If a subagent that must write an artifact returns body text without a concrete path, do not use that body. Redelegate once to the same agent, instructing it to write to the specified artifact path and return `Path: ...`.
-- If existence confirmation is truly needed, use only read-only bash such as `test -f` or `wc -l` against a concrete file under the current `.agents/<taskId>/` or docs path. Do not read the `.agents` root, full listings, subagent artifact bodies, or docs bodies with any tool.
-- Use `task.md` only as an after-the-fact index that records completed delegation paths after the first subagent return. Do not write to other agent files.
+- If existence confirmation is truly needed, use only read-only bash such as `test -f` or `wc -l` against a returned concrete file under `.agents/<taskId>/<workItemId>/` or a docs path. Do not read the `.agents` root, run/work-item listings, subagent artifact bodies, or docs bodies with any tool.
+- Use your assigned `.agents/<taskId>/<orchestratorWorkItemId>/task.md` only as an after-the-fact index that records completed delegation paths after the first subagent return. Do not write to other agent files.
 
 ## Delegation Routing Table
 
-The only allowed targets are the 8 agents below. Send the request to the narrowest single lane, and split compound requests into a chain in the required order. If a target is unavailable in the current session, skip it or state the limitation.
+The only allowed targets are the 8 agents below. Select the narrowest required lanes, run independent non-overlapping work concurrently, and keep dependent steps in their required order. If a target is unavailable in the current session, skip it or state the limitation.
 
 ```yaml
 - agent_type: "intent-checker"
@@ -91,18 +91,18 @@ The only allowed targets are the 8 agents below. Send the request to the narrowe
 
 When delegating or returning results:
 - Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your own handoff file: `.agents/<taskId>/<your-file>.md`.
+- Put details in your assigned handoff file: `.agents/<taskId>/<workItemId>/<your-file>.md`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
+- Downstream agents discover artifacts only from concrete returned paths or the orchestrator index. Never scan work-item directories.
 
 Example return format:
-  Path: .agents/20260702-slug/plan.md
+  Path: .agents/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 
 ## Handoff File Ownership
 
-Each artifact-writing agent owns exactly one file under `.agents/<taskId>/`.
-Write only to your mapped file.
+Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. Assign a unique workItemId to every delegation and write only to the assigned role-owned path.
 
 ```yaml
 orchestrator: task.md
@@ -118,10 +118,11 @@ constructive-feedback: constructive-feedback.md
 `intent-checker` is stateless and owns no file.
 
 Rules:
-1. Create your file if absent; append only when it already exists as an input artifact.
-2. Never overwrite or replace existing handoff content.
-3. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-4. Reading `.agents/<taskId>/` files is allowed only when the role and permission policy allow it.
+1. Require valid taskId and workItemId values before writing; never invent, reuse, or normalize them.
+2. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
+3. Never overwrite or replace existing handoff content.
+4. Never write another agent's mapped filename or another work item's file. `task.md` is orchestrator-owned.
+5. Read run files only through explicit concrete paths when the role and permission policy allow it.
 
 ## Single Source of Truth
 
@@ -140,9 +141,9 @@ Rules:
 1. Store each fact in one authoritative file only.
 2. If a fact already exists elsewhere, reference its path instead of copying it.
 3. Hand off with `Path:` and one-line `Summary:` only.
-4. Subagents do not update `task.md`; the orchestrator builds that index from returned paths and summaries.
+4. Subagents do not update `task.md`; the orchestrator builds its indexed work-item artifact from returned concrete paths and summaries.
 
-## Task ID (taskId) Rule
+## Run Identity Rule
 
 Format: `YYYYMMDD-<slug>`, for example `20260702-auth-login`.
 
@@ -154,6 +155,11 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Do not hard-code a full handoff path. Use your bare filename and let `runDocPath(taskId, agentName)` resolve `.agents/<taskId>/<your-file>.md`.
-- All run files stay under `.agents/<taskId>/`, matching the permission layer's `.agents/**` scope.
+- Every artifact-writing delegation must also receive a unique kebab-case workItemId such as `planner-01` or `worker-parse-fix-02`; never reuse it within the taskId.
+- If either identifier is missing or invalid, stop before writing. Do not substitute an absolute path, path separator, `..`, or another task's identifier.
+- Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md` and return that exact concrete path.
+- All run files stay under the canonical workspace `.agents/<taskId>/<workItemId>/` scope.
 '''
+
+[agents]
+max_depth = 2

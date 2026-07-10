@@ -21,10 +21,16 @@ export function createSessionAgentMap(): {
     sessionID: string,
     agent: string | undefined,
   ): void {
-    if (!agent) return;
-    // 알려진 에이전트 이름인지 검증 후 저장
+    if (!agent) {
+      map.delete(sessionID);
+      return;
+    }
+    // 알려진 에이전트 이름만 저장한다. built-in/custom/unknown 전환은
+    // 이전 역할의 권한이 남지 않도록 즉시 매핑을 지운다.
     if ((AGENT_NAMES_IMPL as readonly string[]).includes(agent)) {
       map.set(sessionID, agent as AgentName);
+    } else {
+      map.delete(sessionID);
     }
   }
 

@@ -3,8 +3,10 @@
  */
 
 import {
-  isAgentsRootEnumerationPath,
+  getRunArtifactIdentity,
+  inspectPath,
   isPathWithinAllowedRoots,
+  resolveTargetPath,
 } from "./path";
 
 export function getBashCommand(args: Record<string, unknown>): string {
@@ -38,7 +40,6 @@ export function isDisabledMcpCommandUsed(command: string): string | undefined {
 }
 
 const READ_ONLY_BASH_COMMANDS = new Set([
-  "awk",
   "basename",
   "cat",
   "cmp",
@@ -54,7 +55,6 @@ const READ_ONLY_BASH_COMMANDS = new Set([
   "false",
   "fgrep",
   "file",
-  "find",
   "git",
   "grep",
   "head",
@@ -68,11 +68,9 @@ const READ_ONLY_BASH_COMMANDS = new Set([
   "printf",
   "pwd",
   "rg",
-  "sed",
   "shasum",
   "sha1sum",
   "sha256sum",
-  "sort",
   "stat",
   "tail",
   "test",
@@ -88,14 +86,11 @@ const READ_ONLY_BASH_COMMANDS = new Set([
 ]);
 
 const READ_ONLY_GIT_SUBCOMMANDS = new Set([
-  "blame",
-  "diff",
   "grep",
   "log",
   "ls-files",
   "rev-list",
   "rev-parse",
-  "show",
   "show-ref",
   "status",
 ]);
@@ -103,9 +98,8 @@ const READ_ONLY_GIT_SUBCOMMANDS = new Set([
 const SHELL_SEPARATORS = new Set([";", "|", "&&", "||"]);
 
 const UNSAFE_READ_ONLY_ARGS: Record<string, readonly string[]> = {
-  awk: ["-i"],
-  find: ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint"],
-  sed: ["-i", "--in-place"],
+  git: ["--paginate", "--exec-path", "--config-env", "--ext-diff", "--textconv"],
+  rg: ["--pre", "--pre-glob"],
 };
 
 const INLINE_SCRIPT_COMMANDS = new Set([
@@ -120,12 +114,16 @@ const INLINE_SCRIPT_COMMANDS = new Set([
   "zsh",
 ]);
 
-const INLINE_SCRIPT_FLAGS = new Set([
-  "-c",
-  "-e",
-  "--eval",
-  "--execute",
-  "--command",
+const SCRIPT_FILE_PATTERN = /\.(?:bash|cjs|js|mjs|php|pl|py|rb|sh|zsh)$/i;
+const PACKAGE_EXEC_COMMANDS = new Set(["bunx", "npx"]);
+const PACKAGE_EXEC_SUBCOMMANDS = new Set(["dlx", "exec", "x"]);
+const DYNAMIC_EXECUTION_COMMANDS = new Set([
+  ".",
+  "awk",
+  "eval",
+  "sed",
+  "source",
+  "xargs",
 ]);
 
 interface BashTokenizeResult {
@@ -142,35 +140,51 @@ function tokenizeBashCommand(command: string): BashTokenizeResult {
     const character = command[index];
     const nextCharacter = command[index + 1];
 
-    if (!quote && character === "`") {
-      return { tokens: [], error: "command substitution is not read-only safe" };
+    if (character === "\n" || character === "\r") {
+      return { tokens: [], error: "multi-line shell input is not safe" };
     }
 
-    if (!quote && character === "$" && nextCharacter === "(") {
-      return { tokens: [], error: "command substitution is not read-only safe" };
-    }
-
-    if (character === "\\" && index + 1 < command.length) {
-      token += character + command[index + 1];
-      index += 1;
+    if (quote === "'") {
+      if (character === "'") {
+        quote = undefined;
+      } else {
+        token += character;
+      }
       continue;
     }
 
-    if (quote) {
+    if (quote === "\"") {
       if (
-        quote === "\"" &&
-        (character === "`" || (character === "$" && nextCharacter === "("))
+        character === "`" ||
+        (character === "$" && nextCharacter === "(")
       ) {
         return {
           tokens: [],
           error: "command substitution is not read-only safe",
         };
       }
-      if (character === quote) {
+      if (character === "\"") {
         quote = undefined;
+      } else if (character === "\\" && index + 1 < command.length) {
+        token += nextCharacter;
+        index += 1;
       } else {
         token += character;
       }
+      continue;
+    }
+
+    if (character === "`") {
+      return { tokens: [], error: "command substitution is not read-only safe" };
+    }
+
+    if (character === "$" && nextCharacter === "(") {
+      return { tokens: [], error: "command substitution is not read-only safe" };
+    }
+
+    if (character === "\\" && index + 1 < command.length) {
+      token += command[index + 1];
+      index += 1;
       continue;
     }
 
@@ -250,28 +264,22 @@ function isUnsafeReadOnlyArgument(commandName: string, args: string[]): boolean 
 
 function isReadOnlyGitCommand(args: string[]): boolean {
   const subcommand = args.find((arg) => !arg.startsWith("-"));
-  return typeof subcommand === "string" && READ_ONLY_GIT_SUBCOMMANDS.has(subcommand);
+  return (
+    typeof subcommand === "string" &&
+    READ_ONLY_GIT_SUBCOMMANDS.has(subcommand) &&
+    !args.some((arg) => arg === "-c" || arg.startsWith("-c="))
+  );
 }
 
 function isReadOnlyBashSegment(tokens: string[]): boolean {
-  let commandIndex = tokens.findIndex((token) => !isShellAssignment(token));
+  if (tokens.some(isShellAssignment)) return false;
+
+  let commandIndex = 0;
   if (commandIndex < 0) return false;
 
   let commandName = tokens[commandIndex];
   if (commandName === "command" || commandName === "builtin") {
     commandIndex += 1;
-    commandName = tokens[commandIndex];
-  }
-
-  if (commandName === "env") {
-    commandIndex += 1;
-    while (
-      commandIndex < tokens.length &&
-      (tokens[commandIndex].startsWith("-") ||
-        isShellAssignment(tokens[commandIndex]))
-    ) {
-      commandIndex += 1;
-    }
     commandName = tokens[commandIndex];
   }
 
@@ -294,6 +302,7 @@ function isReadOnlyBashSegment(tokens: string[]): boolean {
 export function isReadOnlyBash(command: string): boolean {
   const normalizedCommand = command.trim();
   if (!normalizedCommand) return false;
+  if (/[\r\n]/.test(command)) return false;
 
   const tokenizeResult = tokenizeBashCommand(normalizedCommand);
   if (tokenizeResult.error) return false;
@@ -357,22 +366,80 @@ function getSegmentCommandIndex(tokens: string[]): number {
   return commandIndex < tokens.length ? commandIndex : -1;
 }
 
-function hasInlineScriptExecution(tokens: string[]): boolean {
+function hasScriptExecution(tokens: string[]): boolean {
   return splitBashSegments(tokens).some((segment) => {
     const commandIndex = getSegmentCommandIndex(segment);
     if (commandIndex < 0) return false;
 
     const commandName = segment[commandIndex];
-    if (!INLINE_SCRIPT_COMMANDS.has(commandName)) return false;
-
-    return segment
-      .slice(commandIndex + 1)
-      .some(
-        (arg) =>
-          INLINE_SCRIPT_FLAGS.has(arg) ||
-          [...INLINE_SCRIPT_FLAGS].some((flag) => arg.startsWith(`${flag}=`)),
-      );
+    const commandArgs = segment.slice(commandIndex + 1);
+    if (INLINE_SCRIPT_COMMANDS.has(commandName)) return true;
+    if (DYNAMIC_EXECUTION_COMMANDS.has(commandName)) return true;
+    if (PACKAGE_EXEC_COMMANDS.has(commandName)) return true;
+    if (
+      ["bun", "npm", "pnpm", "yarn"].includes(commandName) &&
+      commandArgs.some((arg) => PACKAGE_EXEC_SUBCOMMANDS.has(arg))
+    ) {
+      return true;
+    }
+    if (isPathLikeToken(commandName) || SCRIPT_FILE_PATTERN.test(commandName)) {
+      return true;
+    }
+    if (
+      commandName === "find" &&
+      commandArgs.some((arg) =>
+        ["-exec", "-execdir", "-ok", "-okdir"].includes(arg),
+      )
+    ) {
+      return true;
+    }
+    return commandArgs.some(
+      (arg) => !arg.startsWith("-") && SCRIPT_FILE_PATTERN.test(arg),
+    );
   });
+}
+
+function getAssignmentValue(token: string): string | undefined {
+  if (!isShellAssignment(token)) return undefined;
+  return token.slice(token.indexOf("=") + 1);
+}
+
+function getEmbeddedOptionPath(token: string): string | undefined {
+  if (!token.startsWith("-")) return undefined;
+  const equalsIndex = token.indexOf("=");
+  if (equalsIndex >= 0) return token.slice(equalsIndex + 1);
+  const traversalIndex = token.indexOf("..");
+  if (traversalIndex >= 0) return token.slice(traversalIndex);
+  const absoluteIndex = token.indexOf("/");
+  if (absoluteIndex >= 0) return token.slice(absoluteIndex);
+  const homeIndex = token.indexOf("~");
+  return homeIndex >= 0 ? token.slice(homeIndex) : undefined;
+}
+
+function getPotentialPathTokens(tokens: string[]): string[] {
+  const pathTokens: string[] = [];
+  for (const segment of splitBashSegments(tokens)) {
+    const commandIndex = getSegmentCommandIndex(segment);
+    if (commandIndex < 0) continue;
+    for (const token of segment.slice(0, commandIndex)) {
+      const assignmentValue = getAssignmentValue(token);
+      if (assignmentValue) pathTokens.push(assignmentValue);
+    }
+    for (const token of segment.slice(commandIndex + 1)) {
+      const assignmentValue = getAssignmentValue(token);
+      if (assignmentValue !== undefined) {
+        if (assignmentValue) pathTokens.push(assignmentValue);
+        continue;
+      }
+      const embeddedPath = getEmbeddedOptionPath(token);
+      if (embeddedPath) {
+        pathTokens.push(embeddedPath);
+        continue;
+      }
+      if (!token.startsWith("-")) pathTokens.push(token);
+    }
+  }
+  return pathTokens;
 }
 
 export function isWorkspaceBoundedBash(
@@ -383,8 +450,10 @@ export function isWorkspaceBoundedBash(
   if (!workspaceRoot) return true;
 
   const command = getBashCommand(args);
+  if (!command.trim()) return false;
   const tokenizeResult = tokenizeBashCommand(command);
   if (tokenizeResult.error) return false;
+  if (/\$(?:\{|[A-Za-z_0-9@*#?$!-])/.test(command)) return false;
 
   const workdir = args["workdir"];
   const effectiveWorkdir =
@@ -393,17 +462,20 @@ export function isWorkspaceBoundedBash(
     return false;
   }
 
-  if (hasInlineScriptExecution(tokenizeResult.tokens)) {
+  if (hasScriptExecution(tokenizeResult.tokens)) {
     return false;
   }
 
-  return tokenizeResult.tokens.every((token) => {
-    if (!isPathLikeToken(token)) return true;
-    return isPathWithinAllowedRoots(token, effectiveWorkdir, tempRoots);
-  });
+  return getPotentialPathTokens(tokenizeResult.tokens).every((token) =>
+    isPathWithinAllowedRoots(
+      resolveTargetPath(token, effectiveWorkdir),
+      workspaceRoot,
+      tempRoots,
+    ),
+  );
 }
 
-export function targetsAgentsRootEnumeration(
+export function targetsRunArtifact(
   command: string,
   workspaceRoot: string | undefined,
 ): boolean {
@@ -412,6 +484,21 @@ export function targetsAgentsRootEnumeration(
 
   return tokenizeResult.tokens.some((token) => {
     if (!isPathLikeToken(token)) return false;
-    return isAgentsRootEnumerationPath(token, workspaceRoot);
+    return inspectPath(token, workspaceRoot).category === "agents";
+  });
+}
+
+export function targetsRestrictedOrchestratorArtifact(
+  command: string,
+  workspaceRoot: string | undefined,
+): boolean {
+  const tokenizeResult = tokenizeBashCommand(command);
+  if (tokenizeResult.error) return false;
+
+  return tokenizeResult.tokens.some((token) => {
+    if (!isPathLikeToken(token)) return false;
+    const inspectedPath = inspectPath(token, workspaceRoot);
+    if (inspectedPath.category !== "agents") return false;
+    return getRunArtifactIdentity(token, workspaceRoot)?.owner !== "orchestrator";
   });
 }

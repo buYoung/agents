@@ -464,7 +464,7 @@ output_modalities = ["text"]
       cfg.provider as Record<string, Record<string, unknown>>
     )?.["ollama-cloud"];
     const models = provider?.models as Record<string, unknown> | undefined;
-    expect(models?.["ollama-cloud/release-only-model"]).toBeTruthy();
+    expect(models?.["release-only-model"]).toBeTruthy();
 
     const agents = cfg.agent as
       | Record<

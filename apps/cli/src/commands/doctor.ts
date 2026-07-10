@@ -5,7 +5,7 @@ import {
   getCatalogChecksum,
   getCatalogSource,
   getManagedCatalogPath,
-  loadCatalog,
+  loadCatalogSnapshot,
   loadPluginConfig,
   readManagedState,
   USER_CONFIG_SCHEMA_VERSION,
@@ -36,25 +36,27 @@ export async function doctor(
   io: Required<CliIO>,
 ): Promise<number> {
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
-  const catalogSource = getCatalogSource(projectDirectory);
+  let catalogSource = getCatalogSource(projectDirectory);
   const managedCatalogPath = getManagedCatalogPath(projectDirectory);
   const projectConfigPath = getProjectConfigPath(projectDirectory);
   const userConfigPath = getUserConfigPath(io.env);
   const packageVersion = getPackageVersion();
   const state = readManagedState(projectDirectory);
   let catalogChecksum = "unavailable";
-  try {
-    catalogChecksum = getCatalogChecksum(projectDirectory);
-  } catch {
-    // catalog validity 진단에서 원인을 별도로 출력한다.
-  }
-
-  let catalog: ReturnType<typeof loadCatalog> | undefined;
+  let catalog: ReturnType<typeof loadCatalogSnapshot>["catalog"] | undefined;
   let catalogLoadError: unknown;
   try {
-    catalog = loadCatalog(projectDirectory);
+    const catalogSnapshot = loadCatalogSnapshot(projectDirectory);
+    catalog = catalogSnapshot.catalog;
+    catalogChecksum = catalogSnapshot.checksum;
+    catalogSource = catalogSnapshot.source;
   } catch (error) {
     catalogLoadError = error;
+    try {
+      catalogChecksum = getCatalogChecksum(projectDirectory);
+    } catch {
+      // catalog validity 진단에서 원인을 별도로 출력한다.
+    }
   }
 
   if (!catalog) {

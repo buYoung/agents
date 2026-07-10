@@ -72,7 +72,8 @@ export const SUBAGENT_NAMES: readonly AgentName[] = AGENT_NAMES_IMPL.filter(
  * 권한 변경은 이 테이블만 수정한다.
  *
  * 베이스라인 (모든 에이전트 공통):
- *   - `.agents/<taskId>/**` 읽기+쓰기: 항상 허용 (여기서는 delta만 인코딩)
+ *   - 정규 `.agents/<taskId>/<workItemId>/<role-file>.md` 읽기와 역할 소유
+ *     파일 쓰기는 enforcement baseline에서 처리 (여기서는 delta만 인코딩)
  */
 export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
   {

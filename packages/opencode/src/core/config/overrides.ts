@@ -3,6 +3,7 @@
  */
 
 import type { AgentDefinition } from "@opencode/core/types";
+import type { AgentOverride } from "./schema";
 import { getReasoningEffortsByModel } from "@opencode/core/catalog";
 import {
   isProtectedAgentName,
@@ -25,7 +26,10 @@ export function applyAgentOverrides(
   config: PluginConfig,
   options?: ApplyAgentOverridesOptions,
 ): { record: Record<string, AgentDefinition>; disabledNames: string[] } {
-  const overrides = config.agents ?? {};
+  const overrides = (config.agents ?? {}) as Record<
+    string,
+    AgentOverride | undefined
+  >;
   const modelReasoningEfforts = options?.catalog
     ? getReasoningEffortsByModel(options.catalog)
     : MODEL_REASONING_EFFORTS;

@@ -20,7 +20,9 @@ export {
   parseCatalog,
   invalidateCatalogCache,
   loadCatalog,
+  loadCatalogSnapshot,
   loadRuntimeCatalog,
+  loadRuntimeCatalogSnapshot,
   getCatalogChecksum,
   sha256,
 } from "./load";
@@ -30,5 +32,8 @@ export {
   getReasoningEffortsByModel,
   getReasoningEfforts,
   getCatalogModel,
+  assertAgentModelsInCatalog,
   buildProviderConfig,
 } from "./queries";
+
+export type { CatalogSnapshot } from "./load";

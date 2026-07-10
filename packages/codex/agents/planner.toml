@@ -41,8 +41,8 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Do not hard-code a full handoff path. Use your bare filename and let `runDocPath(taskId, agentName)` resolve `.agents/<taskId>/<your-file>.md`.
-- All run files stay under `.agents/<taskId>/`, matching the permission layer's `.agents/**` scope.
+- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Reject missing/invalid identifiers, absolute substitution, separators, and `..`; return the exact concrete path for downstream discovery.
 
 ### Planner-Specific Procedure
 
@@ -66,7 +66,7 @@ If taskId was already received, do not run or check date again; use the received
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
 - bash only to generate a date when taskId is missing, or for hook-allowed read-only fact verification.
-- File-writing tools only for `.agents/<taskId>/plan.md`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to your own `plan.md`.
+- File-writing tools only for the assigned `.agents/<taskId>/<workItemId>/plan.md`. Use write when available; if only apply_patch is available, use it only for that exact path.
 - Do not use edit.
 
 Bash restrictions:
@@ -106,8 +106,7 @@ Bash restrictions:
 
 ## Handoff File Ownership
 
-Each artifact-writing agent owns exactly one file under `.agents/<taskId>/`.
-Write only to your mapped file.
+Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
 
 ```yaml
 orchestrator: task.md
@@ -123,10 +122,10 @@ constructive-feedback: constructive-feedback.md
 `intent-checker` is stateless and owns no file.
 
 Rules:
-1. Create your file if absent; append only when it already exists as an input artifact.
+1. Require the exact assigned workItemId; never invent or reuse one. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
 2. Never overwrite or replace existing handoff content.
 3. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-4. Reading `.agents/<taskId>/` files is allowed only when the role and permission policy allow it.
+4. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
 
 ---
 
@@ -155,11 +154,11 @@ Rules:
 
 When delegating or returning results:
 - Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your own handoff file: `.agents/<taskId>/<your-file>.md`.
+- Put details in your assigned handoff file: `.agents/<taskId>/<workItemId>/<your-file>.md`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
 
 Example return format:
-  Path: .agents/20260702-slug/plan.md
+  Path: .agents/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''

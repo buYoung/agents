@@ -44,7 +44,10 @@ import {
   type AgentName,
 } from "@opencode/core/permissions";
 import { loadPluginConfig, applyAgentOverrides } from "@opencode/core/config";
-import { loadRuntimeCatalog } from "@opencode/core/catalog";
+import {
+  assertAgentModelsInCatalog,
+  loadRuntimeCatalog,
+} from "@opencode/core/catalog";
 import { createPluginHookHandlers } from "./plugin-hooks";
 
 type PluginHooks = Hooks & {
@@ -72,6 +75,7 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
   const sessionAgentMap = createSessionAgentMap();
 
   const catalog = loadRuntimeCatalog(_input.directory);
+  assertAgentModelsInCatalog(agentRecord, catalog);
   const pluginConfig = loadPluginConfig(_input.directory, {
     catalog,
     agentRecord,
@@ -81,6 +85,7 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     pluginConfig,
     { catalog },
   );
+  assertAgentModelsInCatalog(finalAgentRecord, catalog);
   const enabledSubagentNames = Object.keys(finalAgentRecord).filter(
     (name): name is AgentName =>
       (SUBAGENT_NAMES as readonly string[]).includes(name),

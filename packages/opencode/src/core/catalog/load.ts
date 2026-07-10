@@ -18,8 +18,19 @@ const catalogPath = path.join(
   "catalog.toml",
 );
 
-const cachedCatalogByPath = new Map<string, Catalog>();
-const cachedChecksumByPath = new Map<string, string>();
+interface CachedCatalogGeneration {
+  checksum: string;
+  content: string;
+  catalog?: Catalog;
+}
+
+export interface CatalogSnapshot {
+  source: CatalogSource;
+  checksum: string;
+  catalog: Catalog;
+}
+
+const cachedGenerationByPath = new Map<string, CachedCatalogGeneration>();
 
 export function getBundledCatalogPath(): string {
   return catalogPath;
@@ -42,7 +53,13 @@ export function getCatalogSource(projectDirectory?: string): CatalogSource {
 export function parseCatalog(content: string): Catalog {
   const parsed = CatalogSchema.parse(parseToml(content));
   const modelIds = new Set<string>();
+  const providerPrefix = `${parsed.provider.id}/`;
   for (const model of parsed.models) {
+    if (!model.id.startsWith(providerPrefix) || model.id === providerPrefix) {
+      throw new Error(
+        `catalog model id must use provider-qualified form ${providerPrefix}<model>: ${model.id}`,
+      );
+    }
     if (modelIds.has(model.id)) {
       throw new Error(`catalog model id duplicated: ${model.id}`);
     }
@@ -59,20 +76,41 @@ export function parseCatalog(content: string): Catalog {
 }
 
 export function invalidateCatalogCache(catalogFilePath: string): void {
-  cachedCatalogByPath.delete(catalogFilePath);
-  cachedChecksumByPath.delete(catalogFilePath);
+  cachedGenerationByPath.delete(catalogFilePath);
+}
+
+function readCatalogGeneration(source: CatalogSource): CachedCatalogGeneration {
+  const content = fs.readFileSync(source.path, "utf-8");
+  const checksum = sha256(content);
+  const cachedGeneration = cachedGenerationByPath.get(source.path);
+  if (
+    cachedGeneration &&
+    cachedGeneration.checksum === checksum &&
+    cachedGeneration.content === content
+  ) {
+    return cachedGeneration;
+  }
+
+  const generation = { checksum, content };
+  cachedGenerationByPath.set(source.path, generation);
+  return generation;
+}
+
+export function loadCatalogSnapshot(
+  projectDirectory?: string,
+): CatalogSnapshot {
+  const source = getCatalogSource(projectDirectory);
+  const generation = readCatalogGeneration(source);
+  generation.catalog ??= parseCatalog(generation.content);
+  return {
+    source,
+    checksum: generation.checksum,
+    catalog: generation.catalog,
+  };
 }
 
 export function loadCatalog(projectDirectory?: string): Catalog {
-  const source = getCatalogSource(projectDirectory);
-  const cachedCatalog = cachedCatalogByPath.get(source.path);
-  if (cachedCatalog) {
-    return cachedCatalog;
-  }
-
-  const catalog = parseCatalog(fs.readFileSync(source.path, "utf-8"));
-  cachedCatalogByPath.set(source.path, catalog);
-  return catalog;
+  return loadCatalogSnapshot(projectDirectory).catalog;
 }
 
 /**
@@ -80,9 +118,15 @@ export function loadCatalog(projectDirectory?: string): Catalog {
  * managed 프로젝트 catalog 로드 실패 시에만 bundled catalog로 fallback한다.
  */
 export function loadRuntimeCatalog(projectDirectory: string): Catalog {
+  return loadRuntimeCatalogSnapshot(projectDirectory).catalog;
+}
+
+export function loadRuntimeCatalogSnapshot(
+  projectDirectory: string,
+): CatalogSnapshot {
   const source = getCatalogSource(projectDirectory);
   try {
-    return loadCatalog(projectDirectory);
+    return loadCatalogSnapshot(projectDirectory);
   } catch (error) {
     if (source.kind !== "managed") {
       throw error;
@@ -91,20 +135,13 @@ export function loadRuntimeCatalog(projectDirectory: string): Catalog {
     console.warn(
       `[agents] managed catalog load failed. bundled catalog로 fallback합니다. doctor로 진단하세요: ${source.path}: ${message}`,
     );
-    return loadCatalog();
+    return loadCatalogSnapshot();
   }
 }
 
 export function getCatalogChecksum(projectDirectory?: string): string {
   const source = getCatalogSource(projectDirectory);
-  const cachedChecksum = cachedChecksumByPath.get(source.path);
-  if (cachedChecksum) {
-    return cachedChecksum;
-  }
-
-  const checksum = sha256(fs.readFileSync(source.path, "utf-8"));
-  cachedChecksumByPath.set(source.path, checksum);
-  return checksum;
+  return readCatalogGeneration(source).checksum;
 }
 
 export function sha256(content: string | Buffer): string {

@@ -31,10 +31,10 @@ Find defects, counterexamples, regressions, security issues, and compatibility r
 ## Execution Rules
 
 1. Check \`taskId\` and the review target first. Do not regenerate a received \`taskId\`.
-2. First read only the specified review target files and prior \`.agents/<taskId>/*.md\` files provided as input. Exclude your own output path \`.agents/<taskId>/adversarial-review.md\` from reading and exploration because it is not an input artifact. You may narrowly inspect adjacent tests, configuration, catalog files, model settings, or git history only when directly needed to judge regression, compatibility, or permission risk. If the target is not confirmed, search narrowly once; if that fails, record "review insufficient".
+2. First read only the specified review target files and concrete prior \`.agents/<taskId>/<workItemId>/*.md\` paths provided as input. Exclude your assigned output path from reading and exploration because it is not an input artifact. You may narrowly inspect adjacent tests, configuration, catalog files, model settings, or git history only when directly needed to judge regression, compatibility, or permission risk. If the target is not confirmed, search narrowly once; if that fails, record "review insufficient".
 3. Use a specified tool, MCP, or search method only when it is an actual tool. If absent, fall back to standard read/search and do not imitate a same-named executable with \`bash\`.
 4. Use \`bash\` only for hook-allowed read-only fact checks. Arbitrary scripts, full test/build runs, and file-changing commands are forbidden.
-5. Do not modify source, document, or configuration files. Do not use \`task\` or \`webfetch\`. File-writing tools may write only to your own artifact \`.agents/<taskId>/adversarial-review.md\`.
+5. Do not modify source, document, or configuration files. Do not use \`task\` or \`webfetch\`. File-writing tools may write only to your assigned artifact \`.agents/<taskId>/<workItemId>/adversarial-review.md\`.
 6. Start each finding with \`[Major]\`, \`[Minor]\`, or \`[Nit]\`. Separate verified text from inference, and do not present conditional risks as confirmed defects.
 7. After checking the specified target, record the artifact directly. Do not read \`.agents\` listings or run \`ls\`. Do not read \`task.md\` unless it was explicitly provided. Do not check your own artifact path or directory with any read/exploration tool. If creating a new file, create it directly and make the first line exactly the received \`taskId\` string, without a markdown heading or label. The write tool's success is enough before returning; do not reread the artifact you just created. Do not alter spelling, spaces, or roots of input artifact paths.
 
@@ -51,7 +51,7 @@ Find defects, counterexamples, regressions, security issues, and compatibility r
 Return only these two lines:
 
 \`\`\`
-Path: .agents/<taskId>/adversarial-review.md
+Path: .agents/<taskId>/<workItemId>/adversarial-review.md
 Summary: <finding count> risk candidates; <one-line core summary>
 \`\`\`
 

@@ -127,7 +127,7 @@ describe("config 훅", () => {
       "@ai-sdk/openai-compatible",
     );
     expect(
-      "ollama-cloud/glm-5.2" in
+      "glm-5.2" in
         (configProvider["ollama-cloud"].models as Record<string, unknown>),
     ).toBe(true);
   });
@@ -157,7 +157,7 @@ describe("config 훅", () => {
       "https://user.example.test/v1",
     );
     expect(
-      "ollama-cloud/glm-5.2" in (provider.models as Record<string, unknown>) &&
+      "glm-5.2" in (provider.models as Record<string, unknown>) &&
         "ollama-cloud/custom-user-model" in
           (provider.models as Record<string, unknown>),
     ).toBe(true);
@@ -168,7 +168,8 @@ describe("catalog 파생값", () => {
   test("provider config id=ollama-cloud, models에 glm-5.2 포함", () => {
     const provider = buildProviderConfig();
     expect(provider.id).toBe("ollama-cloud");
-    expect("ollama-cloud/glm-5.2" in provider.models).toBe(true);
+    expect("glm-5.2" in provider.models).toBe(true);
+    expect(provider.models["glm-5.2"]?.id).toBe("glm-5.2");
   });
 
   test("catalog 모델 6개", () => {
@@ -210,7 +211,7 @@ describe("손상된 managed catalog fallback", () => {
         cfg.provider as Record<string, Record<string, unknown>>
       )?.["ollama-cloud"];
       const models = provider?.models as Record<string, unknown> | undefined;
-      expect(models?.["ollama-cloud/glm-5.2"]).toBeTruthy();
+      expect(models?.["glm-5.2"]).toBeTruthy();
       expect(
         Object.keys((cfg.agent as Record<string, unknown> | undefined) ?? {}),
       ).toHaveLength(9);
