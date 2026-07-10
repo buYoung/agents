@@ -9,12 +9,15 @@ import type { AgentDefinition } from "@opencode/core/types";
 import type { AgentName } from "@opencode/core/doc-protocol";
 import { AGENT_NAMES } from "@opencode/core/doc-protocol";
 import {
+  applyConfiguredMcpNativePolicy,
+  compileConfiguredMcpPolicy,
   enforcePermission,
-  getAgentExecutionAssignment,
-  getTaskExecutionAssignment,
-  type ExecutionAssignment,
+  getAgentExecutionContext,
+  getTaskExecutionContext,
+  type ConfiguredMcpPolicy,
   type createSessionAgentMap,
 } from "@opencode/core/permissions";
+import type { PluginConfig } from "@opencode/core/config";
 import { buildProviderConfig, type Catalog } from "@opencode/core/catalog";
 
 type ConfigProviderMap = Record<string, Record<string, unknown>>;
@@ -46,6 +49,7 @@ export function createPluginHookHandlers(options: {
   enabledSubagentNames: AgentName[];
   workspaceRoot: string;
   sessionAgentMap: SessionAgentMapApi;
+  pluginConfig: PluginConfig;
 }): PluginHookHandlers {
   const {
     catalog,
@@ -54,30 +58,36 @@ export function createPluginHookHandlers(options: {
     enabledSubagentNames,
     workspaceRoot,
     sessionAgentMap,
+    pluginConfig,
   } = options;
   const {
     map,
     assignmentMap,
     updateSessionAgent,
-    bindSessionAssignment,
+    bindSessionExecutionContext,
+    registerDelegation,
+    completeDelegation,
+    failDelegation,
     deleteSession,
   } = sessionAgentMap;
-
-  function bindAssignmentOrThrow(
-    sessionID: string,
-    assignment: ExecutionAssignment,
-  ): void {
-    if (!bindSessionAssignment(sessionID, assignment)) {
-      const existing = assignmentMap.get(sessionID);
-      throw new Error(
-        `[agents] 실행 할당 충돌 — sessionID=${sessionID}, existing=${existing?.taskId}/${existing?.workItemId}/${existing?.agent}, requested=${assignment.taskId}/${assignment.workItemId}/${assignment.agent}`,
-      );
-    }
-  }
+  const managedAgentNames = Object.keys(finalAgentRecord).filter(
+    (name): name is AgentName =>
+      (AGENT_NAMES as readonly string[]).includes(name),
+  );
+  let configuredMcpPolicy: ConfiguredMcpPolicy | undefined;
 
   const config = async (opencodeConfig: Config): Promise<void> => {
     const cfg = opencodeConfig as Record<string, unknown>;
     let runtimeAgentRecord = finalAgentRecord;
+
+    // 최종 native config의 enabled MCP 서버만 사용자 신뢰 capability로
+    // 컴파일한다. 충돌/모호성은 agent 권한을 변경하기 전에 구성 오류로 닫는다.
+    configuredMcpPolicy = undefined;
+    configuredMcpPolicy = compileConfiguredMcpPolicy(
+      cfg.mcp,
+      pluginConfig,
+      managedAgentNames,
+    );
 
     try {
       const provider = buildProviderConfig(catalog);
@@ -169,6 +179,14 @@ export function createPluginHookHandlers(options: {
         }
       }
     }
+
+    if (configuredMcpPolicy.servers.length > 0) {
+      applyConfiguredMcpNativePolicy(
+        cfg.agent as Record<string, unknown>,
+        configuredMcpPolicy,
+        managedAgentNames,
+      );
+    }
   };
 
   const toolExecuteBefore = async (
@@ -183,12 +201,19 @@ export function createPluginHookHandlers(options: {
         : {};
 
     const result = enforcePermission(
-      { tool: input.tool, sessionID: input.sessionID, args },
+      {
+        tool: input.tool,
+        sessionID: input.sessionID,
+        callID: input.callID,
+        args,
+      },
       map,
       {
         subagentNames: enabledSubagentNames,
         workspaceRoot,
         sessionAssignments: assignmentMap,
+        sessionExecution: sessionAgentMap,
+        configuredMcpPolicy,
       },
     );
 
@@ -197,10 +222,23 @@ export function createPluginHookHandlers(options: {
     }
 
     if (input.tool.toLowerCase() === "task") {
-      const continuedSessionID = args["task_id"];
-      const assignment = getTaskExecutionAssignment(args, workspaceRoot);
-      if (typeof continuedSessionID === "string" && assignment) {
-        bindAssignmentOrThrow(continuedSessionID, assignment);
+      const context = getTaskExecutionContext(args, workspaceRoot);
+      if (context) {
+        const continuedSessionID = args["task_id"];
+        if (
+          !registerDelegation({
+            parentSessionID: input.sessionID,
+            callID: input.callID,
+            ...(typeof continuedSessionID === "string"
+              ? { continuedSessionID }
+              : {}),
+            context,
+          })
+        ) {
+          throw new Error(
+            `[agents] task 실행 예약 충돌 — parent=${input.sessionID}, callID=${input.callID}, taskId=${context.output.taskId}, workItemId=${context.output.workItemId}`,
+          );
+        }
       }
     }
   };
@@ -216,18 +254,30 @@ export function createPluginHookHandlers(options: {
     // 우선하고, custom/built-in 이름이면 updateSessionAgent가 stale 매핑을 지운다.
     const agent = output?.message?.agent ?? input.agent;
     if (agent) {
-      updateSessionAgent(input.sessionID, agent);
+      if (!updateSessionAgent(input.sessionID, agent)) {
+        throw new Error(
+          `[agents] 같은 세션의 managed 역할 변경 거부 — sessionID=${input.sessionID}, requested=${agent}`,
+        );
+      }
       if ((AGENT_NAMES as readonly string[]).includes(agent)) {
         const prompt = (output?.parts ?? [])
           .filter((part) => part.type === "text" && typeof part.text === "string")
           .map((part) => part.text)
           .join("\n");
-        const assignment = getAgentExecutionAssignment(
+        const context = getAgentExecutionContext(
           agent as AgentName,
           prompt,
           workspaceRoot,
         );
-        if (assignment) bindAssignmentOrThrow(input.sessionID, assignment);
+        if (
+          context &&
+          !bindSessionExecutionContext(input.sessionID, context)
+        ) {
+          const existing = assignmentMap.get(input.sessionID);
+          throw new Error(
+            `[agents] 실행 할당 충돌 — sessionID=${input.sessionID}, existing=${existing?.taskId}/${existing?.workItemId}/${existing?.agent}, requested=${context.output.taskId}/${context.output.workItemId}/${context.output.agent}`,
+          );
+        }
       }
     }
   };
@@ -239,9 +289,12 @@ export function createPluginHookHandlers(options: {
       const props = input.event.properties as
         | {
             part?: {
+              callID?: string;
+              sessionID?: string;
               type?: string;
               tool?: string;
               state?: {
+                status?: string;
                 input?: Record<string, unknown>;
                 metadata?: Record<string, unknown>;
               };
@@ -251,14 +304,40 @@ export function createPluginHookHandlers(options: {
       const part = props?.part;
       const taskInput = part?.state?.input;
       const childSessionID = part?.state?.metadata?.["sessionId"];
+      const parentSessionID = part?.sessionID;
+      const callID = part?.callID;
+      if (
+        part?.type === "tool" &&
+        part.tool === "task" &&
+        part.state?.status === "error" &&
+        typeof childSessionID !== "string" &&
+        typeof parentSessionID === "string" &&
+        typeof callID === "string"
+      ) {
+        failDelegation(parentSessionID, callID);
+      }
       if (
         part?.type === "tool" &&
         part.tool === "task" &&
         taskInput &&
         typeof childSessionID === "string"
       ) {
-        const assignment = getTaskExecutionAssignment(taskInput, workspaceRoot);
-        if (assignment) bindAssignmentOrThrow(childSessionID, assignment);
+        const context = getTaskExecutionContext(taskInput, workspaceRoot);
+        if (
+          !context ||
+          typeof parentSessionID !== "string" ||
+          typeof callID !== "string" ||
+          !completeDelegation({
+            parentSessionID,
+            callID,
+            childSessionID,
+            context,
+          })
+        ) {
+          throw new Error(
+            `[agents] task lifecycle 상관관계/소유권 충돌 — parent=${parentSessionID ?? "unknown"}, callID=${callID ?? "unknown"}, child=${childSessionID}`,
+          );
+        }
       }
     }
 

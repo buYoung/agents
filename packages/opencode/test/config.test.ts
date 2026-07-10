@@ -62,6 +62,9 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
         "",
         "[agents.planner]",
         'prompt_append = "TEST_APPEND_MARKER_42"',
+        "",
+        "[agents.worker]",
+        'disabled_mcp = ["browser", "Code.Map"]',
       ].join("\n"),
     );
 
@@ -70,6 +73,10 @@ describe("loadPluginConfig + applyAgentOverrides 기본", () => {
       "ollama-cloud/deepseek-v4-pro",
     );
     expect(loaded.agents?.["idea-generator"]?.enable).toBe(false);
+    expect(loaded.agents?.["worker"]?.disabled_mcp).toEqual([
+      "browser",
+      "Code.Map",
+    ]);
 
     const { record, disabledNames } = applyAgentOverrides(fakeAgents, loaded);
 
@@ -144,13 +151,16 @@ describe("preset 해소", () => {
         "",
         "[presets.fast.code-explorer]",
         'model = "ollama-cloud/deepseek-v4-pro"',
+        'disabled_mcp = ["browser", "database"]',
         "",
         "[agents.code-explorer]",
         'model = "ollama-cloud/kimi-k2.6"',
+        "disabled_mcp = []",
       ].join("\n"),
     );
     const config = loadPluginConfig(tempDir, { silent: true });
     expect(config.agents?.["code-explorer"]?.model).toBe("ollama-cloud/kimi-k2.6");
+    expect(config.agents?.["code-explorer"]?.disabled_mcp).toEqual([]);
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 

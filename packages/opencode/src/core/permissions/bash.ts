@@ -155,8 +155,8 @@ const SAFE_GIT_OPTIONS: Record<string, ReadonlySet<string>> = {
 };
 
 const SAFE_GIT_OPTION_PREFIXES: Record<string, readonly string[]> = {
-  log: "--pretty= --format= --decorate= --max-count= --since= --until= --author= --grep= --date= --branches= --tags= --remotes=".split(" "),
-  "ls-files": "--abbrev= --format=".split(" "),
+  log: "--decorate= --max-count= --since= --until= --author= --grep= --date= --branches= --tags= --remotes=".split(" "),
+  "ls-files": "--abbrev=".split(" "),
   "rev-list": "--max-count= --since= --until= --author=".split(" "),
   "rev-parse": "--short= --abbrev-ref=".split(" "),
   "show-ref": "--hash= --abbrev=".split(" "),
@@ -164,7 +164,7 @@ const SAFE_GIT_OPTION_PREFIXES: Record<string, readonly string[]> = {
 };
 
 const SAFE_GIT_OPTIONS_WITH_VALUE: Record<string, ReadonlySet<string>> = {
-  log: optionSet("-n --max-count --since --until --author --grep --format --pretty --date"),
+  log: optionSet("-n --max-count --since --until --author --grep --date"),
   "rev-list": optionSet("-n --max-count --since --until --author"),
   grep: optionSet("-e --regexp -A -B -C --after-context --before-context --context --max-depth --threads"),
 };

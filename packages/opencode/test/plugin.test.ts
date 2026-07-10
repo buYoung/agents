@@ -79,12 +79,20 @@ describe("플러그인 로드", () => {
         "`intent-checker`, `planner`, and `idea-generator` are optional singletons",
       ],
       [
+        "zero-or-one active cardinality",
+        "zero or one active instance per phase or round",
+      ],
+      [
         "review-type singletons",
         "`adversarial-review` and `constructive-feedback` are each optional singletons. At most one of each may be active, and one of each type may run concurrently against the same immutable integrated result",
       ],
       [
         "singleton reuse gate",
         "only after the prior instance or round is terminal and the input state changed",
+      ],
+      [
+        "active-not-lifetime singleton semantics",
+        "Singleton means one active instance, not one lifetime call",
       ],
       [
         "adaptive roles and default count",
@@ -124,6 +132,10 @@ describe("플러그인 로드", () => {
         "Split `research` only by an independent research question/evidence domain",
       ],
       [
+        "high-cost independent research corroboration",
+        "truly independent corroboration when the cost of a wrong fact is high",
+      ],
+      [
         "research split non-example",
         "More search terms or sources alone are not separate work items",
       ],
@@ -156,6 +168,10 @@ describe("플러그인 로드", () => {
         "independent work, independent corroboration, transient-failure replacement, or changed-input re-review",
       ],
       [
+        "exactly-one spawn reason",
+        "Every spawn records exactly one reason",
+      ],
+      [
         "transient failure replacement",
         "A transient harness or tool failure may be replaced once",
       ],
@@ -177,6 +193,10 @@ describe("플러그인 로드", () => {
       ],
       ["immutable review", "Review only an immutable integrated result"],
       [
+        "remediation-changed-result re-review prerequisite",
+        "After remediation changes that result",
+      ],
+      [
         "single sequential re-review",
         "each review type may run one sequential re-review round",
       ],
@@ -186,7 +206,7 @@ describe("플러그인 로드", () => {
       ],
       [
         "unique workItemId per execution",
-        "Allocate a unique kebab-case workItemId for every artifact-writing delegation",
+        "Allocate a unique kebab-case workItemId for every new artifact-writing work item",
       ],
       [
         "enforcement honesty",
@@ -198,7 +218,7 @@ describe("플러그인 로드", () => {
     }
   });
 
-  test("훅 존재: config, tool.execute.before, chat.message, event", async () => {
+  test("훅 존재와 config/task/child lifecycle 결합", async () => {
     const hooks = await pluginFactory(stubInput, {});
     expect(typeof (hooks as unknown as Record<string, unknown>).config).toBe(
       "function",
@@ -214,6 +234,256 @@ describe("플러그인 로드", () => {
     expect(typeof (hooks as unknown as Record<string, unknown>).event).toBe(
       "function",
     );
+
+    const hookRecord = hooks as unknown as Record<string, unknown>;
+    const configHook = hookRecord.config as (
+      cfg: Record<string, unknown>,
+    ) => Promise<void>;
+    const beforeHook = hookRecord["tool.execute.before"] as (
+      input: { tool: string; sessionID: string; callID: string },
+      output: { args: Record<string, unknown> },
+    ) => Promise<void>;
+    const chatHook = hookRecord["chat.message"] as (
+      input: { sessionID: string },
+      output: {
+        message: { agent: string };
+        parts: Array<{ type: string; text: string }>;
+      },
+    ) => Promise<void>;
+    const eventHook = hookRecord.event as (input: {
+      event: { type: string; properties: Record<string, unknown> };
+    }) => Promise<void>;
+    const runtimeConfig: Record<string, unknown> = {
+      mcp: {
+        "Code.Map": {
+          type: "local",
+          command: ["codemap-search", "mcp"],
+          enabled: true,
+        },
+      },
+    };
+    await configHook(runtimeConfig);
+    await chatHook(
+      { sessionID: "lifecycle-root" },
+      {
+        message: { agent: "orchestrator" },
+        parts: [{ type: "text", text: "root request" }],
+      },
+    );
+
+    const firstTaskArgs = {
+      subagent_type: "planner",
+      prompt: [
+        "taskId=20260710-hook workItemId=planner-01",
+        "Output: .agents/20260710-hook/planner-01/plan.md",
+        "Input: .agents/20260710-hook/worker-input/work.md",
+      ].join("\n"),
+    };
+    await beforeHook(
+      { tool: "task", sessionID: "lifecycle-root", callID: "call-1" },
+      { args: firstTaskArgs },
+    );
+    await eventHook({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            tool: "task",
+            callID: "call-1",
+            sessionID: "lifecycle-root",
+            state: {
+              status: "completed",
+              input: firstTaskArgs,
+              metadata: { sessionId: "lifecycle-child" },
+            },
+          },
+        },
+      },
+    });
+    await chatHook(
+      { sessionID: "lifecycle-child" },
+      {
+        message: { agent: "planner" },
+        parts: [{ type: "text", text: firstTaskArgs.prompt }],
+      },
+    );
+    await beforeHook(
+      {
+        tool: "Code_Map_search",
+        sessionID: "lifecycle-child",
+        callID: "mcp-allow",
+      },
+      { args: {} },
+    );
+    await expect(
+      beforeHook(
+        {
+          tool: "Code_Map_search",
+          sessionID: "lifecycle-root",
+          callID: "mcp-root-deny",
+        },
+        { args: {} },
+      ),
+    ).rejects.toThrow("MCP 서버 Code.Map 도구 거부");
+    await expect(
+      beforeHook(
+        {
+          tool: "code_Map_search",
+          sessionID: "lifecycle-child",
+          callID: "mcp-case-deny",
+        },
+        { args: {} },
+      ),
+    ).rejects.toThrow("분류되지 않은 도구");
+
+    const secondTaskArgs = {
+      subagent_type: "planner",
+      task_id: "lifecycle-child",
+      prompt: [
+        "taskId=20260710-hook workItemId=planner-02",
+        "Output: .agents/20260710-hook/planner-02/plan.md",
+        "Input: .agents/20260710-hook/planner-01/plan.md",
+      ].join("\n"),
+    };
+    await beforeHook(
+      { tool: "task", sessionID: "lifecycle-root", callID: "call-2" },
+      { args: secondTaskArgs },
+    );
+    await eventHook({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            tool: "task",
+            callID: "call-2",
+            sessionID: "lifecycle-root",
+            state: {
+              status: "completed",
+              input: secondTaskArgs,
+              metadata: { sessionId: "lifecycle-child" },
+            },
+          },
+        },
+      },
+    });
+    await beforeHook(
+      {
+        tool: "read",
+        sessionID: "lifecycle-child",
+        callID: "history-read",
+      },
+      { args: { path: ".agents/20260710-hook/planner-01/plan.md" } },
+    );
+    await expect(
+      beforeHook(
+        {
+          tool: "edit",
+          sessionID: "lifecycle-child",
+          callID: "history-write",
+        },
+        { args: { path: ".agents/20260710-hook/planner-01/plan.md" } },
+      ),
+    ).rejects.toThrow("다른 실행 할당의 산출물 쓰기 거부");
+    await beforeHook(
+      {
+        tool: "edit",
+        sessionID: "lifecycle-child",
+        callID: "active-write",
+      },
+      { args: { path: ".agents/20260710-hook/planner-02/plan.md" } },
+    );
+    await expect(
+      beforeHook(
+        {
+          tool: "task",
+          sessionID: "lifecycle-root",
+          callID: "duplicate-work-item",
+        },
+        {
+          args: {
+            subagent_type: "worker",
+            prompt: [
+              "taskId=20260710-hook workItemId=planner-02",
+              "Output: .agents/20260710-hook/planner-02/work.md",
+            ].join("\n"),
+          },
+        },
+      ),
+    ).rejects.toThrow("task 실행 할당/예약 충돌");
+
+    await beforeHook(
+      {
+        tool: "edit",
+        sessionID: "lifecycle-root",
+        callID: "root-index",
+      },
+      {
+        args: {
+          path: ".agents/20260710-hook/orchestrator-index/task.md",
+        },
+      },
+    );
+    await expect(
+      beforeHook(
+        {
+          tool: "edit",
+          sessionID: "lifecycle-root",
+          callID: "root-rotation",
+        },
+        {
+          args: {
+            path: ".agents/20260710-other/orchestrator-index/task.md",
+          },
+        },
+      ),
+    ).rejects.toThrow("다른 실행 할당의 산출물 쓰기 거부");
+
+    await eventHook({
+      event: {
+        type: "session.deleted",
+        properties: { info: { id: "lifecycle-child" } },
+      },
+    });
+    await expect(
+      eventHook({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            part: {
+              type: "tool",
+              tool: "task",
+              callID: "call-2",
+              sessionID: "lifecycle-root",
+              state: {
+                status: "completed",
+                input: secondTaskArgs,
+                metadata: { sessionId: "lifecycle-child" },
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow("task lifecycle 상관관계/소유권 충돌");
+    await expect(
+      beforeHook(
+        {
+          tool: "task",
+          sessionID: "lifecycle-root",
+          callID: "deleted-owner-reuse",
+        },
+        {
+          args: {
+            subagent_type: "planner",
+            prompt: [
+              "taskId=20260710-hook workItemId=planner-02",
+              "Output: .agents/20260710-hook/planner-02/plan.md",
+            ].join("\n"),
+          },
+        },
+      ),
+    ).rejects.toThrow("task 실행 할당/예약 충돌");
   });
 });
 
@@ -246,7 +516,19 @@ describe("config 훅", () => {
       cfg: Record<string, unknown>,
     ) => Promise<void>;
 
-    const cfg: Record<string, unknown> = {};
+    const cfg: Record<string, unknown> = {
+      mcp: {
+        "Code.Map": {
+          type: "local",
+          command: ["codemap-search", "mcp"],
+          enabled: true,
+        },
+      },
+      agent: {
+        orchestrator: { permission: { "*": "allow" } },
+        worker: { permission: { "Code_Map_*": "deny" } },
+      },
+    };
     await configHook(cfg);
 
     expect(typeof cfg.agent).toBe("object");
@@ -255,6 +537,34 @@ describe("config 훅", () => {
     expect(Object.keys(configAgent)).toHaveLength(9);
     expect("orchestrator" in configAgent).toBe(true);
     expect("intent-checker" in configAgent).toBe(true);
+    const orchestratorConfig = configAgent["orchestrator"] as Record<
+      string,
+      unknown
+    >;
+    const intentCheckerConfig = configAgent["intent-checker"] as Record<
+      string,
+      unknown
+    >;
+    const workerConfig = configAgent["worker"] as Record<string, unknown>;
+    expect(orchestratorConfig.permission).toMatchObject({
+      "*": "allow",
+      "Code_Map_*": "deny",
+    });
+    expect(intentCheckerConfig.permission).toMatchObject({
+      "Code_Map_*": "deny",
+    });
+    expect(workerConfig.permission).toMatchObject({
+      "Code_Map_*": "allow",
+    });
+    expect(workerConfig.tools).toMatchObject({ "Code_Map_*": true });
+    expect(
+      Object.keys(orchestratorConfig.permission as Record<string, unknown>).at(
+        -1,
+      ),
+    ).toBe("Code_Map_*");
+    expect(cfg.mcp).toMatchObject({
+      "Code.Map": { enabled: true },
+    });
 
     expect(typeof cfg.provider).toBe("object");
     expect(cfg.provider).not.toBeNull();
@@ -270,6 +580,23 @@ describe("config 훅", () => {
       "glm-5.2" in
         (configProvider["ollama-cloud"].models as Record<string, unknown>),
     ).toBe(true);
+
+    await expect(
+      configHook({
+        mcp: {
+          "foo.bar": { type: "local", command: ["a"] },
+          foo_bar: { type: "local", command: ["b"] },
+        },
+      }),
+    ).rejects.toThrow("MCP 서버 키 정리 충돌");
+    await expect(
+      configHook({
+        mcp: {
+          foo: { type: "local", command: ["a"] },
+          foo_bar: { type: "local", command: ["b"] },
+        },
+      }),
+    ).rejects.toThrow("MCP 서버 도구 접두사 모호성");
   });
 
   test("기존 사용자 provider 설정과 병합 (덮어쓰지 않음)", async () => {

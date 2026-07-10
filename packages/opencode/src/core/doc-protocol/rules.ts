@@ -34,8 +34,8 @@ export const APPEND_ONLY_RULE = `
 
 Each artifact-writing execution owns exactly one file under
 \`.agents/<taskId>/<workItemId>/\`. The orchestrator assigns a unique
-\`workItemId\` for every delegation, including repeated or parallel calls to
-the same role. Write only to that assigned path.
+\`workItemId\` for every new logical work item. A continuation of that same
+work item reuses the exact assignment. Write only to the active Output path.
 
 \`\`\`yaml
 orchestrator: task.md
@@ -50,12 +50,17 @@ constructive-feedback: constructive-feedback.md
 
 \`intent-checker\` is stateless and owns no file.
 
+Assignment lines:
+- Exactly one \`Output: .agents/<taskId>/<workItemId>/<your-file>.md\` identifies the active readable/writable assignment.
+- Zero or more \`Input: .agents/<taskId>/<workItemId>/<role-file>.md\` lines identify readable, never writable, input artifacts.
+- A prior Output moved to session history is readable but remains non-writable until an explicit same-task/same-role continuation reactivates it.
+
 Rules:
-1. Require both a valid taskId and the exact assigned workItemId before writing. Never invent, reuse, or normalize either identifier.
-2. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
+1. Require both a valid taskId and the exact assigned Output before writing. Never invent or normalize either identifier.
+2. Create your file if absent; append only when the same active Output was explicitly provided for continuation.
 3. Never overwrite or replace existing handoff content.
-4. Never write another agent's mapped filename or another work item's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
-5. Reading run files is allowed only through explicit concrete paths when the role and permission policy allow it.
+4. Never write an Input, historical assignment, another agent's mapped filename, or another work item's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
+5. Reading run files is allowed only when they are the active Output, same-session history, or an explicit concrete Input and the role/read policy also allows it.
 `.trim();
 
 /**
@@ -104,7 +109,7 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Every artifact-writing delegation must also receive a unique kebab-case workItemId, such as \`planner-01\` or \`worker-parse-fix-02\`. The orchestrator allocates it once and never reuses it within the taskId.
+- Every new artifact-writing work item must receive a kebab-case workItemId, such as \`planner-01\` or \`worker-parse-fix-02\`. It is unique across all roles and sessions within the taskId. A continuation of the same logical work item reuses the same workItemId; a new work item never does.
 - If either identifier is missing or invalid, stop before writing and request the missing identity. Do not substitute an absolute path, path separator, \`..\`, or another task's identifier.
 - Do not hard-code or derive a different handoff path. Use \`runDocPath(taskId, workItemId, agentName)\` to resolve \`.agents/<taskId>/<workItemId>/<your-file>.md\`.
 - Return the exact concrete path so downstream agents do not need directory discovery.

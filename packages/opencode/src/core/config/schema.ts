@@ -51,6 +51,7 @@ export const AgentOverrideSchema = z
     reasoning_effort: z.string().optional(),
     prompt_append: z.string().optional(),
     enable: z.boolean().optional(),
+    disabled_mcp: z.array(z.string().min(1)).optional(),
   })
   .strict();
 

@@ -47,14 +47,18 @@ Run date: use the current session date in YYYYMMDD format. If the session contex
 - Before the first artifact-writing delegation, allocate taskId from the current session date plus a short kebab-case slug. Every leaf call must already contain taskId, workItemId, and the exact output path; never delegate identity creation to a leaf.
 - Do not rederive a taskId you already received.
 - Use only Codex-native subagent call fields such as `agent_type`, `message`, and optional `fork_context`. Put taskId in the `message` text.
-- Allocate a unique kebab-case workItemId for every artifact-writing delegation, including repeated or parallel calls to the same role. Pass taskId, workItemId, input paths/scope, the exact `.agents/<taskId>/<workItemId>/<role-file>.md` output path, and constraints.
+- Allocate a unique kebab-case workItemId for every new artifact-writing work item, including repeated work for the same role. A follow-up for the same logical work item reuses its existing workItemId and exact output path.
+- Every artifact-writing leaf message must contain exactly one standalone `Output: .agents/<taskId>/<workItemId>/<role-file>.md` line and zero or more standalone `Input: .agents/<taskId>/<workItemId>/<role-file>.md` lines. Output is the active writable assignment; Inputs are readable only. Never infer Output from an Input or an unlabeled same-role path.
+- A workItemId is unique across the entire taskId, including across different roles and leaf threads. Never allocate the same workItemId twice.
+- A Codex follow-up to an existing managed leaf may keep the same taskId and role while reusing the active Output or explicitly assigning a new unique Output. Treat the prior Output as read-only history and list any prior artifact needed by the new work item as an `Input:`. This is a coordination contract; do not claim OpenCode-style runtime assignment enforcement.
+- Never use a leaf follow-up to change taskId or role. Spawn a new leaf thread for either change. Root follow-up for the same user task keeps the existing orchestrator `task.md`; a new root task identity requires a new root conversation.
 - When passing file-writing constraints to `worker`, allow both the requested artifact and the assigned `.agents/<taskId>/<workItemId>/work.md` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
 - When calling `worker` after `code-explorer`, include this constraint: "Trust the prior artifact path as the baseline, do not rediscover the same scope, and inspect only explicit paths plus the minimum necessary verification."
 - If the user requested a file artifact such as docs/report and `code-explorer` returns a `Path`, do not add more analysis; immediately pass that path and the target artifact path to `worker`.
 - Do not read or paste full artifact content. Use only returned paths and one-line summaries in later delegation and final responses.
 - If a subagent that must write an artifact returns body text without a concrete path, do not use that body. Treat it as a genuine completion failure: do not repeat the same work instruction; repartition or escalate.
 - If existence confirmation is truly needed, use only read-only bash such as `test -f` or `wc -l` against a returned concrete file under `.agents/<taskId>/<workItemId>/` or a docs path. Do not read the `.agents` root, run/work-item listings, subagent artifact bodies, or docs bodies with any tool.
-- Use your assigned `.agents/<taskId>/<orchestratorWorkItemId>/task.md` only as an after-the-fact index that records completed delegation paths after the first subagent return. Do not write to other agent files.
+- Use your assigned `.agents/<taskId>/<orchestratorWorkItemId>/task.md` only as an after-the-fact index that records completed delegation paths after the first subagent return. Keep that same Output for follow-up in this root session. Do not write to other agent files.
 
 ## Agent Cardinality And Scheduling
 
@@ -125,7 +129,7 @@ Example return format:
 
 ## Handoff File Ownership
 
-Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. Assign a unique workItemId to every delegation and write only to the assigned role-owned path.
+Each artifact-writing execution owns exactly one active Output under `.agents/<taskId>/<workItemId>/`. Assign a unique workItemId to every new logical work item; same-work-item follow-up reuses its exact Output.
 
 ```yaml
 orchestrator: task.md
@@ -140,12 +144,16 @@ constructive-feedback: constructive-feedback.md
 
 `intent-checker` is stateless and owns no file.
 
+Assignment lines:
+- Exactly one `Output: .agents/<taskId>/<workItemId>/<your-file>.md` identifies the active readable/writable assignment.
+- Zero or more `Input: .agents/<taskId>/<workItemId>/<role-file>.md` lines identify readable, never writable, input artifacts.
+
 Rules:
-1. Require valid taskId and workItemId values before writing; never invent, reuse, or normalize them.
-2. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
+1. Require valid taskId and the exact Output before writing; never invent or normalize them.
+2. Create your file if absent; append only when the same active Output was explicitly provided for continuation.
 3. Never overwrite or replace existing handoff content.
-4. Never write another agent's mapped filename or another work item's file. `task.md` is orchestrator-owned.
-5. Read run files only through explicit concrete paths when the role and permission policy allow it.
+4. Never write an Input, historical assignment, another agent's mapped filename, or another work item's file. `task.md` is orchestrator-owned.
+5. Read run files only when they are active Output, same-thread history, or explicit Input and the role/read policy allows it.
 
 ## Single Source of Truth
 
@@ -178,7 +186,7 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Every artifact-writing delegation must also receive a unique kebab-case workItemId such as `planner-01` or `worker-parse-fix-02`; never reuse it within the taskId.
+- Every new artifact-writing work item must receive a kebab-case workItemId such as `planner-01` or `worker-parse-fix-02`; it is unique across roles and leaf threads within the taskId. Same-work-item follow-up reuses it.
 - If either identifier is missing or invalid, stop before writing. Do not substitute an absolute path, path separator, `..`, or another task's identifier.
 - Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md` and return that exact concrete path.
 - All run files stay under the canonical workspace `.agents/<taskId>/<workItemId>/` scope.

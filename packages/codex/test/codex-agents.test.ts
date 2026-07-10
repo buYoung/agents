@@ -155,12 +155,20 @@ describe("Codex custom agent TOML", () => {
         "`intent-checker`, `planner`, and `idea-generator` are optional singletons",
       ],
       [
+        "zero-or-one active cardinality",
+        "zero or one active instance per phase or round",
+      ],
+      [
         "review-type singletons",
         "`adversarial-review` and `constructive-feedback` are each optional singletons. At most one of each may be active, and one of each type may run concurrently against the same immutable integrated result",
       ],
       [
         "singleton reuse gate",
         "only after the prior instance or round is terminal and the input state changed",
+      ],
+      [
+        "active-not-lifetime singleton semantics",
+        "Singleton means one active instance, not one lifetime call",
       ],
       [
         "adaptive roles and default count",
@@ -200,6 +208,10 @@ describe("Codex custom agent TOML", () => {
         "Split `research` only by an independent research question/evidence domain",
       ],
       [
+        "high-cost independent research corroboration",
+        "truly independent corroboration when the cost of a wrong fact is high",
+      ],
+      [
         "research split non-example",
         "More search terms or sources alone are not separate work items",
       ],
@@ -232,6 +244,10 @@ describe("Codex custom agent TOML", () => {
         "independent work, independent corroboration, transient-failure replacement, or changed-input re-review",
       ],
       [
+        "exactly-one spawn reason",
+        "Every spawn records exactly one reason",
+      ],
+      [
         "transient failure replacement",
         "A transient harness or tool failure may be replaced once",
       ],
@@ -253,6 +269,10 @@ describe("Codex custom agent TOML", () => {
       ],
       ["immutable review", "Review only an immutable integrated result"],
       [
+        "remediation-changed-result re-review prerequisite",
+        "After remediation changes that result",
+      ],
+      [
         "single sequential re-review",
         "each review type may run one sequential re-review round",
       ],
@@ -262,7 +282,7 @@ describe("Codex custom agent TOML", () => {
       ],
       [
         "unique workItemId per execution",
-        "Allocate a unique kebab-case workItemId for every artifact-writing delegation",
+        "Allocate a unique kebab-case workItemId for every new artifact-writing work item",
       ],
       [
         "enforcement honesty",

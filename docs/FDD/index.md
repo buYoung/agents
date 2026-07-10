@@ -2,7 +2,7 @@
 
 | Feature | Definition | Profile | Status | Last Verified |
 | ------- | ---------- | ------- | ------ | ------------- |
-| [agent-orchestrator-role](agent-orchestrator-role.md) | 사용자 요청을 분류하고 허용된 subagent 흐름으로 조정하는 기본 진입 agent 역할 | full | active | 2026-07-06 |
+| [agent-orchestrator-role](agent-orchestrator-role.md) | 사용자 요청을 분류하고 허용된 subagent 흐름으로 조정하는 기본 진입 agent 역할 | full | active | 2026-07-10 |
 | [agent-intent-checker-role](agent-intent-checker-role.md) | 실행 전 사용자 의도와 작업 분류가 일치하는지 확인하는 무상태 gate agent 역할 | full | active | 2026-07-06 |
 | [agent-worker-role](agent-worker-role.md) | 실제 소스 변경과 실행 검증을 담당하는 변경 실행 agent 역할 | full | active | 2026-07-06 |
 | [agent-planner-role](agent-planner-role.md) | 구현 전 단일 실행 경로와 영향 범위를 수렴적으로 정리하는 계획 agent 역할 | full | active | 2026-07-10 |

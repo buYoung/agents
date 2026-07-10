@@ -29,6 +29,7 @@
 #   reasoning_effort = "high"|"max"  # catalog의 모델별 허용값 참조
 #   prompt_append    = "추가할 프롬프트 문자열"   # 기존 프롬프트 끝에 덧붙임
 #   enable           = false  # 이 에이전트를 비활성화 (기본값: true)
+#   disabled_mcp     = ["server-key"]  # native MCP 서버 도구를 역할별로 추가 거부
 #
 # 사용 가능한 모델과 reasoning_effort 허용 값은 bundled TOML catalog가 기준입니다:
 #   packages/opencode/src/core/catalog/catalog.toml
@@ -60,6 +61,12 @@
 # 예: worker에 높은 추론 노력 적용
 # [agents.worker]
 # reasoning_effort = "high"
+# disabled_mcp = ["browser"]  # 서버 키는 대소문자를 구분
+
+# 모든 구성 MCP 서버 도구 거부. 배열은 병합되지 않고 통째로 교체되므로
+# root 설정의 []는 preset에서 상속한 추가 거부를 비웁니다.
+# [agents.research]
+# disabled_mcp = ["*"]
 
 # 예: minimax-m3에 reasoning_effort 설정 → 경고 후 무시됨
 # [agents.code-explorer]

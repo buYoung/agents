@@ -31,13 +31,23 @@ export {
 export type { PathCategory } from "./path";
 export { classifyPath } from "./path";
 
+export type {
+  SessionExecutionState,
+  TaskWorkItemReservation,
+  DelegationRegistration,
+  DelegationCompletion,
+} from "./session-map";
 export { createSessionAgentMap, resolveAgent } from "./session-map";
 
-export type { ExecutionAssignment } from "./assignment";
+export type { ExecutionAssignment, ExecutionContext } from "./assignment";
 export {
+  getAgentExecutionContext,
   getAgentExecutionAssignment,
+  getTaskExecutionContext,
   getTaskExecutionAssignment,
   isSameExecutionAssignment,
+  executionAssignmentKey,
+  taskWorkItemKey,
 } from "./assignment";
 
 export type {
@@ -45,3 +55,16 @@ export type {
   EnforcePermissionOptions,
 } from "./enforce";
 export { enforcePermission } from "./enforce";
+
+export type {
+  ConfiguredMcpServerPolicy,
+  ConfiguredMcpPolicy,
+  ConfiguredMcpToolMatch,
+} from "./mcp-policy";
+export {
+  sanitizeMcpServerKey,
+  compileConfiguredMcpPolicy,
+  matchConfiguredMcpTool,
+  isConfiguredMcpAllowed,
+  applyConfiguredMcpNativePolicy,
+} from "./mcp-policy";

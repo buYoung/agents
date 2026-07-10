@@ -5,8 +5,10 @@
 import { describe, test, expect } from "vitest";
 import {
   classifyPath,
+  compileConfiguredMcpPolicy,
   enforcePermission,
   createSessionAgentMap,
+  getTaskExecutionContext,
   type AgentName,
   type ExecutionAssignment,
 } from "@opencode/core/permissions";
@@ -29,10 +31,15 @@ function artifactTaskArgs(
   agent: ExecutionAssignment["agent"],
   workItemId: string,
   filename: string,
+  inputs: readonly string[] = [],
 ): Record<string, unknown> {
   return {
     subagent_type: agent,
-    prompt: `taskId=20260702-test workItemId=${workItemId} output=.agents/20260702-test/${workItemId}/${filename}`,
+    prompt: [
+      `taskId=20260702-test workItemId=${workItemId}`,
+      `Output: .agents/20260702-test/${workItemId}/${filename}`,
+      ...inputs.map((input) => `Input: ${input}`),
+    ].join("\n"),
   };
 }
 
@@ -120,6 +127,24 @@ describe("권한 매트릭스", () => {
         testMap,
       );
       expect(result.allowed, command).toBe(true);
+    }
+
+    for (const command of [
+      "git --no-pager log --pretty=%H -1",
+      "git --no-pager log --format=%H -1",
+      "git --no-pager log --pretty %H -1",
+      "git --no-pager log --format %H -1",
+      "git ls-files --format=%H",
+    ]) {
+      const result = enforcePermission(
+        {
+          tool: "bash",
+          sessionID: "session-orch",
+          args: { command },
+        },
+        testMap,
+      );
+      expect(result.allowed, command).toBe(false);
     }
   });
 
@@ -288,6 +313,16 @@ describe("fail-safe", () => {
       testMap,
     );
     expect(result.allowed).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "read",
+          sessionID: "session-unknown",
+          args: { path: ".agents/20260702-test/worker-01/work.md" },
+        },
+        testMap,
+      ).allowed,
+    ).toBe(false);
   });
 });
 
@@ -400,6 +435,71 @@ describe("추가 정책 spot-check", () => {
       fullMap,
     );
     expect(result.allowed).toBe(true);
+
+    const configuredMcpPolicy = compileConfiguredMcpPolicy(
+      {
+        "Code.Map": { type: "local", command: ["codemap-search", "mcp"] },
+        browser: { type: "remote", url: "https://example.test/mcp" },
+      },
+      { agents: { planner: { disabled_mcp: ["browser"] } } },
+      [...fullMap.values()],
+    );
+    expect(
+      enforcePermission(
+        { tool: "Code_Map_search", sessionID: "s-research", args: {} },
+        fullMap,
+        { configuredMcpPolicy },
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        { tool: "browser_open", sessionID: "s-planner", args: {} },
+        fullMap,
+        { configuredMcpPolicy },
+      ).allowed,
+    ).toBe(false);
+    for (const sessionID of ["s-orch", "s-intent"]) {
+      expect(
+        enforcePermission(
+          { tool: "Code_Map_read", sessionID, args: {} },
+          fullMap,
+          { configuredMcpPolicy },
+        ).allowed,
+      ).toBe(false);
+    }
+    for (const tool of [
+      "code_Map_search",
+      "other_Code_Map_search",
+      "mcp__Code_Map__search",
+      "unconfigured_read",
+    ]) {
+      expect(
+        enforcePermission(
+          { tool, sessionID: "s-research", args: {} },
+          fullMap,
+          { configuredMcpPolicy },
+        ).allowed,
+      ).toBe(false);
+    }
+    expect(
+      enforcePermission(
+        { tool: "Code_Map_search", sessionID: "unknown", args: {} },
+        fullMap,
+        { configuredMcpPolicy },
+      ).allowed,
+    ).toBe(false);
+    const unmanagedRolePolicy = compileConfiguredMcpPolicy(
+      { "Code.Map": { type: "local", command: ["codemap-search", "mcp"] } },
+      {},
+      ["worker"],
+    );
+    expect(
+      enforcePermission(
+        { tool: "Code_Map_search", sessionID: "s-research", args: {} },
+        fullMap,
+        { configuredMcpPolicy: unmanagedRolePolicy },
+      ).allowed,
+    ).toBe(false);
   });
 
   test("research: source 쓰기 거부, workspace 내부 산출물 쓰기만 허용", () => {
@@ -750,6 +850,226 @@ describe("추가 정책 spot-check", () => {
         { sessionAssignments: fullAssignments },
       ).allowed,
     ).toBe(true);
+
+    const lifecycle = createSessionAgentMap();
+    expect(lifecycle.updateSessionAgent("parent", "orchestrator")).toBe(true);
+    const delegatedInput =
+      ".agents/20260702-test/worker-input-01/work.md";
+    const firstContext = getTaskExecutionContext(
+      artifactTaskArgs(
+        "planner",
+        "planner-session-01",
+        "plan.md",
+        [delegatedInput],
+      ),
+    );
+    if (!firstContext) throw new Error("first context must parse");
+    expect(
+      lifecycle.registerDelegation({
+        parentSessionID: "parent",
+        callID: "call-1",
+        context: firstContext,
+      }),
+    ).toBe(true);
+    expect(
+      lifecycle.completeDelegation({
+        parentSessionID: "parent",
+        callID: "call-1",
+        childSessionID: "planner-child",
+        context: firstContext,
+      }),
+    ).toBe(true);
+    expect(lifecycle.assignmentMap.get("planner-child")).toEqual(
+      firstContext.output,
+    );
+
+    const lifecycleOptions = {
+      sessionAssignments: lifecycle.assignmentMap,
+      sessionExecution: lifecycle,
+    };
+    expect(
+      enforcePermission(
+        {
+          tool: "read",
+          sessionID: "planner-child",
+          args: { path: delegatedInput },
+        },
+        lifecycle.map,
+        lifecycleOptions,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "read",
+          sessionID: "planner-child",
+          args: {
+            path: ".agents/20260702-test/unregistered-worker/work.md",
+          },
+        },
+        lifecycle.map,
+        lifecycleOptions,
+      ).allowed,
+    ).toBe(false);
+
+    const secondContext = getTaskExecutionContext(
+      artifactTaskArgs(
+        "planner",
+        "planner-session-02",
+        "plan.md",
+        [firstContext.output.artifactPath],
+      ),
+    );
+    if (!secondContext) throw new Error("second context must parse");
+    expect(
+      lifecycle.registerDelegation({
+        parentSessionID: "parent",
+        callID: "call-2",
+        continuedSessionID: "planner-child",
+        context: secondContext,
+      }),
+    ).toBe(true);
+    expect(
+      lifecycle.completeDelegation({
+        parentSessionID: "parent",
+        callID: "call-2",
+        childSessionID: "planner-child",
+        context: secondContext,
+      }),
+    ).toBe(true);
+    expect(
+      lifecycle.stateMap.get("planner-child")?.historicalAssignments.size,
+    ).toBe(1);
+    expect(lifecycle.assignmentMap.get("planner-child")).toEqual(
+      secondContext.output,
+    );
+
+    for (const path of [
+      firstContext.output.artifactPath,
+      secondContext.output.artifactPath,
+    ]) {
+      expect(
+        enforcePermission(
+          { tool: "read", sessionID: "planner-child", args: { path } },
+          lifecycle.map,
+          lifecycleOptions,
+        ).allowed,
+      ).toBe(true);
+    }
+    expect(
+      enforcePermission(
+        {
+          tool: "edit",
+          sessionID: "planner-child",
+          args: { path: firstContext.output.artifactPath },
+        },
+        lifecycle.map,
+        lifecycleOptions,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "edit",
+          sessionID: "planner-child",
+          args: { path: secondContext.output.artifactPath },
+        },
+        lifecycle.map,
+        lifecycleOptions,
+      ).allowed,
+    ).toBe(true);
+
+    const roleChangeContext = getTaskExecutionContext(
+      artifactTaskArgs("worker", "worker-session-03", "work.md"),
+    );
+    if (!roleChangeContext) throw new Error("role context must parse");
+    expect(
+      lifecycle.canRegisterDelegation({
+        parentSessionID: "parent",
+        callID: "call-role-change",
+        continuedSessionID: "planner-child",
+        context: roleChangeContext,
+      }),
+    ).toBe(false);
+    const taskChangeContext = {
+      output: executionAssignment(
+        "planner",
+        "20260703-other",
+        "planner-session-03",
+        "plan.md",
+      ),
+      inputs: [],
+      protocol: "explicit" as const,
+    };
+    expect(
+      lifecycle.canRegisterDelegation({
+        parentSessionID: "parent",
+        callID: "call-task-change",
+        continuedSessionID: "planner-child",
+        context: taskChangeContext,
+      }),
+    ).toBe(false);
+    const duplicateAcrossRoles = getTaskExecutionContext({
+      subagent_type: "worker",
+      prompt: [
+        "taskId=20260702-test workItemId=planner-session-02",
+        "Output: .agents/20260702-test/planner-session-02/work.md",
+      ].join("\n"),
+    });
+    if (!duplicateAcrossRoles) throw new Error("duplicate context must parse");
+    expect(
+      lifecycle.canRegisterDelegation({
+        parentSessionID: "parent",
+        callID: "call-duplicate",
+        context: duplicateAcrossRoles,
+      }),
+    ).toBe(false);
+
+    expect(
+      getTaskExecutionContext({
+        subagent_type: "planner",
+        prompt: [
+          "Output: .agents/20260702-test/planner-a/plan.md",
+          "Output: .agents/20260702-test/planner-b/plan.md",
+        ].join("\n"),
+      }),
+    ).toBeUndefined();
+    expect(
+      getTaskExecutionContext({
+        subagent_type: "planner",
+        prompt:
+          ".agents/20260702-test/planner-a/plan.md .agents/20260702-test/planner-b/plan.md",
+      }),
+    ).toBeUndefined();
+
+    const reactivationContext = getTaskExecutionContext(
+      artifactTaskArgs(
+        "planner",
+        "planner-session-01",
+        "plan.md",
+        [secondContext.output.artifactPath],
+      ),
+    );
+    if (!reactivationContext) throw new Error("reactivation must parse");
+    expect(
+      lifecycle.registerDelegation({
+        parentSessionID: "parent",
+        callID: "call-3",
+        continuedSessionID: "planner-child",
+        context: reactivationContext,
+      }),
+    ).toBe(true);
+    expect(
+      lifecycle.completeDelegation({
+        parentSessionID: "parent",
+        callID: "call-3",
+        childSessionID: "planner-child",
+        context: reactivationContext,
+      }),
+    ).toBe(true);
+    expect(lifecycle.assignmentMap.get("planner-child")).toEqual(
+      firstContext.output,
+    );
   });
 
   test("7개 advisory 에이전트: source edit 거부", () => {
@@ -788,7 +1108,7 @@ describe("추가 정책 spot-check", () => {
     expect(result.allowed).toBe(false);
   });
 
-  test("intent-checker: .agents/** 읽기 허용 (baseline)", () => {
+  test("intent-checker: .agents/**도 읽기 거부 (role read policy)", () => {
     const result = enforcePermission(
       {
         tool: "read",
@@ -797,7 +1117,7 @@ describe("추가 정책 spot-check", () => {
       },
       fullMap,
     );
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
   });
 
   test("intent-checker: bash 거부", () => {

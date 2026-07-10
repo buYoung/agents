@@ -98,6 +98,7 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     enabledSubagentNames,
     workspaceRoot: _input.directory,
     sessionAgentMap,
+    pluginConfig,
   });
 
   return {

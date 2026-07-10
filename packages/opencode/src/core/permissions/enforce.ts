@@ -5,9 +5,10 @@
 import * as fs from "node:fs";
 import type { AgentName } from "@opencode/core/doc-protocol";
 import {
-  getTaskExecutionAssignment,
+  getTaskExecutionContext,
   isSameExecutionAssignment,
   type ExecutionAssignment,
+  type ExecutionContext,
 } from "./assignment";
 import {
   getBashCommand,
@@ -26,6 +27,11 @@ import {
 } from "./path";
 import { POLICY_MAP, SUBAGENT_NAMES } from "./policy";
 import { resolveAgent } from "./session-map";
+import {
+  isConfiguredMcpAllowed,
+  matchConfiguredMcpTool,
+  type ConfiguredMcpPolicy,
+} from "./mcp-policy";
 
 /** 집행 결과 */
 export interface EnforcementResult {
@@ -42,6 +48,25 @@ export interface EnforcePermissionOptions {
   tempRoots?: readonly string[];
   /** 런타임 task/message lifecycle에서 확인한 세션별 정확한 실행 할당. */
   sessionAssignments?: Map<string, ExecutionAssignment>;
+  /** 활성/이력/입력 및 task-wide 예약을 소유하는 내부 세션 상태 API. */
+  sessionExecution?: {
+    bindRootAssignment: (
+      sessionID: string,
+      assignment: ExecutionAssignment,
+    ) => boolean;
+    canReadSessionArtifact: (
+      sessionID: string,
+      assignment: ExecutionAssignment,
+    ) => boolean;
+    canRegisterDelegation: (input: {
+      parentSessionID: string;
+      callID: string;
+      continuedSessionID?: string;
+      context: ExecutionContext;
+    }) => boolean;
+  };
+  /** config 훅이 최종 native `mcp`를 보고 컴파일한 사용자 신뢰 정책. */
+  configuredMcpPolicy?: ConfiguredMcpPolicy;
 }
 
 // Hook에는 custom/plugin/MCP 도구의 provenance나 효과 metadata가 오지 않는다.
@@ -101,13 +126,19 @@ export function enforcePermission(
   input: {
     tool: string;
     sessionID: string;
+    callID?: string;
     args: Record<string, unknown>;
   },
   sessionAgentMap: Map<string, AgentName>,
   options?: EnforcePermissionOptions,
 ): EnforcementResult {
-  const toolName = input.tool.toLowerCase();
+  const rawToolName = input.tool;
+  const toolName = rawToolName.toLowerCase();
   const toolKind = resolveToolKind(toolName);
+  const configuredMcpTool = matchConfiguredMcpTool(
+    options?.configuredMcpPolicy,
+    rawToolName,
+  );
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
   const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
   const tempRoots = options?.tempRoots ?? getDefaultTempRoots();
@@ -135,6 +166,22 @@ export function enforcePermission(
   }
 
   if (!agent) {
+    if (configuredMcpTool) {
+      return {
+        allowed: false,
+        reason: `[fail-safe] 에이전트 미확인 — 구성 MCP 도구(${rawToolName}) 거부. sessionID=${input.sessionID}`,
+      };
+    }
+    if (
+      inspectedPaths.some(
+        ({ inspection }) => inspection.category === "agents",
+      )
+    ) {
+      return {
+        allowed: false,
+        reason: `[fail-safe] 에이전트 미확인 — 실행 산출물 읽기/쓰기 거부. sessionID=${input.sessionID}`,
+      };
+    }
     if (isReadTool) {
       return {
         allowed: true,
@@ -152,6 +199,25 @@ export function enforcePermission(
     return {
       allowed: false,
       reason: `[policy] 알 수 없는 에이전트 '${agent}' — 모든 도구 거부`,
+    };
+  }
+
+  if (configuredMcpTool && options?.configuredMcpPolicy) {
+    if (
+      !isConfiguredMcpAllowed(
+        options.configuredMcpPolicy,
+        agent,
+        configuredMcpTool.server.serverKey,
+      )
+    ) {
+      return {
+        allowed: false,
+        reason: `[policy] ${agent}: MCP 서버 ${configuredMcpTool.server.serverKey} 도구 거부 — tool=${rawToolName}`,
+      };
+    }
+    return {
+      allowed: true,
+      reason: `[policy] ${agent}: 사용자가 구성한 MCP 서버 ${configuredMcpTool.server.serverKey}의 신뢰 capability 허용 — tool=${rawToolName}`,
     };
   }
 
@@ -246,7 +312,18 @@ export function enforcePermission(
             workItemId: identity.workItemId,
             artifactPath: identity.relativePath,
           };
-          options.sessionAssignments.set(input.sessionID, assignment);
+          const bound = options.sessionExecution
+            ? options.sessionExecution.bindRootAssignment(
+                input.sessionID,
+                assignment,
+              )
+            : (options.sessionAssignments.set(input.sessionID, assignment), true);
+          if (!bound) {
+            return {
+              allowed: false,
+              reason: `[baseline] orchestrator: 같은 root 세션의 task identity 변경 거부 — path=${artifactPath.pathValue}`,
+            };
+          }
         }
         if (!assignment) {
           return {
@@ -264,6 +341,31 @@ export function enforcePermission(
           return {
             allowed: false,
             reason: `[baseline] ${agent}: 다른 실행 할당의 산출물 쓰기 거부 — assigned=${assignment.taskId}/${assignment.workItemId}/${assignment.agent}, requested=${identity.taskId}/${identity.workItemId}/${identity.owner}`,
+          };
+        }
+      }
+      if (isReadTool && policy.tools.sourceRead === "deny") {
+        return {
+          allowed: false,
+          reason: `[policy] ${agent}는 명시적 산출물 입력도 읽기 불가`,
+        };
+      }
+      if (isReadTool && options?.sessionExecution) {
+        const requestedAssignment: ExecutionAssignment = {
+          agent: identity.owner,
+          taskId: identity.taskId,
+          workItemId: identity.workItemId,
+          artifactPath: identity.relativePath,
+        };
+        if (
+          !options.sessionExecution.canReadSessionArtifact(
+            input.sessionID,
+            requestedAssignment,
+          )
+        ) {
+          return {
+            allowed: false,
+            reason: `[baseline] ${agent}: 활성·이력·명시 Input에 없는 산출물 읽기 거부 — path=${artifactPath.pathValue}`,
           };
         }
       }
@@ -335,10 +437,11 @@ export function enforcePermission(
       }
       const targetAgent = subagentType.trim();
       if ((allowedSubagentNames as readonly string[]).includes(targetAgent)) {
-        const assignment = getTaskExecutionAssignment(
+        const context = getTaskExecutionContext(
           input.args,
           options?.workspaceRoot,
         );
+        const assignment = context?.output;
         if (targetAgent !== "intent-checker" && !assignment) {
           return {
             allowed: false,
@@ -346,7 +449,27 @@ export function enforcePermission(
           };
         }
         const continuedSessionID = input.args["task_id"];
-        if (typeof continuedSessionID === "string" && assignment) {
+        if (
+          context &&
+          options?.sessionExecution &&
+          typeof input.callID === "string"
+        ) {
+          if (
+            !options.sessionExecution.canRegisterDelegation({
+              parentSessionID: input.sessionID,
+              callID: input.callID,
+              ...(typeof continuedSessionID === "string"
+                ? { continuedSessionID }
+                : {}),
+              context,
+            })
+          ) {
+            return {
+              allowed: false,
+              reason: `[policy] ${agent}: task 실행 할당/예약 충돌 — taskId=${assignment?.taskId}, workItemId=${assignment?.workItemId}`,
+            };
+          }
+        } else if (typeof continuedSessionID === "string" && assignment) {
           const existingAssignment = options?.sessionAssignments?.get(
             continuedSessionID,
           );

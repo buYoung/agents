@@ -108,6 +108,7 @@ reasoning_effort = "max"
 
 [agents.worker]
 reasoning_effort = "high"
+disabled_mcp = ["browser"]
 
 [agents.idea-generator]
 enable = false
@@ -121,6 +122,7 @@ enable = false
 | `reasoning_effort` | catalog가 허용하는 추론 노력 값을 설정합니다. |
 | `prompt_append` | 기존 프롬프트 끝에 프로젝트별 지시를 덧붙입니다. |
 | `enable` | 일부 비보호 에이전트를 비활성화합니다. |
+| `disabled_mcp` | native `opencode.json(c)`의 MCP 서버 키를 대소문자까지 정확히 지정해 해당 역할의 서버 도구 호출을 추가로 거부합니다. `"*"`는 모든 MCP 서버 도구를 거부하고, 배열은 preset/사용자/프로젝트 병합에서 통째로 교체되므로 `[]`로 상속된 추가 거부를 비울 수 있습니다. |
 
 설정 검증:
 
@@ -134,6 +136,14 @@ pnpm --filter cli exec agents doctor
 OpenCode의 실행 전 훅은 도구의 등록 주체나 효과 정보 없이 도구 ID만 전달합니다. 따라서 사용자 지정 플러그인이 `read`, `glob`, `grep`, `list`, `lsp`, `codesearch`, `edit`, `write`, `apply_patch`, `bash`, `webfetch`, `websearch`, `task` 중 하나와 같은 ID를 등록하는 환경은 지원하지 않습니다. 이 플러그인을 그런 사용자 지정 도구와 함께 사용하지 마세요.
 
 현재 OpenCode 설정과 훅 API는 플러그인 package 목록은 노출하지만 각 package가 등록한 도구 ID의 출처는 노출하지 않으므로, 이 플러그인이 충돌을 정확히 탐지하거나 내장 도구 호출과 구분할 수 없습니다. 네임스페이스가 붙은 ID의 접미사로 권한을 추론하지 않으며, 분류되지 않은 전체 ID는 기본 거부합니다. 충돌 환경에서는 권한 집행 보장을 제공하지 않습니다.
+
+### 구성된 MCP 신뢰와 감쇠 경계
+
+native `opencode.json(c).mcp`에서 활성화한 서버는 사용자가 명시적으로 신뢰한 capability로 취급합니다. `worker`, `planner`, `research`, `code-explorer`, `idea-generator`, `adversarial-review`, `constructive-feedback`는 구성된 서버 도구를 기본 사용할 수 있고, `orchestrator`와 `intent-checker`는 항상 거부합니다. 역할별 `disabled_mcp`는 이 기본 권한을 더 줄일 뿐이며, native agent 설정 병합 뒤 OpenCode 1.17.x의 `permission` 표면과 호환 `tools` 표면에 적용되고 실행 전 훅에서도 다시 확인됩니다.
+
+플러그인은 MCP 도구의 읽기/쓰기/네트워크 효과를 추론하지 않습니다. 서버 활성화는 그 서버가 제공하는 도구 전체에 대한 사용자 신뢰이며, 세부 효과 제한이 필요하면 서버 자체 설정과 `disabled_mcp`를 사용해야 합니다. OpenCode가 만든 최종 도구 ID는 서버 provenance 증명이 아니므로 같은 ID를 만드는 custom/plugin 환경은 지원하지 않습니다. 서로 다른 서버 키가 OpenCode 정리 규칙 뒤 충돌하거나 한 서버 접두사가 다른 서버 접두사와 모호해지면 구성 오류로 닫습니다. 서버 키 비교는 대소문자를 구분하며 suffix나 namespace 추정으로 다른 ID를 허용하지 않습니다.
+
+`disabled_mcp`는 서버 도구 호출만 다룹니다. `list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource` 같은 generic MCP resource API를 서버별로 필터링하거나 완전 격리하는 기능은 아닙니다. 현재 플러그인은 분류되지 않은 generic resource 도구를 기본 거부하지만, 이를 `disabled_mcp`의 서버별 resource 격리 보장으로 해석하면 안 됩니다. CLI 설치·제거는 native MCP 블록을 소유하거나 수정하지 않고 기존 비파괴 보존 계약을 유지합니다.
 
 ## 개발 명령
 
