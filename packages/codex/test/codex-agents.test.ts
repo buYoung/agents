@@ -24,14 +24,14 @@ const expectedModelProfiles: Record<
   string,
   { model: string; effort: string; sandbox: string; promptMarker: string }
 > = {
-  "intent-checker": { model: "gpt-5.5", effort: "medium", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator." },
-  worker: { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are **worker**" },
-  planner: { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are the **planner** subagent." },
-  research: { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **research** subagent." },
-  "code-explorer": { model: "gpt-5.4", effort: "low", sandbox: "workspace-write", promptMarker: "You are the **code-explorer** subagent." },
-  "idea-generator": { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **idea-generator** subagent." },
-  "adversarial-review": { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are **adversarial-review**" },
-  "constructive-feedback": { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are **constructive-feedback**" },
+  "intent-checker": { model: "gpt-5.6-terra", effort: "high", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator." },
+  worker: { model: "gpt-5.6-terra", effort: "high", sandbox: "workspace-write", promptMarker: "You are **worker**" },
+  planner: { model: "gpt-5.6-sol", effort: "high", sandbox: "workspace-write", promptMarker: "You are the **planner** subagent." },
+  research: { model: "gpt-5.6-terra", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **research** subagent." },
+  "code-explorer": { model: "gpt-5.6-luna", effort: "low", sandbox: "workspace-write", promptMarker: "You are the **code-explorer** subagent." },
+  "idea-generator": { model: "gpt-5.6-sol", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **idea-generator** subagent." },
+  "adversarial-review": { model: "gpt-5.6-sol", effort: "high", sandbox: "workspace-write", promptMarker: "You are **adversarial-review**" },
+  "constructive-feedback": { model: "gpt-5.6-terra", effort: "medium", sandbox: "workspace-write", promptMarker: "You are **constructive-feedback**" },
 };
 
 describe("Codex custom agent TOML", () => {

@@ -2,7 +2,7 @@
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "code-explorer"
 description = "Codebase reconnaissance only. Exploration uses read-only tools, and artifact writing is limited to explore.md. bash, webfetch, editing, and redelegation are forbidden."
-model = "gpt-5.4"
+model = "gpt-5.6-luna"
 model_reasoning_effort = "low"
 sandbox_mode = "workspace-write"
 nickname_candidates = ["Scout", "Locator", "Mapper"]

@@ -2,7 +2,7 @@
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "planner"
 description = "Convergently decomposes a request into a step-by-step implementation plan, validating the received execution identity and identifying impact files and risks. Divergent alternative exploration belongs to idea-generator."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 nickname_candidates = ["Planner", "Mapper", "Sequencer"]

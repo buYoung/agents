@@ -2,7 +2,7 @@
 # Keep behavioral prompt changes in the opencode source, then regenerate this file.
 name = "idea-generator"
 description = "Divergent alternative exploration. Records at least two alternatives, tradeoffs, and a recommended direction in ideas.md. Uses only read-only exploration and its own artifact write; bash, webfetch, editing, and redelegation are forbidden. Produces input for planner convergence."
-model = "gpt-5.5"
+model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 nickname_candidates = ["Ideator", "Diverger", "Strategist"]
