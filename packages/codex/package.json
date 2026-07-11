@@ -8,9 +8,7 @@
     "check-types": "pnpm check",
     "test": "vitest run",
     "test:exec-smoke": "node test/exec-smoke.mjs",
-    "test:exec-smoke:individual": "node test/exec-smoke.mjs --flow individual",
-    "test:exec-smoke:orchestrator": "node test/exec-smoke.mjs --flow orchestrator",
-    "test:exec-smoke:full": "node test/exec-smoke.mjs --flow full"
+    "test:exec-smoke:individual": "node test/exec-smoke.mjs --flow individual"
   },
   "dependencies": {
     "smol-toml": "^1.7.0"

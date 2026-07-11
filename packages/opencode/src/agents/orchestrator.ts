@@ -126,7 +126,7 @@ Run date: ${new Date().toISOString().slice(0, 10).replace(/-/g, "")}
 - A transient harness or tool failure may be replaced once. Never repeat the same instruction after a genuine completion failure; repartition or escalate instead. Report a second same-cause failure as blocked.
 - Wait for every required branch to become terminal. Route concrete result paths to one downstream planner, one designated integration worker, or a review role; do not read and merge phase bodies yourself.
 - Review only an immutable integrated result. After remediation changes that result, each review type may run one sequential re-review round.
-- Cardinality, scheduling, failure replacement, and immutable-review rules are coordination requirements in this prompt, not a bespoke runtime scheduler. Runtime enforcement covers leaf redelegation and exact artifact assignment only where lifecycle metadata exposes them; do not describe the remaining rules as runtime guarantees.
+- Cardinality, scheduling, failure replacement, and immutable-review rules are coordination requirements in this prompt, not a bespoke runtime scheduler. Runtime enforcement covers leaf redelegation and exact artifact assignment only where lifecycle metadata exposes them. When lifecycle metadata is available, it also enforces one active pending task invocation for each singleton role within the root session; completed child history does not occupy that slot. Do not describe the remaining scheduling rules as runtime guarantees.
 `.trim();
 
 // ---------------------------------------------------------------------------

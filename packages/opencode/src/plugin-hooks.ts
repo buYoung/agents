@@ -75,6 +75,141 @@ export function createPluginHookHandlers(options: {
       (AGENT_NAMES as readonly string[]).includes(name),
   );
   let configuredMcpPolicy: ConfiguredMcpPolicy | undefined;
+  interface PendingIntentDelegation {
+    rootSessionID: string;
+    continuedSessionID?: string;
+    childSessionID?: string;
+  }
+  interface BackgroundTaskCorrelation {
+    parentSessionID: string;
+    callID: string;
+    taskInput: Record<string, unknown>;
+    isIntentChecker: boolean;
+  }
+  const pendingIntentDelegations = new Map<string, PendingIntentDelegation>();
+  const completedIntentDelegations = new Map<string, string>();
+  const intentChildRoots = new Map<string, string>();
+  const pendingIntentTargets = new Map<string, string>();
+  const deletedIntentSessions = new Set<string>();
+  const backgroundTaskCorrelations = new Map<
+    string,
+    BackgroundTaskCorrelation
+  >();
+
+  function intentDelegationKey(parentSessionID: string, callID: string): string {
+    return `${parentSessionID}\0${callID}`;
+  }
+
+  function registerIntentDelegation(
+    parentSessionID: string,
+    callID: string,
+    continuedSessionID?: string,
+  ): boolean {
+    if (deletedIntentSessions.has(parentSessionID)) return false;
+    const key = intentDelegationKey(parentSessionID, callID);
+    if (completedIntentDelegations.has(key)) return false;
+    const existing = pendingIntentDelegations.get(key);
+    if (existing) return existing.continuedSessionID === continuedSessionID;
+
+    const rootSessionID = intentChildRoots.get(parentSessionID) ?? parentSessionID;
+    if (continuedSessionID) {
+      if (
+        deletedIntentSessions.has(continuedSessionID) ||
+        pendingIntentTargets.has(continuedSessionID) ||
+        intentChildRoots.get(continuedSessionID) !== rootSessionID
+      ) {
+        return false;
+      }
+    }
+    if (
+      [...pendingIntentDelegations.values()].some(
+        (pending) => pending.rootSessionID === rootSessionID,
+      )
+    ) {
+      return false;
+    }
+    pendingIntentDelegations.set(key, {
+      rootSessionID,
+      ...(continuedSessionID ? { continuedSessionID } : {}),
+    });
+    if (continuedSessionID) pendingIntentTargets.set(continuedSessionID, key);
+    return true;
+  }
+
+  function completeIntentDelegation(
+    parentSessionID: string,
+    callID: string,
+    childSessionID: string,
+    terminal = true,
+  ): boolean {
+    if (
+      deletedIntentSessions.has(parentSessionID) ||
+      deletedIntentSessions.has(childSessionID)
+    ) {
+      return false;
+    }
+    const key = intentDelegationKey(parentSessionID, callID);
+    const completedChild = completedIntentDelegations.get(key);
+    if (completedChild) return completedChild === childSessionID;
+    const pending = pendingIntentDelegations.get(key);
+    if (
+      !pending ||
+      (pending.continuedSessionID && pending.continuedSessionID !== childSessionID)
+    ) {
+      return false;
+    }
+    intentChildRoots.set(childSessionID, pending.rootSessionID);
+    pending.childSessionID = childSessionID;
+    if (!terminal) return true;
+    pendingIntentDelegations.delete(key);
+    if (pending.continuedSessionID) {
+      pendingIntentTargets.delete(pending.continuedSessionID);
+    }
+    completedIntentDelegations.set(key, childSessionID);
+    return true;
+  }
+
+  function failIntentDelegation(parentSessionID: string, callID: string): void {
+    const key = intentDelegationKey(parentSessionID, callID);
+    const pending = pendingIntentDelegations.get(key);
+    if (!pending) return;
+    pendingIntentDelegations.delete(key);
+    if (pending.continuedSessionID) {
+      pendingIntentTargets.delete(pending.continuedSessionID);
+    }
+  }
+
+  function clearBackgroundTaskCorrelation(
+    parentSessionID: string,
+    callID: string,
+    childSessionID?: string,
+  ): void {
+    if (childSessionID) backgroundTaskCorrelations.delete(childSessionID);
+    for (const [sessionID, correlation] of backgroundTaskCorrelations) {
+      if (
+        correlation.parentSessionID === parentSessionID &&
+        correlation.callID === callID
+      ) {
+        backgroundTaskCorrelations.delete(sessionID);
+      }
+    }
+  }
+
+  function deleteIntentSession(sessionID: string): void {
+    deletedIntentSessions.add(sessionID);
+    intentChildRoots.delete(sessionID);
+    backgroundTaskCorrelations.delete(sessionID);
+    for (const [key, pending] of pendingIntentDelegations) {
+      if (
+        pending.continuedSessionID === sessionID ||
+        pending.childSessionID === sessionID ||
+        key.startsWith(`${sessionID}\0`)
+      ) {
+        const [parentSessionID, callID] = key.split("\0", 2);
+        if (parentSessionID && callID) failIntentDelegation(parentSessionID, callID);
+      }
+    }
+  }
 
   const config = async (opencodeConfig: Config): Promise<void> => {
     const cfg = opencodeConfig as Record<string, unknown>;
@@ -222,6 +357,23 @@ export function createPluginHookHandlers(options: {
     }
 
     if (input.tool.toLowerCase() === "task") {
+      if (args["subagent_type"] === "intent-checker") {
+        const continuedSessionID = args["task_id"];
+        if (
+          !registerIntentDelegation(
+            input.sessionID,
+            input.callID,
+            typeof continuedSessionID === "string"
+              ? continuedSessionID
+              : undefined,
+          )
+        ) {
+          throw new Error(
+            `[agents] intent-checker 실행 예약 충돌 — parent=${input.sessionID}, callID=${input.callID}`,
+          );
+        }
+        return;
+      }
       const context = getTaskExecutionContext(args, workspaceRoot);
       if (context) {
         const continuedSessionID = args["task_id"];
@@ -306,22 +458,57 @@ export function createPluginHookHandlers(options: {
       const childSessionID = part?.state?.metadata?.["sessionId"];
       const parentSessionID = part?.sessionID;
       const callID = part?.callID;
+      const isTaskEvent = part?.type === "tool" && part.tool === "task";
+      const isIntentChecker = taskInput?.["subagent_type"] === "intent-checker";
+      const isBackgroundTask =
+        taskInput?.["background"] === true ||
+        part?.state?.metadata?.["background"] === true;
+      const isCompleted = part?.state?.status === "completed";
       if (
-        part?.type === "tool" &&
-        part.tool === "task" &&
+        isTaskEvent &&
         part.state?.status === "error" &&
-        typeof childSessionID !== "string" &&
         typeof parentSessionID === "string" &&
         typeof callID === "string"
       ) {
-        failDelegation(parentSessionID, callID);
+        if (isIntentChecker) {
+          failIntentDelegation(parentSessionID, callID);
+        } else {
+          failDelegation(parentSessionID, callID);
+        }
+        clearBackgroundTaskCorrelation(
+          parentSessionID,
+          callID,
+          typeof childSessionID === "string" ? childSessionID : undefined,
+        );
+        return;
       }
       if (
-        part?.type === "tool" &&
-        part.tool === "task" &&
+        isTaskEvent &&
         taskInput &&
         typeof childSessionID === "string"
       ) {
+        const terminal = isCompleted && !isBackgroundTask;
+        if (
+          isIntentChecker &&
+          typeof parentSessionID === "string" &&
+          typeof callID === "string" &&
+          completeIntentDelegation(
+            parentSessionID,
+            callID,
+            childSessionID,
+            terminal,
+          )
+        ) {
+          if (isBackgroundTask) {
+            backgroundTaskCorrelations.set(childSessionID, {
+              parentSessionID,
+              callID,
+              taskInput,
+              isIntentChecker,
+            });
+          }
+          return;
+        }
         const context = getTaskExecutionContext(taskInput, workspaceRoot);
         if (
           !context ||
@@ -332,12 +519,81 @@ export function createPluginHookHandlers(options: {
             callID,
             childSessionID,
             context,
+            terminal,
           })
         ) {
           throw new Error(
             `[agents] task lifecycle 상관관계/소유권 충돌 — parent=${parentSessionID ?? "unknown"}, callID=${callID ?? "unknown"}, child=${childSessionID}`,
           );
         }
+        if (isBackgroundTask) {
+          backgroundTaskCorrelations.set(childSessionID, {
+            parentSessionID,
+            callID,
+            taskInput,
+            isIntentChecker,
+          });
+        }
+      }
+    }
+
+    if (input.event.type === "session.status") {
+      const props = input.event.properties as
+        | {
+            sessionID?: string;
+            status?: { type?: string };
+            info?: { id?: string; status?: { type?: string } };
+          }
+        | undefined;
+      const childSessionID = props?.sessionID ?? props?.info?.id;
+      const status = props?.status?.type ?? props?.info?.status?.type;
+      const correlation =
+        typeof childSessionID === "string"
+          ? backgroundTaskCorrelations.get(childSessionID)
+          : undefined;
+      if (correlation && status === "idle" && childSessionID) {
+        const completed = correlation.isIntentChecker
+          ? completeIntentDelegation(
+              correlation.parentSessionID,
+              correlation.callID,
+              childSessionID,
+            )
+          : (() => {
+              const context = getTaskExecutionContext(
+                correlation.taskInput,
+                workspaceRoot,
+              );
+              return Boolean(
+                context &&
+                  completeDelegation({
+                    parentSessionID: correlation.parentSessionID,
+                    callID: correlation.callID,
+                    childSessionID,
+                    context,
+                  }),
+              );
+            })();
+        if (!completed) {
+          throw new Error(
+            `[agents] background task terminal lifecycle 충돌 — child=${childSessionID}`,
+          );
+        }
+        backgroundTaskCorrelations.delete(childSessionID);
+      }
+    }
+
+    if (input.event.type === "session.idle") {
+      const props = input.event.properties as
+        | { sessionID?: string; info?: { id?: string } }
+        | undefined;
+      const childSessionID = props?.sessionID ?? props?.info?.id;
+      if (childSessionID) {
+        await event({
+          event: {
+            type: "session.status",
+            properties: { sessionID: childSessionID, status: { type: "idle" } },
+          },
+        });
       }
     }
 
@@ -348,6 +604,7 @@ export function createPluginHookHandlers(options: {
       const sessionID = props?.info?.id ?? props?.sessionID;
       if (sessionID) {
         deleteSession(sessionID);
+        deleteIntentSession(sessionID);
       }
     }
   };

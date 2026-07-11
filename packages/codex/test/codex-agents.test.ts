@@ -1,5 +1,5 @@
 /**
- * codex-agents.test.ts - Codex custom agent TOML smoke checks.
+ * codex-agents.test.ts - Codex custom agent TOML and orchestration skill checks.
  */
 
 import { describe, expect, test } from "vitest";
@@ -12,89 +12,37 @@ const codexAgentsDirectory = path.join(packageRoot, "agents");
 const codexAgentVersions = JSON.parse(
   fs.readFileSync(path.join(codexAgentsDirectory, "versions.json"), "utf-8"),
 ) as Record<string, string>;
-
+const orchestrationSkillPath = path.join(
+  packageRoot,
+  "skills",
+  "codex-orchestrator",
+  "SKILL.md",
+);
 const semanticVersionPattern = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 const expectedModelProfiles: Record<
   string,
   { model: string; effort: string; sandbox: string; promptMarker: string }
 > = {
-  orchestrator: {
-    model: "gpt-5.5",
-    effort: "xhigh",
-    sandbox: "workspace-write",
-    promptMarker: "## Delegation Routing Table",
-  },
-  "intent-checker": {
-    model: "gpt-5.5",
-    effort: "medium",
-    sandbox: "read-only",
-    promptMarker: "Return exactly one line to the orchestrator.",
-  },
-  worker: {
-    model: "gpt-5.5",
-    effort: "high",
-    sandbox: "workspace-write",
-    promptMarker: "You are **worker**",
-  },
-  planner: {
-    model: "gpt-5.5",
-    effort: "high",
-    sandbox: "workspace-write",
-    promptMarker: "You are the **planner** subagent.",
-  },
-  research: {
-    model: "gpt-5.5",
-    effort: "medium",
-    sandbox: "workspace-write",
-    promptMarker: "You are the **research** subagent.",
-  },
-  "code-explorer": {
-    model: "gpt-5.4",
-    effort: "low",
-    sandbox: "workspace-write",
-    promptMarker: "You are the **code-explorer** subagent.",
-  },
-  "idea-generator": {
-    model: "gpt-5.5",
-    effort: "medium",
-    sandbox: "workspace-write",
-    promptMarker: "You are the **idea-generator** subagent.",
-  },
-  "adversarial-review": {
-    model: "gpt-5.5",
-    effort: "high",
-    sandbox: "workspace-write",
-    promptMarker: "You are **adversarial-review**",
-  },
-  "constructive-feedback": {
-    model: "gpt-5.5",
-    effort: "medium",
-    sandbox: "workspace-write",
-    promptMarker: "You are **constructive-feedback**",
-  },
+  "intent-checker": { model: "gpt-5.5", effort: "medium", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator." },
+  worker: { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are **worker**" },
+  planner: { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are the **planner** subagent." },
+  research: { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **research** subagent." },
+  "code-explorer": { model: "gpt-5.4", effort: "low", sandbox: "workspace-write", promptMarker: "You are the **code-explorer** subagent." },
+  "idea-generator": { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **idea-generator** subagent." },
+  "adversarial-review": { model: "gpt-5.5", effort: "high", sandbox: "workspace-write", promptMarker: "You are **adversarial-review**" },
+  "constructive-feedback": { model: "gpt-5.5", effort: "medium", sandbox: "workspace-write", promptMarker: "You are **constructive-feedback**" },
 };
 
 describe("Codex custom agent TOML", () => {
-  test("agents directory contains valid Codex custom agent TOML files", () => {
+  test("agents directory contains valid Codex leaf custom agent TOML files", () => {
     const expectedNames = Object.keys(expectedModelProfiles).sort();
-    const actualFiles = fs
-      .readdirSync(codexAgentsDirectory)
-      .filter((fileName) => fileName.endsWith(".toml"))
-      .sort();
-
-    expect(actualFiles).toEqual(
-      expectedNames.map((agentName) => `${agentName}.toml`),
-    );
+    const actualFiles = fs.readdirSync(codexAgentsDirectory).filter((fileName) => fileName.endsWith(".toml")).sort();
+    expect(actualFiles).toEqual(expectedNames.map((agentName) => `${agentName}.toml`));
 
     for (const agentName of expectedNames) {
-      const filePath = path.join(codexAgentsDirectory, `${agentName}.toml`);
-      const parsed = parse(fs.readFileSync(filePath, "utf-8")) as Record<
-        string,
-        unknown
-      >;
+      const parsed = parse(fs.readFileSync(path.join(codexAgentsDirectory, `${agentName}.toml`), "utf-8")) as Record<string, unknown>;
       const profile = expectedModelProfiles[agentName];
-
       expect(parsed.name).toBe(agentName);
       expect(parsed.version).toBeUndefined();
       expect(codexAgentVersions[agentName]).toMatch(semanticVersionPattern);
@@ -123,187 +71,49 @@ describe("Codex custom agent TOML", () => {
       }
       expect(Array.isArray(parsed.nickname_candidates)).toBe(true);
       expect((parsed.nickname_candidates as unknown[]).length).toBeGreaterThan(0);
+      expect(
+        (parsed.nickname_candidates as unknown[]).every(
+          (candidate) =>
+            typeof candidate === "string" && candidate.length > 0,
+        ),
+      ).toBe(true);
     }
+    expect(codexAgentVersions).not.toHaveProperty("orchestrator");
   });
 
-  test("orchestrator uses Codex-native delegation and rejects recursive orchestration", () => {
-    const filePath = path.join(codexAgentsDirectory, "orchestrator.toml");
-    const parsed = parse(fs.readFileSync(filePath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const instructions = parsed.developer_instructions as string;
-
-    expect(instructions).toContain("agent_type");
-    expect(instructions).toContain("message");
-    expect(instructions).toContain(
-      'Never spawn or delegate to `agent_type = "orchestrator"`',
+  test("codex-orchestrator skill uses main-session direct leaf delegation", () => {
+    const instructions = fs.readFileSync(orchestrationSkillPath, "utf-8");
+    const allowlistMatch = instructions.match(
+      /main session이 직접 호출할 수 있는 대상은 정확히 8개다\.[\s\S]*?```text\n([\s\S]*?)\n```/,
     );
-    expect(instructions).toContain("Do not paste the user's full request");
-    expect(instructions).not.toContain(
-      "Use only `subagent_type`, `description`, and `prompt`",
+    expect(allowlistMatch).not.toBeNull();
+    const allowedAgentNames = allowlistMatch![1]
+      .split("\n")
+      .map((agentName) => agentName.trim())
+      .filter(Boolean);
+    expect(allowedAgentNames).toHaveLength(8);
+    expect(new Set(allowedAgentNames).size).toBe(8);
+    expect([...allowedAgentNames].sort()).toEqual(
+      Object.keys(expectedModelProfiles).sort(),
     );
-    expect(instructions).not.toContain('agent: "@code-explorer"');
-    expect(instructions).toContain(
-      "received execution identity validation",
-    );
-    expect(instructions).not.toContain(
-      "pre-implementation convergent plan, impact scope, taskId generation",
-    );
-    const multiplicityPolicyMarkers = [
-      [
-        "single orchestrator and leaf no-spawn",
-        "Exactly one logical orchestrator owns this user task: this agent. No leaf agent may spawn another agent",
-      ],
-      [
-        "planning-role singletons",
-        "`intent-checker`, `planner`, and `idea-generator` are optional singletons",
-      ],
-      [
-        "zero-or-one active cardinality",
-        "zero or one active instance per phase or round",
-      ],
-      [
-        "review-type singletons",
-        "`adversarial-review` and `constructive-feedback` are each optional singletons. At most one of each may be active, and one of each type may run concurrently against the same immutable integrated result",
-      ],
-      [
-        "singleton reuse gate",
-        "only after the prior instance or round is terminal and the input state changed",
-      ],
-      [
-        "active-not-lifetime singleton semantics",
-        "Singleton means one active instance, not one lifetime call",
-      ],
-      [
-        "adaptive roles and default count",
-        "Only `worker`, `research`, and `code-explorer` may have adaptive multiple active instances. Default to one instance",
-      ],
-      ["objective gate: ready items", "At least two explicit work items are ready now"],
-      [
-        "objective gate: bounded unique contract",
-        "Every item has a unique goal, bounded input and scope, concrete output, completion criterion, and unique workItemId",
-      ],
-      [
-        "objective gate: dependency independence",
-        "The items do not depend on one another or require an unfinished predecessor",
-      ],
-      [
-        "objective gate: ownership and verification",
-        "The items have non-overlapping ownership and can be independently verified",
-      ],
-      [
-        "objective gate: capacity bound",
-        "The count does not exceed ready non-conflicting items or the runtime/configured concurrency capacity",
-      ],
-      [
-        "uncertain independence defaults to one",
-        "If independence or ownership is uncertain, use one instance",
-      ],
-      [
-        "code-explorer split gate",
-        "Split `code-explorer` only by an independent package/module/ownership boundary, call-flow question, or investigation hypothesis",
-      ],
-      [
-        "code-explorer duplicate-scope prohibition",
-        "Do not duplicate substantially identical scopes",
-      ],
-      [
-        "research split gate",
-        "Split `research` only by an independent research question/evidence domain",
-      ],
-      [
-        "high-cost independent research corroboration",
-        "truly independent corroboration when the cost of a wrong fact is high",
-      ],
-      [
-        "research split non-example",
-        "More search terms or sources alone are not separate work items",
-      ],
-      [
-        "worker split gate",
-        "Multiple workers require disjoint files and disjoint schema, public API, generated files, lockfiles, migration ordering, and shared mutable state",
-      ],
-      [
-        "worker serialization gate",
-        "If one result changes another worker's baseline, serialize them",
-      ],
-      [
-        "duplicate implementation prohibition",
-        "Duplicate implementations are forbidden unless the explicit deliverable is a choose-one prototype comparison",
-      ],
-      [
-        "active capacity formula",
-        "The active count is the minimum of ready non-conflicting items, runtime available capacity, and configured limit",
-      ],
-      [
-        "no-idle rule",
-        "Never hard-code a host slot count and never spawn to fill idle capacity",
-      ],
-      [
-        "ready DAG frontier",
-        "Execute only the currently ready dependency-DAG frontier in parallel",
-      ],
-      [
-        "spawn reason",
-        "independent work, independent corroboration, transient-failure replacement, or changed-input re-review",
-      ],
-      [
-        "exactly-one spawn reason",
-        "Every spawn records exactly one reason",
-      ],
-      [
-        "transient failure replacement",
-        "A transient harness or tool failure may be replaced once",
-      ],
-      [
-        "genuine completion failure",
-        "Never repeat the same instruction after a genuine completion failure; repartition or escalate instead",
-      ],
-      [
-        "second same-cause failure",
-        "Report a second same-cause failure as blocked",
-      ],
-      [
-        "terminal downstream aggregation",
-        "Wait for every required branch to become terminal. Route concrete result paths to one downstream planner, one designated integration worker, or a review role",
-      ],
-      [
-        "no main-agent body merge",
-        "do not read and merge phase bodies yourself",
-      ],
-      ["immutable review", "Review only an immutable integrated result"],
-      [
-        "remediation-changed-result re-review prerequisite",
-        "After remediation changes that result",
-      ],
-      [
-        "single sequential re-review",
-        "each review type may run one sequential re-review round",
-      ],
-      [
-        "unique execution identity",
-        "Every leaf call must already contain taskId, workItemId, and the exact output path",
-      ],
-      [
-        "unique workItemId per execution",
-        "Allocate a unique kebab-case workItemId for every new artifact-writing work item",
-      ],
-      [
-        "historical Output reactivation",
-        "An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.",
-      ],
-      [
-        "enforcement honesty",
-        "prompt-level coordination requirements, not runtime-enforced guarantees",
-      ],
-      [
-        "Codex topology boundary",
-        "Codex depth limits prevent leaf recursion in this topology; do not claim a bespoke scheduler or runtime singleton enforcement",
-      ],
-    ] as const;
-    for (const [policy, marker] of multiplicityPolicyMarkers) {
-      expect(instructions, policy).toContain(marker);
+    expect(allowedAgentNames).not.toContain("orchestrator");
+    for (const marker of [
+      "`agent_type`과 `message`",
+      'fork_turns="none"',
+      "정규화한 목표",
+      "taskId, workItemId",
+      "Output:",
+      "Input:",
+      "prompt-level coordination requirements, not runtime-enforced guarantees",
+      "Review only an immutable integrated result",
+      "Path:",
+      "Paths-only handoff와 SSOT",
+    ]) {
+      expect(instructions).toContain(marker);
     }
+    expect(instructions).toContain('`agent_type="orchestrator"`를 호출하거나');
+    expect(instructions).not.toContain("model =");
+    expect(instructions).not.toContain("sandbox_mode");
+    expect(instructions).not.toContain("max_depth");
   });
 });

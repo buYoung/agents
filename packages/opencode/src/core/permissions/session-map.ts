@@ -44,16 +44,27 @@ export interface DelegationCompletion {
   callID: string;
   childSessionID: string;
   context?: ExecutionContext;
+  /** nonterminal task event는 child만 신뢰 결합하고 pending을 유지한다. */
+  terminal?: boolean;
 }
 
 interface PendingDelegation extends DelegationRegistration {
   key: string;
+  rootSessionID: string;
+  childSessionID?: string;
 }
 
 interface CompletedDelegation {
   childSessionID: string;
   context: ExecutionContext;
 }
+
+/** 같은 task에서 병렬 활성 실행을 허용하는 leaf 역할이다. */
+const MULTI_INSTANCE_AGENTS = new Set<AgentName>([
+  "worker",
+  "research",
+  "code-explorer",
+]);
 
 function delegationKey(parentSessionID: string, callID: string): string {
   return `${parentSessionID}\0${callID}`;
@@ -94,6 +105,22 @@ export function createSessionAgentMap() {
   const completedDelegations = new Map<string, CompletedDelegation>();
   const pendingTargetSessions = new Map<string, string>();
   const deletedSessions = new Set<string>();
+  const sessionRootOwners = new Map<string, string>();
+  const rootTaskIds = new Map<string, string>();
+  const taskRootOwners = new Map<string, string>();
+
+  function resolveRootSessionID(sessionID: string): string {
+    return sessionRootOwners.get(sessionID) ?? sessionID;
+  }
+
+  function canUseRootTask(rootSessionID: string, taskId: string): boolean {
+    const existingTaskId = rootTaskIds.get(rootSessionID);
+    const taskOwner = taskRootOwners.get(taskId);
+    return (
+      (!existingTaskId || existingTaskId === taskId) &&
+      (!taskOwner || taskOwner === rootSessionID)
+    );
+  }
 
   function updateSessionAgent(
     sessionID: string,
@@ -120,7 +147,10 @@ export function createSessionAgentMap() {
     return true;
   }
 
-  function canObserveInputs(inputs: readonly ExecutionAssignment[]): boolean {
+  function canObserveInputs(
+    inputs: readonly ExecutionAssignment[],
+    rootSessionID?: string,
+  ): boolean {
     const observed = new Map<string, ExecutionAssignment>();
     return inputs.every((input) => {
       const key = taskWorkItemKey(input);
@@ -129,6 +159,13 @@ export function createSessionAgentMap() {
         return false;
       }
       observed.set(key, input);
+      if (
+        rootSessionID &&
+        taskRootOwners.has(input.taskId) &&
+        taskRootOwners.get(input.taskId) !== rootSessionID
+      ) {
+        return false;
+      }
       const existing = workItemLedger.get(taskWorkItemKey(input));
       return !existing || isSameExecutionAssignment(existing.assignment, input);
     });
@@ -187,17 +224,40 @@ export function createSessionAgentMap() {
     });
   }
 
+  /**
+   * 활성 역할 슬롯은 terminal 전의 pending task invocation만 센다. 완료된
+   * child의 assignment/history는 보존하지만 singleton 슬롯은 즉시 해제한다.
+   */
+  function canClaimRoleSlot(
+    rootSessionID: string,
+    sessionID: string,
+    assignment: ExecutionAssignment,
+    authorizationKey?: string,
+  ): boolean {
+    if (MULTI_INSTANCE_AGENTS.has(assignment.agent)) return true;
+
+    return ![...pendingDelegations.values()].some(
+      (pending) =>
+        pending.key !== authorizationKey &&
+        pending.rootSessionID === rootSessionID &&
+        pending.context.output.agent === assignment.agent &&
+        sessionID !== pending.continuedSessionID &&
+        sessionID !== pending.childSessionID,
+    );
+  }
+
   function activateExecutionContext(
     sessionID: string,
     context: ExecutionContext,
     allowTransition: boolean,
     authorizationKey?: string,
+    rootSessionID?: string,
   ): boolean {
     if (deletedSessions.has(sessionID)) return false;
     if (!hasDistinctContextWorkItems(context)) return false;
     const existingRole = map.get(sessionID);
     if (existingRole && existingRole !== context.output.agent) return false;
-    if (!canObserveInputs(context.inputs)) return false;
+    if (!canObserveInputs(context.inputs, rootSessionID)) return false;
 
     const existingState = stateMap.get(sessionID);
     if (existingState) {
@@ -218,6 +278,17 @@ export function createSessionAgentMap() {
       }
     }
     if (!canClaimOutput(sessionID, context.output, authorizationKey)) {
+      return false;
+    }
+    if (
+      rootSessionID &&
+      !canClaimRoleSlot(
+        rootSessionID,
+        sessionID,
+        context.output,
+        authorizationKey,
+      )
+    ) {
       return false;
     }
 
@@ -273,11 +344,15 @@ export function createSessionAgentMap() {
     );
     const authorization = findPendingAuthorization(sessionID, context);
     if (isTransition && !authorization) return false;
+    // continuation prompt는 완료 event 전에는 기존 terminal assignment를 바꾸지
+    // 않는다. error event가 오면 failDelegation만으로 안전하게 예약을 해제한다.
+    if (isTransition) return true;
     return activateExecutionContext(
       sessionID,
       context,
       Boolean(authorization),
       authorization?.key,
+      authorization?.rootSessionID ?? resolveRootSessionID(sessionID),
     );
   }
 
@@ -298,12 +373,20 @@ export function createSessionAgentMap() {
     assignment: ExecutionAssignment,
   ): boolean {
     if (assignment.agent !== "orchestrator") return false;
-    return bindSessionAssignment(sessionID, assignment);
+    if (!canUseRootTask(sessionID, assignment.taskId)) return false;
+    const bound = bindSessionAssignment(sessionID, assignment);
+    if (bound) rootTaskIds.set(sessionID, assignment.taskId);
+    if (bound) taskRootOwners.set(assignment.taskId, sessionID);
+    return bound;
   }
 
   function canRegisterDelegation(input: DelegationRegistration): boolean {
     if (deletedSessions.has(input.parentSessionID)) return false;
     if (!hasDistinctContextWorkItems(input.context)) return false;
+    const rootSessionID = resolveRootSessionID(input.parentSessionID);
+    if (!canUseRootTask(rootSessionID, input.context.output.taskId)) {
+      return false;
+    }
     const key = delegationKey(input.parentSessionID, input.callID);
     if (completedDelegations.has(key)) return false;
     const existingPending = pendingDelegations.get(key);
@@ -313,7 +396,7 @@ export function createSessionAgentMap() {
         sameExecutionContext(existingPending.context, input.context)
       );
     }
-    if (!canObserveInputs(input.context.inputs)) return false;
+    if (!canObserveInputs(input.context.inputs, rootSessionID)) return false;
 
     const reservation = workItemLedger.get(taskWorkItemKey(input.context.output));
     if (input.continuedSessionID) {
@@ -327,28 +410,46 @@ export function createSessionAgentMap() {
       if (
         !state ||
         state.agent !== input.context.output.agent ||
-        state.taskId !== input.context.output.taskId
+        state.taskId !== input.context.output.taskId ||
+        resolveRootSessionID(input.continuedSessionID) !== rootSessionID
       ) {
         return false;
       }
-      if (!reservation) return true;
+      if (!reservation) {
+        return canClaimRoleSlot(
+          rootSessionID,
+          input.continuedSessionID,
+          input.context.output,
+        );
+      }
       return (
         isSameExecutionAssignment(reservation.assignment, input.context.output) &&
         reservation.owner.kind === "session" &&
-        reservation.owner.sessionID === input.continuedSessionID
+        reservation.owner.sessionID === input.continuedSessionID &&
+        canClaimRoleSlot(
+          rootSessionID,
+          input.continuedSessionID,
+          input.context.output,
+        )
       );
     }
 
     // 새 child 위임은 기존/관찰/중단 work item을 재사용할 수 없다.
-    return reservation === undefined;
+    return (
+      reservation === undefined &&
+      canClaimRoleSlot(rootSessionID, "", input.context.output)
+    );
   }
 
   function registerDelegation(input: DelegationRegistration): boolean {
     if (!canRegisterDelegation(input)) return false;
     const key = delegationKey(input.parentSessionID, input.callID);
     if (pendingDelegations.has(key)) return true;
-    const pending: PendingDelegation = { ...input, key };
+    const rootSessionID = resolveRootSessionID(input.parentSessionID);
+    const pending: PendingDelegation = { ...input, key, rootSessionID };
     pendingDelegations.set(key, pending);
+    rootTaskIds.set(rootSessionID, input.context.output.taskId);
+    taskRootOwners.set(input.context.output.taskId, rootSessionID);
     if (input.continuedSessionID) {
       pendingTargetSessions.set(input.continuedSessionID, key);
     }
@@ -371,6 +472,7 @@ export function createSessionAgentMap() {
     ) {
       return false;
     }
+    const terminal = input.terminal !== false;
     const completed = completedDelegations.get(key);
     if (completed) {
       return (
@@ -381,6 +483,7 @@ export function createSessionAgentMap() {
     const pending = pendingDelegations.get(key);
     if (
       !pending ||
+      (pending.childSessionID && pending.childSessionID !== input.childSessionID) ||
       (pending.continuedSessionID &&
         pending.continuedSessionID !== input.childSessionID) ||
       (input.context && !sameExecutionContext(pending.context, input.context))
@@ -388,16 +491,30 @@ export function createSessionAgentMap() {
       return false;
     }
     if (
+      !terminal &&
+      pending.continuedSessionID === input.childSessionID
+    ) {
+      pending.childSessionID = input.childSessionID;
+      return true;
+    }
+    if (
       !activateExecutionContext(
         input.childSessionID,
         pending.context,
         true,
         pending.key,
+        pending.rootSessionID,
       )
     ) {
       return false;
     }
+    pending.childSessionID = input.childSessionID;
+    if (!terminal) {
+      sessionRootOwners.set(input.childSessionID, pending.rootSessionID);
+      return true;
+    }
     pendingDelegations.delete(key);
+    sessionRootOwners.set(input.childSessionID, pending.rootSessionID);
     if (pending.continuedSessionID) {
       pendingTargetSessions.delete(pending.continuedSessionID);
     }
@@ -416,11 +533,20 @@ export function createSessionAgentMap() {
     if (pending.continuedSessionID) {
       pendingTargetSessions.delete(pending.continuedSessionID);
     }
+    if (pending.childSessionID && !pending.continuedSessionID) {
+      map.delete(pending.childSessionID);
+      assignmentMap.delete(pending.childSessionID);
+      stateMap.delete(pending.childSessionID);
+      sessionRootOwners.delete(pending.childSessionID);
+    }
     const reservationKey = taskWorkItemKey(pending.context.output);
     const reservation = workItemLedger.get(reservationKey);
     if (
-      reservation?.owner.kind === "pending" &&
-      reservation.owner.delegationKey === key
+      (reservation?.owner.kind === "pending" &&
+        reservation.owner.delegationKey === key) ||
+      (!pending.continuedSessionID &&
+        reservation?.owner.kind === "session" &&
+        reservation.owner.sessionID === pending.childSessionID)
     ) {
       workItemLedger.set(reservationKey, {
         assignment: reservation.assignment,
@@ -435,6 +561,12 @@ export function createSessionAgentMap() {
   ): boolean {
     const state = stateMap.get(sessionID);
     if (!state) return false;
+    if (
+      taskRootOwners.has(assignment.taskId) &&
+      taskRootOwners.get(assignment.taskId) !== resolveRootSessionID(sessionID)
+    ) {
+      return false;
+    }
     const key = executionAssignmentKey(assignment);
     return (
       isSameExecutionAssignment(state.activeAssignment, assignment) ||
@@ -448,10 +580,13 @@ export function createSessionAgentMap() {
     map.delete(sessionID);
     assignmentMap.delete(sessionID);
     stateMap.delete(sessionID);
+    sessionRootOwners.delete(sessionID);
+    if (rootTaskIds.has(sessionID)) rootTaskIds.delete(sessionID);
     for (const pending of [...pendingDelegations.values()]) {
       if (
         pending.parentSessionID === sessionID ||
-        pending.continuedSessionID === sessionID
+        pending.continuedSessionID === sessionID ||
+        pending.childSessionID === sessionID
       ) {
         failDelegation(pending.parentSessionID, pending.callID);
       }

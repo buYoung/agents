@@ -22,20 +22,8 @@ const fixturePath = path.join(
 );
 const defaultTimeoutSeconds = 240;
 const defaultConcurrency = 3;
-const orchestratorAgent = "orchestrator";
 const smokeRunDate = new Date().toISOString().slice(0, 10).replaceAll("-", "");
-const orchestratorLeafAgents = new Set([
-  "intent-checker",
-  "worker",
-  "planner",
-  "research",
-  "code-explorer",
-  "idea-generator",
-  "adversarial-review",
-  "constructive-feedback",
-]);
 const defaultFixtureByAgent = {
-  orchestrator: "orchestrator-deep-dev-001",
   "intent-checker": "intent-checker-normal-001",
   worker: "worker-normal-001",
   planner: "planner-normal-001",
@@ -47,7 +35,6 @@ const defaultFixtureByAgent = {
 };
 
 const artifactFileByAgent = {
-  orchestrator: "task.md",
   worker: "work.md",
   planner: "plan.md",
   research: "research.md",
@@ -70,18 +57,6 @@ function buildExecutionContract({ agent, caseName, fixture }) {
     outputPath: `.agents/${taskId}/${workItemId}/${artifactFile}`,
   };
 }
-
-const orchestratorExpectedLeafAgentsByFixture = {
-  "orchestrator-normal-001": ["worker"],
-  "orchestrator-deep-dev-001": [
-    "research",
-    "planner",
-    "worker",
-    "adversarial-review",
-  ],
-  "orchestrator-boundary-001": ["worker"],
-  "orchestrator-ambiguous-001": [],
-};
 
 function readAgentNames() {
   return fs
@@ -120,8 +95,6 @@ function parseArgs(argv) {
       options.flow = argv[++index];
     } else if (arg === "--all-agents") {
       options.flow = "individual";
-    } else if (arg === "--full") {
-      options.flow = "full";
     } else if (arg === "--timeout-sec") {
       options.timeoutSeconds = Number(argv[++index]);
     } else if (arg === "--keep-workspace") {
@@ -134,7 +107,7 @@ function parseArgs(argv) {
     }
   }
 
-  if (!["single", "individual", "orchestrator", "full"].includes(options.flow)) {
+  if (!["single", "individual"].includes(options.flow)) {
     throw new Error(`Unknown flow: ${options.flow}`);
   }
   if (!["no-mcp", "mcp", "both"].includes(options.caseName)) {
@@ -159,11 +132,6 @@ function parseArgs(argv) {
     if (!options.fixture) {
       throw new Error(`No default fixture for agent: ${options.agent}`);
     }
-  } else if (
-    options.flow === "orchestrator" &&
-    !options.caseNameSpecified
-  ) {
-    options.caseName = "both";
   }
 
   return options;
@@ -173,8 +141,7 @@ function printHelp() {
   console.log(`Usage: pnpm --filter codex test:exec-smoke -- [options]
 
 Options:
-  --flow <name>        single, individual, orchestrator, or full. Default: single
-  --full               Alias for --flow full
+  --flow <name>        single or individual. Default: single
   --all-agents         Alias for --flow individual
   --agent <name>       Custom agent for single flow. Default: code-explorer
   --case <name>        no-mcp, mcp, or both. Default: no-mcp
@@ -185,10 +152,8 @@ Options:
 
 Flows:
   single        Run one agent with --case no-mcp, mcp, or both.
-  individual    Run every non-orchestrator custom agent, 3 at a time:
+  individual    Run every leaf custom agent, 3 at a time:
                 code-explorer uses mcp; all others use no-mcp.
-  orchestrator  Run orchestrator no-mcp and mcp cases in parallel by default.
-  full          Run individual first; if all pass, run orchestrator both cases.
 `);
 }
 
@@ -262,36 +227,6 @@ function buildPrompt({
       ? "codemap-search MCP is intentionally available in this run. If repository navigation is relevant, the subagent should use codemap-search MCP tools rather than shelling out to a same-named executable."
       : "codemap-search MCP is intentionally unavailable in this run. The subagent must not try to run a same-named codemap-search executable through shell; it should use the ordinary available tools instead.";
 
-  if (agent === orchestratorAgent) {
-    const expectedLeafAgents =
-      orchestratorExpectedLeafAgentsByFixture[fixture];
-    if (!expectedLeafAgents) {
-      throw new Error(`No orchestrator leaf expectation for fixture: ${fixture}`);
-    }
-    return [
-      "오케스트레이션 에이전트로 진행해줘.",
-      `Case: ${caseName}`,
-      `Fixture id: ${fixture}`,
-      `Use taskId: ${executionContract.taskId}`,
-      `Use orchestrator workItemId: ${executionContract.workItemId}`,
-      `Use orchestrator artifact path: ${executionContract.outputPath}`,
-      "",
-      "Goal: use the Codex custom orchestrator agent to classify this fixture and complete the requested leaf-agent workflow.",
-      "Root-session rule: spawn the custom orchestrator agent, wait for it to finish, close it, and return a concise result summary.",
-      `The root spawn_agent call must set agent_type exactly to "${agent}".`,
-      "The root spawn_agent message must contain only this normalized goal, constraints, taskId, and expected proof. Do not paste this full smoke prompt, the fixture table, or any `요청 원문:` block into the orchestrator message.",
-      `Expected completed leaf roles in order: ${expectedLeafAgents.join(", ") || "none"}.`,
-      `Expected completed leaf count: ${expectedLeafAgents.length}.`,
-      "Orchestrator rule: never spawn another orchestrator. Run every required leaf role, wait for each dependency/result, and return only after the requested workflow reaches a terminal result. Use concurrency only when the custom prompt's objective multi-run gate holds.",
-      `When delegating, pass taskId: ${executionContract.taskId} to the orchestrator and every leaf custom subagent.`,
-      "If the custom agent is unavailable, say so explicitly and fail the smoke evaluation.",
-      mcpInstruction,
-      "",
-      "Fixture goal:",
-      fixtureInput,
-    ].join("\n");
-  }
-
   const artifactInstructions = executionContract.outputPath
     ? [
         `Use workItemId: ${executionContract.workItemId}`,
@@ -348,10 +283,6 @@ function callsTargetThread(calls, threadId) {
   return calls.some((call) => call.targetThreadIds?.includes(threadId));
 }
 
-function escapeRegularExpression(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function spawnMessageContainsExecutionContract(spawnCall, executionContract) {
   if (!executionContract.outputPath) return true;
   if (typeof spawnCall?.message !== "string") return false;
@@ -360,48 +291,6 @@ function spawnMessageContainsExecutionContract(spawnCall, executionContract) {
     executionContract.workItemId,
     executionContract.outputPath,
   ].every((value) => spawnCall.message.includes(value));
-}
-
-function extractArtifactSpawnContract(spawnCall, taskId) {
-  const artifactFile = artifactFileByAgent[spawnCall.agentType];
-  if (!artifactFile) return null;
-  if (typeof spawnCall.message !== "string") {
-    return {
-      error: `${spawnCall.agentType}: missing spawn message`,
-    };
-  }
-
-  const artifactPathPattern = new RegExp(
-    `\\.agents/${escapeRegularExpression(taskId)}/([a-z0-9]+(?:-[a-z0-9]+)*)/${escapeRegularExpression(artifactFile)}(?![A-Za-z0-9._/-])`,
-    "g",
-  );
-  const pathMatches = [...spawnCall.message.matchAll(artifactPathPattern)];
-  const uniquePaths = new Map(
-    pathMatches.map((match) => [match[0], match[1]]),
-  );
-  if (uniquePaths.size !== 1) {
-    return {
-      error: `${spawnCall.agentType}: expected one exact assigned artifact path, saw ${uniquePaths.size}`,
-    };
-  }
-
-  const [[outputPath, workItemId]] = uniquePaths;
-  if (
-    !spawnCall.message.includes(taskId) ||
-    !spawnCall.message.includes(workItemId) ||
-    !spawnCall.message.includes(outputPath)
-  ) {
-    return {
-      error: `${spawnCall.agentType}: spawn message omitted taskId, workItemId, or exact output path`,
-    };
-  }
-
-  return {
-    agentType: spawnCall.agentType,
-    taskId,
-    workItemId,
-    outputPath,
-  };
 }
 
 function summarizeJsonl(stdout) {
@@ -880,172 +769,6 @@ async function runCase({
       summary.error = `codex exec exited with ${result.exitCode}`;
     } else if (!summary.usage || summary.finalMessage.trim() === "") {
       summary.error = "missing usage or final message";
-    } else if (agent === orchestratorAgent) {
-      const expectedLeafAgents =
-        orchestratorExpectedLeafAgentsByFixture[fixture] ?? [];
-      const orchestratorSessions = summary.sessionSummaries.filter(
-        (session) => session.agentRole === orchestratorAgent,
-      );
-      const orchestratorSessionIds = new Set(
-        orchestratorSessions.map((session) => session.sessionId),
-      );
-      const rootSpawns = summary.spawnCalls.filter((spawnCall) =>
-        spawnCall.receiverThreadIds.some((threadId) =>
-          orchestratorSessionIds.has(threadId),
-        ),
-      );
-      const rootSpawn = rootSpawns[0];
-      const orchestratorLeafSpawns = orchestratorSessions
-        .flatMap((session) => session.toolCalls)
-        .filter((toolCall) => toolCall.tool === "spawn_agent");
-      const actualLeafAgents = orchestratorLeafSpawns.map(
-        (spawnCall) => spawnCall.agentType,
-      );
-      const leafThreadIds = new Set(
-        orchestratorLeafSpawns.flatMap(
-          (spawnCall) => spawnCall.receiverThreadIds ?? [],
-        ),
-      );
-      const leafSessions = summary.sessionSummaries.filter(
-        (session) =>
-          leafThreadIds.has(session.sessionId) ||
-          orchestratorSessionIds.has(session.parentThreadId),
-      );
-      const orchestratorWaitCalls = orchestratorSessions
-        .flatMap((session) => session.toolCalls)
-        .filter((toolCall) =>
-          ["wait", "wait_agent"].includes(toolCall.tool),
-        );
-      const orchestratorCloseCalls = orchestratorSessions
-        .flatMap((session) => session.toolCalls)
-        .filter((toolCall) => toolCall.tool === "close_agent");
-      const artifactLeafSpawns = orchestratorLeafSpawns.filter(
-        (spawnCall) => artifactFileByAgent[spawnCall.agentType],
-      );
-      const artifactLeafContracts = artifactLeafSpawns.map((spawnCall) =>
-        extractArtifactSpawnContract(spawnCall, executionContract.taskId),
-      );
-      const invalidArtifactLeafContracts = artifactLeafContracts.filter(
-        (contract) => contract?.error,
-      );
-      const duplicateWorkItemIds = [];
-      const assignedWorkItemIds = new Set([executionContract.workItemId]);
-      for (const contract of artifactLeafContracts) {
-        if (!contract || contract.error) continue;
-        if (assignedWorkItemIds.has(contract.workItemId)) {
-          duplicateWorkItemIds.push(contract.workItemId);
-        } else {
-          assignedWorkItemIds.add(contract.workItemId);
-        }
-      }
-      const incompleteLeafSessions = leafSessions.filter(
-        (session) =>
-          session.finalMessage.trim() === "" || session.terminalEventCount === 0,
-      );
-      const orchestratorSession = orchestratorSessions[0];
-      const orchestratorSessionId = orchestratorSession?.sessionId;
-      const mismatchedLeafSessions = orchestratorLeafSpawns.flatMap(
-        (spawnCall) =>
-          (spawnCall.receiverThreadIds ?? [])
-            .map((threadId) => ({
-              expectedRole: spawnCall.agentType,
-              session: leafSessions.find(
-                (leafSession) => leafSession.sessionId === threadId,
-              ),
-              threadId,
-            }))
-            .filter(
-              ({ expectedRole, session }) =>
-                !session || session.agentRole !== expectedRole,
-            ),
-      );
-      const unwaitedLeafThreadIds = [...leafThreadIds].filter(
-        (threadId) => !callsTargetThread(orchestratorWaitCalls, threadId),
-      );
-      const unclosedLeafThreadIds = [...leafThreadIds].filter(
-        (threadId) => !callsTargetThread(orchestratorCloseCalls, threadId),
-      );
-
-      if (summary.spawnedAgentThreadCount !== 1) {
-        summary.error = `expected root to spawn one orchestrator, saw ${summary.spawnedAgentThreadCount} root-level threads`;
-      } else if (rootSpawns.length !== 1) {
-        summary.error = `expected one root orchestrator spawn, saw ${rootSpawns.length}`;
-      } else if (!rootSpawn) {
-        summary.error = "expected root session to spawn orchestrator";
-      } else if (rootSpawn.agentType !== orchestratorAgent) {
-        summary.error = `expected root agent_type ${orchestratorAgent}, saw ${rootSpawn.agentType}`;
-      } else if (
-        !spawnMessageContainsExecutionContract(rootSpawn, executionContract)
-      ) {
-        summary.error = "root orchestrator spawn omitted its assigned taskId, workItemId, or exact output path";
-      } else if (
-        typeof rootSpawn.message === "string" &&
-        /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
-          rootSpawn.message,
-        )
-      ) {
-        summary.error = "root passed an unsanitized prompt to orchestrator";
-      } else if (orchestratorSessions.length !== 1) {
-        summary.error = `expected exactly one orchestrator child session, saw ${orchestratorSessions.length}`;
-      } else if (
-        orchestratorSession.finalMessage.trim() === "" ||
-        orchestratorSession.terminalEventCount === 0
-      ) {
-        summary.error = "orchestrator session is missing a terminal final result";
-      } else if (!callsTargetThread(summary.waitCalls, orchestratorSessionId)) {
-        summary.error = "root did not wait for the concrete orchestrator thread";
-      } else if (
-        !callsTargetThread(summary.closeAgentCalls, orchestratorSessionId)
-      ) {
-        summary.error = "root did not close the concrete orchestrator thread";
-      } else if (actualLeafAgents.includes(orchestratorAgent)) {
-        summary.error = "orchestrator recursively spawned orchestrator";
-      } else if (
-        actualLeafAgents.some(
-          (agentType) => !orchestratorLeafAgents.has(agentType),
-        )
-      ) {
-        summary.error = `orchestrator spawned unexpected roles: ${actualLeafAgents.join(", ")}`;
-      } else if (
-        JSON.stringify(actualLeafAgents) !== JSON.stringify(expectedLeafAgents)
-      ) {
-        summary.error = `expected leaf roles ${expectedLeafAgents.join(", ") || "none"}, saw ${actualLeafAgents.join(", ") || "none"}`;
-      } else if (
-        orchestratorLeafSpawns.some(
-          (spawnCall) =>
-            typeof spawnCall.message === "string" &&
-            /요청 원문|Use this exact evaluation input|Root-session rule|full smoke prompt/i.test(
-              spawnCall.message,
-            ),
-        )
-      ) {
-        summary.error = "orchestrator passed an unsanitized prompt to a leaf agent";
-      } else if (invalidArtifactLeafContracts.length > 0) {
-        summary.error = `artifact-writing leaf spawn contract invalid: ${invalidArtifactLeafContracts.map((contract) => contract.error).join(", ")}`;
-      } else if (duplicateWorkItemIds.length > 0) {
-        summary.error = `artifact-writing spawns reused workItemId values: ${duplicateWorkItemIds.join(", ")}`;
-      } else if (
-        expectedLeafAgents.length > 0 &&
-        orchestratorWaitCalls.length === 0
-      ) {
-        summary.error = "orchestrator returned without waiting for leaf results";
-      } else if (leafSessions.length !== expectedLeafAgents.length) {
-        summary.error = `expected ${expectedLeafAgents.length} leaf sessions, saw ${leafSessions.length}`;
-      } else if (mismatchedLeafSessions.length > 0) {
-        summary.error = `leaf session roles did not match requested agent_type: ${mismatchedLeafSessions.map(({ expectedRole, session, threadId }) => `${threadId}:${session?.agentRole ?? "missing"}->${expectedRole}`).join(", ")}`;
-      } else if (incompleteLeafSessions.length > 0) {
-        summary.error = `leaf sessions missing terminal results: ${incompleteLeafSessions.map((session) => session.agentRole ?? session.sessionId).join(", ")}`;
-      } else if (unwaitedLeafThreadIds.length > 0) {
-        summary.error = `orchestrator did not wait for leaf threads: ${unwaitedLeafThreadIds.join(", ")}`;
-      } else if (unclosedLeafThreadIds.length > 0) {
-        summary.error = `orchestrator did not close leaf threads: ${unclosedLeafThreadIds.join(", ")}`;
-      } else if (expectedLeafAgents.length > 0 && !summary.artifactExists) {
-        summary.error = `missing orchestrator artifact: ${executionContract.outputPath}`;
-      } else if (
-        !orchestratorSession.finalMessage.includes(executionContract.outputPath)
-      ) {
-        summary.error = `orchestrator final result did not return assigned artifact path: ${executionContract.outputPath}`;
-      }
     } else {
       const rootSpawn = summary.spawnCalls[0];
       const childThreadIds = new Set(rootSpawn?.receiverThreadIds ?? []);
@@ -1186,22 +909,12 @@ function buildSinglePlan(options) {
 
 function buildIndividualPlan(agentNames) {
   return agentNames
-    .filter((agentName) => agentName !== orchestratorAgent)
     .map((agent) => ({
       phaseName: "individual",
       agent,
       caseName: individualCaseForAgent(agent),
       fixture: defaultFixtureByAgent[agent],
     }));
-}
-
-function buildOrchestratorPlan(caseName) {
-  return caseNamesFromOption(caseName).map((caseItem) => ({
-    phaseName: "orchestrator",
-    agent: orchestratorAgent,
-    caseName: caseItem,
-    fixture: defaultFixtureByAgent[orchestratorAgent],
-  }));
 }
 
 async function runPlanItems({
@@ -1261,10 +974,7 @@ async function main() {
     concurrency: options.concurrency,
     outputDirectory,
     allAgents: agentNames,
-    individualAgents: agentNames.filter(
-      (agentName) => agentName !== orchestratorAgent,
-    ),
-    orchestratorAgent,
+    individualAgents: agentNames,
     phases: [],
     cases: [],
     success: false,
@@ -1318,84 +1028,6 @@ async function main() {
     )
       ? "failed"
       : "passed";
-  } else if (options.flow === "orchestrator") {
-    const planItems = buildOrchestratorPlan(options.caseName);
-    aggregateSummary.phases.push({
-      name: "orchestrator",
-      status: "running",
-      plannedCases: planItems,
-    });
-    writeAggregateSummary({ aggregatePath, summary: aggregateSummary });
-
-    const summaries = await runPlanItems({
-      flowName: options.flow,
-      outputDirectory,
-      options,
-      planItems,
-      runId,
-      concurrency: planItems.length,
-    });
-    aggregateSummary.cases.push(...summaries);
-    aggregateSummary.phases.at(-1).status = summaries.some(
-      (summary) => summary.error,
-    )
-      ? "failed"
-      : "passed";
-  } else if (options.flow === "full") {
-    const individualPlanItems = buildIndividualPlan(agentNames);
-    aggregateSummary.phases.push({
-      name: "individual",
-      status: "running",
-      plannedCases: individualPlanItems,
-    });
-    writeAggregateSummary({ aggregatePath, summary: aggregateSummary });
-
-    const individualSummaries = await runPlanItems({
-      flowName: options.flow,
-      outputDirectory,
-      options,
-      planItems: individualPlanItems,
-      runId,
-      concurrency: options.concurrency,
-    });
-    aggregateSummary.cases.push(...individualSummaries);
-    const individualFailed = individualSummaries.some((summary) => summary.error);
-    aggregateSummary.phases.at(-1).status = individualFailed
-      ? "failed"
-      : "passed";
-    writeAggregateSummary({ aggregatePath, summary: aggregateSummary });
-
-    if (!individualFailed) {
-      const orchestratorPlanItems = buildOrchestratorPlan("both");
-      aggregateSummary.phases.push({
-        name: "orchestrator",
-        status: "running",
-        plannedCases: orchestratorPlanItems,
-      });
-      writeAggregateSummary({ aggregatePath, summary: aggregateSummary });
-
-      const orchestratorSummaries = await runPlanItems({
-        flowName: options.flow,
-        outputDirectory,
-        options,
-        planItems: orchestratorPlanItems,
-        runId,
-        concurrency: orchestratorPlanItems.length,
-      });
-      aggregateSummary.cases.push(...orchestratorSummaries);
-      aggregateSummary.phases.at(-1).status = orchestratorSummaries.some(
-        (summary) => summary.error,
-      )
-        ? "failed"
-        : "passed";
-    } else {
-      aggregateSummary.phases.push({
-        name: "orchestrator",
-        status: "skipped",
-        reason: "individual phase failed",
-        plannedCases: buildOrchestratorPlan("both"),
-      });
-    }
   }
 
   aggregateSummary.finishedAt = new Date().toISOString();
