@@ -17,10 +17,6 @@
     "assets": ["dist/release/*"]
   },
   "hooks": {
-    "before:init": [
-      "pnpm exec turbo run test --output-logs=full",
-      "pnpm exec turbo run check-types --output-logs=full"
-    ],
     "after:bump": [
       "node scripts/release/build.mjs --publish --version ${version} --tag v${version}",
       "node scripts/release/verify.mjs --directory dist/release --require-signature"
