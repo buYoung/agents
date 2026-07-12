@@ -1,5 +1,5 @@
 {
-  "name": "cli",
+  "name": "@livteam/agents-cli",
   "version": "0.1.0",
   "type": "module",
   "private": true,

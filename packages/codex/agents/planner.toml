@@ -4,7 +4,7 @@ name = "planner"
 description = "Convergently decomposes a request into a step-by-step implementation plan, validating the received execution identity and identifying impact files and risks. Divergent alternative exploration belongs to idea-generator."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
-sandbox_mode = "workspace-write"
+default_permissions = "orchestration-artifacts"
 nickname_candidates = ["Planner", "Mapper", "Sequencer"]
 
 developer_instructions = '''
@@ -155,3 +155,10 @@ Example return format:
   Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''
+
+[permissions.orchestration-artifacts]
+description = "Workspace access with writes reopened only for .agents/orchestration artifacts."
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"

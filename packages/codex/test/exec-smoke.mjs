@@ -22,6 +22,15 @@ const fixturePath = path.join(
 );
 const defaultTimeoutSeconds = 240;
 const defaultConcurrency = 3;
+const smokePermissionProfileName = "exec-smoke";
+const smokePermissionProfile = `default_permissions = "orchestration-artifacts"
+
+[permissions.orchestration-artifacts]
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"
+`;
 const smokeRunDate = new Date().toISOString().slice(0, 10).replaceAll("-", "");
 const defaultFixtureByAgent = {
   "intent-checker": "intent-checker-normal-001",
@@ -51,10 +60,12 @@ function buildExecutionContract({ agent, caseName, fixture }) {
     return { taskId, workItemId: null, outputPath: null };
   }
   const workItemId = `${agent}-${caseName}-smoke`;
+  const outputParentPath = `.agents/orchestration/${taskId}/${workItemId}`;
   return {
     taskId,
     workItemId,
-    outputPath: `.agents/orchestration/${taskId}/${workItemId}/${artifactFile}`,
+    outputParentPath,
+    outputPath: `${outputParentPath}/${artifactFile}`,
   };
 }
 
@@ -191,6 +202,11 @@ function prepareCodexHome(temporaryCodexHome) {
     path.join(temporaryCodexHome, "models_cache.json"),
   );
   copyDirectory(agentsSourceDirectory, path.join(temporaryCodexHome, "agents"));
+  fs.writeFileSync(
+    path.join(temporaryCodexHome, `${smokePermissionProfileName}.config.toml`),
+    smokePermissionProfile,
+    "utf-8",
+  );
 }
 
 function splitMarkdownTableRow(line) {
@@ -232,6 +248,9 @@ function buildPrompt({
         `Use workItemId: ${executionContract.workItemId}`,
         `Exact required role artifact path: ${executionContract.outputPath}`,
         `The root spawn message must pass taskId ${executionContract.taskId}, workItemId ${executionContract.workItemId}, and that exact output path.`,
+        `Before spawn_agent, validate that taskId, workItemId, and the output path resolve to the exact parent ${executionContract.outputParentPath}.`,
+        `Run exactly \`mkdir -p ${executionContract.outputParentPath}\` as the final tool action before spawn_agent, and do not ask the child to create or check its parent directory.`,
+        "If that mkdir fails, do not spawn the child or use an alternate path.",
       ]
     : ["This stateless role has no workItemId or artifact output path."];
 
@@ -244,6 +263,7 @@ function buildPrompt({
     "",
     "Spawn the requested custom subagent, wait for it to finish, close it, and return a concise result summary.",
     `The spawn_agent call must set agent_type exactly to "${agent}". Do not omit agent_type and do not use any fallback agent type.`,
+    'The spawn_agent call must set fork_turns exactly to "none".',
     `When delegating, pass taskId: ${executionContract.taskId} and the exact execution contract above to the custom subagent.`,
     "Do not solve the fixture in the root session except for delegating it to that custom agent.",
     "If the custom agent is unavailable, say so explicitly and fail the smoke evaluation.",
@@ -279,22 +299,45 @@ function getTargetThreadIds(argumentsObject, item = {}) {
   return [...threadIds];
 }
 
-function callsTargetThread(calls, threadId) {
-  return calls.some((call) => call.targetThreadIds?.includes(threadId));
+function callsOnlyTargetThread(calls, threadId) {
+  const observedTargetThreadIds = calls.flatMap(
+    (call) => call.targetThreadIds ?? [],
+  );
+  return (
+    observedTargetThreadIds.length === 0 ||
+    observedTargetThreadIds.every(
+      (observedThreadId) => observedThreadId === threadId,
+    )
+  );
 }
 
-function spawnMessageContainsExecutionContract(spawnCall, executionContract) {
+function messageContainsExecutionContract(message, executionContract) {
   if (!executionContract.outputPath) return true;
-  if (typeof spawnCall?.message !== "string") return false;
+  if (typeof message !== "string") return false;
   return [
     executionContract.taskId,
     executionContract.workItemId,
     executionContract.outputPath,
-  ].every((value) => spawnCall.message.includes(value));
+  ].every((value) => message.includes(value));
+}
+
+function isEncryptedMessageEnvelope(message) {
+  return (
+    typeof message === "string" &&
+    /^gAAAA[A-Za-z0-9_-]{32,}={0,2}$/.test(message)
+  );
+}
+
+function spawnMessageContainsExecutionContract(spawnCall, executionContract) {
+  return messageContainsExecutionContract(
+    spawnCall?.message,
+    executionContract,
+  );
 }
 
 function summarizeJsonl(stdout) {
   let usage = null;
+  let rootThreadId = null;
   const messages = [];
   const parseErrors = [];
   const spawnedAgentThreadIds = new Set();
@@ -319,6 +362,9 @@ function summarizeJsonl(stdout) {
 
     const payload = event.payload ?? {};
     const item = event.item ?? payload.item ?? payload;
+    if (event.type === "thread.started") {
+      rootThreadId = event.thread_id ?? payload.thread_id ?? rootThreadId;
+    }
     const toolName = String(item.tool ?? item.name ?? item.server ?? "");
     if (toolName.includes("codemap")) {
       codemapToolEventCount += 1;
@@ -338,6 +384,7 @@ function summarizeJsonl(stdout) {
       spawnCalls.push({
         line: lineIndex + 1,
         agentType: argumentsObject?.agent_type ?? null,
+        forkTurns: argumentsObject?.fork_turns ?? null,
         message: argumentsObject?.message ?? item.prompt ?? null,
         receiverThreadIds: item.receiver_thread_ids ?? [],
       });
@@ -398,6 +445,7 @@ function summarizeJsonl(stdout) {
   }
 
   return {
+    rootThreadId,
     usage,
     finalMessage: messages.at(-1) ?? "",
     messageCount: messages.length,
@@ -487,7 +535,8 @@ function summarizeSessionHistory(temporaryCodexHome) {
       const toolName = item.tool ?? item.name ?? payload.tool ?? payload.name;
       if (toolName) {
         let argumentsObject = null;
-        const rawArguments = item.arguments ?? payload.arguments;
+        const rawArguments =
+          item.arguments ?? payload.arguments ?? payload.input;
         if (typeof rawArguments === "string") {
           try {
             argumentsObject = JSON.parse(rawArguments);
@@ -503,6 +552,7 @@ function summarizeSessionHistory(temporaryCodexHome) {
           tool: toolName,
           namespace: payload.namespace ?? item.namespace ?? null,
           agentType: argumentsObject?.agent_type ?? null,
+          forkTurns: argumentsObject?.fork_turns ?? null,
           message: argumentsObject?.message ?? item.prompt ?? null,
           receiverThreadIds: item.receiver_thread_ids ?? [],
           targetThreadIds: getTargetThreadIds(argumentsObject, item),
@@ -524,8 +574,19 @@ function summarizeSessionHistory(temporaryCodexHome) {
       }
     }
 
+    const sessionFileCreatedAtMs = fs.statSync(sessionPath).birthtimeMs;
+    const sessionMetadataTimestamp = metadata?.timestamp ?? null;
+    const sessionMetadataTimestampMs = Date.parse(
+      sessionMetadataTimestamp ?? "",
+    );
+    const sessionCreatedAtMs = Number.isFinite(sessionMetadataTimestampMs)
+      ? sessionMetadataTimestampMs
+      : sessionFileCreatedAtMs;
+
     sessionSummaries.push({
       sessionPath,
+      sessionCreatedAtMs,
+      sessionMetadataTimestamp,
       sessionId: metadata?.id ?? null,
       parentThreadId: metadata?.parent_thread_id ?? null,
       threadSource: metadata?.thread_source ?? null,
@@ -573,12 +634,11 @@ function prepareWorkspace(temporaryWorkspace) {
 function codexExecArgs({ caseName, prompt, temporaryWorkspace }) {
   const args = [
     "exec",
-    "--ephemeral",
     "--json",
     "--color",
     "never",
-    "--sandbox",
-    "workspace-write",
+    "--profile",
+    smokePermissionProfileName,
     "--skip-git-repo-check",
     "--cd",
     temporaryWorkspace,
@@ -707,9 +767,12 @@ async function runCase({
     const artifactAbsolutePath = executionContract.outputPath
       ? path.join(temporaryWorkspace, executionContract.outputPath)
       : null;
-    if (artifactAbsolutePath) {
-      fs.mkdirSync(path.dirname(artifactAbsolutePath), { recursive: true });
-    }
+    const artifactParentAbsolutePath = artifactAbsolutePath
+      ? path.dirname(artifactAbsolutePath)
+      : null;
+    const artifactParentInitiallyExists = artifactParentAbsolutePath
+      ? fs.existsSync(artifactParentAbsolutePath)
+      : false;
     fs.writeFileSync(path.join(runOutputDirectory, "prompt.txt"), prompt, "utf-8");
 
     const startedAt = new Date().toISOString();
@@ -760,6 +823,15 @@ async function runCase({
     summary.artifactExists = artifactAbsolutePath
       ? fs.existsSync(artifactAbsolutePath)
       : false;
+    summary.artifactParentInitiallyExists = artifactParentInitiallyExists;
+    summary.artifactParentExists = artifactParentAbsolutePath
+      ? fs.existsSync(artifactParentAbsolutePath)
+      : false;
+    summary.artifactParentCreatedAtMs = summary.artifactParentExists
+      ? fs.statSync(artifactParentAbsolutePath).birthtimeMs
+      : null;
+    summary.rootPromptContainsExecutionContract =
+      messageContainsExecutionContract(prompt, executionContract);
 
     if (result.spawnError) {
       summary.error = `failed to spawn codex: ${result.spawnError}`;
@@ -772,42 +844,159 @@ async function runCase({
     } else if (!summary.usage || summary.finalMessage.trim() === "") {
       summary.error = "missing usage or final message";
     } else {
-      const rootSpawn = summary.spawnCalls[0];
-      const childThreadIds = new Set(rootSpawn?.receiverThreadIds ?? []);
-      const childSessions = summary.sessionSummaries.filter((session) =>
-        childThreadIds.has(session.sessionId),
+      const rootSession = summary.sessionSummaries.find(
+        (session) => session.sessionId === summary.rootThreadId,
       );
-      const childSession = childSessions[0];
+      const rootSessionSpawnCalls =
+        rootSession?.toolCalls.filter(
+          (toolCall) => toolCall.tool === "spawn_agent",
+        ) ?? [];
+      const rootSessionSpawn = rootSessionSpawnCalls[0];
+      const rootSpawnMessageIsEncrypted = isEncryptedMessageEnvelope(
+        rootSessionSpawn?.message,
+      );
+      const directChildSessions = summary.sessionSummaries.filter((session) => {
+        const threadSpawn = session.source?.subagent?.thread_spawn;
+        return (
+          session.threadSource === "subagent" &&
+          threadSpawn?.depth === 1 &&
+          session.parentThreadId === summary.rootThreadId &&
+          threadSpawn.parent_thread_id === summary.rootThreadId
+        );
+      });
+      const childSession = directChildSessions[0];
+      const childThreadSpawn = childSession?.source?.subagent?.thread_spawn;
       const childThreadId = childSession?.sessionId;
+      const stdoutSpawnReceiverThreadIds = new Set(
+        summary.spawnCalls.flatMap(
+          (spawnCall) => spawnCall.receiverThreadIds ?? [],
+        ),
+      );
+      const delegatedGrandchildSessions = childThreadId
+        ? summary.sessionSummaries.filter((session) => {
+            const threadSpawn = session.source?.subagent?.thread_spawn;
+            return (
+              threadSpawn &&
+              (session.parentThreadId === childThreadId ||
+                threadSpawn.parent_thread_id === childThreadId)
+            );
+          })
+        : [];
+
+      summary.childObservationSource =
+        summary.spawnCalls.length > 0
+          ? "stdout+session"
+          : "session-history-fallback";
+      summary.rootSessionFound = Boolean(rootSession);
+      summary.rootSessionSpawnCallCount = rootSessionSpawnCalls.length;
+      summary.rootSpawnMessageEncoding = rootSpawnMessageIsEncrypted
+        ? "encrypted-envelope"
+        : "plaintext";
+      summary.directChildCount = directChildSessions.length;
+      summary.directChildSessionId = childThreadId ?? null;
+      summary.directChildParentThreadId = childSession?.parentThreadId ?? null;
+      summary.directChildDepth = childThreadSpawn?.depth ?? null;
+      summary.directChildRole = childSession?.agentRole ?? null;
+      summary.directChildSpawnRole = childThreadSpawn?.agent_role ?? null;
+      summary.directChildDelegationMessage =
+        rootSpawnMessageIsEncrypted
+          ? "[encrypted-envelope]"
+          : (rootSessionSpawn?.message ?? null);
+      summary.delegatedGrandchildCount = delegatedGrandchildSessions.length;
+      summary.childSessionCreatedAtMs = childSession?.sessionCreatedAtMs ?? null;
+      summary.artifactParentCreatedBeforeChildSpawn =
+        summary.artifactParentCreatedAtMs !== null &&
+        summary.childSessionCreatedAtMs !== null &&
+        summary.artifactParentCreatedAtMs <= summary.childSessionCreatedAtMs;
       const childSpawnCalls =
         childSession?.toolCalls.filter(
           (toolCall) => toolCall.tool === "spawn_agent",
         ) ?? [];
 
-      if (summary.spawnedAgentThreadCount !== 1) {
-        summary.error = `expected one spawned custom agent, saw ${summary.spawnedAgentThreadCount}`;
-      } else if (!rootSpawn || rootSpawn.agentType !== agent) {
-        summary.error = `expected root agent_type ${agent}, saw ${rootSpawn?.agentType ?? "missing"}`;
+      if (!summary.rootThreadId) {
+        summary.error = "missing root thread ID from codex exec output";
+      } else if (!rootSession) {
+        summary.error = "missing persisted root session for codex exec thread";
+      } else if (rootSessionSpawnCalls.length !== 1) {
+        summary.error = `expected one persisted root spawn_agent call, saw ${rootSessionSpawnCalls.length}`;
+      } else if (directChildSessions.length !== 1) {
+        summary.error = `expected one depth-1 direct child session, saw ${directChildSessions.length}`;
+      } else if (rootSessionSpawn.agentType !== agent) {
+        summary.error = `expected persisted root agent_type ${agent}, saw ${rootSessionSpawn.agentType ?? "missing"}`;
+      } else if (rootSessionSpawn.forkTurns !== "none") {
+        summary.error = `expected persisted root fork_turns none, saw ${rootSessionSpawn.forkTurns ?? "missing"}`;
       } else if (
-        executionContract.outputPath &&
-        !spawnMessageContainsExecutionContract(rootSpawn, executionContract)
+        typeof rootSessionSpawn.message !== "string" ||
+        rootSessionSpawn.message.length === 0
       ) {
-        summary.error = "root custom-agent spawn omitted its assigned taskId, workItemId, or exact output path";
-      } else if (childSessions.length !== 1) {
-        summary.error = `expected one concrete child session, saw ${childSessions.length}`;
+        summary.error = "persisted root spawn message was empty";
+      } else if (
+        rootSpawnMessageIsEncrypted &&
+        !summary.rootPromptContainsExecutionContract
+      ) {
+        summary.error = "encrypted root spawn did not originate from a prompt containing the exact execution contract";
+      } else if (
+        !rootSpawnMessageIsEncrypted &&
+        !spawnMessageContainsExecutionContract(
+          rootSessionSpawn,
+          executionContract,
+        )
+      ) {
+        summary.error = "plaintext persisted root spawn omitted its assigned taskId, workItemId, or exact output path";
       } else if (childSession.agentRole !== agent) {
         summary.error = `expected child role ${agent}, saw ${childSession.agentRole ?? "missing"}`;
+      } else if (childThreadSpawn?.agent_role !== agent) {
+        summary.error = `expected child spawn role ${agent}, saw ${childThreadSpawn?.agent_role ?? "missing"}`;
+      } else if (
+        summary.spawnCalls.length > 0 &&
+        summary.spawnCalls.some((spawnCall) => spawnCall.agentType !== agent)
+      ) {
+        summary.error = `stdout spawn event did not use root agent_type ${agent}`;
+      } else if (
+        summary.spawnCalls.length > 0 &&
+        summary.spawnCalls.some(
+          (spawnCall) =>
+            !spawnMessageContainsExecutionContract(
+              spawnCall,
+              executionContract,
+            ),
+        )
+      ) {
+        summary.error = "stdout spawn event omitted its assigned taskId, workItemId, or exact output path";
+      } else if (
+        summary.spawnCalls.length > 0 &&
+        (stdoutSpawnReceiverThreadIds.size !== 1 ||
+          !stdoutSpawnReceiverThreadIds.has(childThreadId))
+      ) {
+        summary.error = "stdout spawn receiver did not match the direct child session";
+      } else if (
+        executionContract.outputPath &&
+        summary.artifactParentInitiallyExists
+      ) {
+        summary.error = `assigned artifact parent existed before codex exec: ${executionContract.outputParentPath}`;
+      } else if (
+        executionContract.outputPath &&
+        !summary.artifactParentExists
+      ) {
+        summary.error = `missing exact artifact parent: ${executionContract.outputParentPath}`;
+      } else if (
+        executionContract.outputPath &&
+        !summary.artifactParentCreatedBeforeChildSpawn
+      ) {
+        summary.error = `exact artifact parent was not created before child spawn: ${executionContract.outputParentPath}`;
       } else if (
         childSession.finalMessage.trim() === "" ||
         childSession.terminalEventCount === 0
       ) {
         summary.error = "custom agent child is missing a terminal final result";
-      } else if (!callsTargetThread(summary.waitCalls, childThreadId)) {
-        summary.error = "root did not wait for the concrete custom-agent thread";
-      } else if (!callsTargetThread(summary.closeAgentCalls, childThreadId)) {
-        summary.error = "root did not close the concrete custom-agent thread";
+      } else if (!callsOnlyTargetThread(summary.waitCalls, childThreadId)) {
+        summary.error = "root wait telemetry targeted a different custom-agent thread";
+      } else if (!callsOnlyTargetThread(summary.closeAgentCalls, childThreadId)) {
+        summary.error = "root close telemetry targeted a different custom-agent thread";
       } else if (childSpawnCalls.length > 0) {
         summary.error = "leaf custom agent attempted to spawn another agent";
+      } else if (delegatedGrandchildSessions.length > 0) {
+        summary.error = "leaf custom agent created a delegated grandchild session";
       } else if (
         executionContract.outputPath &&
         !summary.artifactExists

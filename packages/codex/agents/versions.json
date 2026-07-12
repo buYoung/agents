@@ -1,10 +1,10 @@
 {
-  "adversarial-review": "0.1.4",
-  "code-explorer": "0.1.4",
-  "constructive-feedback": "0.1.5",
-  "idea-generator": "0.1.4",
+  "adversarial-review": "0.1.5",
+  "code-explorer": "0.1.5",
+  "constructive-feedback": "0.1.6",
+  "idea-generator": "0.1.5",
   "intent-checker": "0.1.2",
-  "planner": "0.1.4",
-  "research": "0.1.4",
-  "worker": "0.1.5"
+  "planner": "0.1.5",
+  "research": "0.1.5",
+  "worker": "0.1.6"
 }

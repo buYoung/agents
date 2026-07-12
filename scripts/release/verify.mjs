@@ -9,6 +9,7 @@ import { gunzipSync } from "node:zlib";
 const argumentsByName = new Map(process.argv.slice(2).flatMap((value, index, values) => value.startsWith("--") && value !== "--" ? [[value, values[index + 1]]] : []));
 const remote = argumentsByName.has("--remote");
 const requiresSignature = argumentsByName.has("--require-signature");
+const npmPackageDirectoryArgument = argumentsByName.get("--npm-package-directory");
 const maxArtifactBytes = 50 * 1024 * 1024;
 const maxUnpackedArtifactBytes = 200 * 1024 * 1024;
 const codexAgentNames = ["adversarial-review", "code-explorer", "constructive-feedback", "idea-generator", "intent-checker", "planner", "research", "worker"];
@@ -17,6 +18,9 @@ let temporaryDirectory = null;
 
 function sha256(content) { return createHash("sha256").update(content).digest("hex"); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
+function releaseArtifacts(manifest) {
+  return { catalog: manifest.catalog, cli: manifest.cli, opencode: manifest.opencode, codexAgents: manifest.codexAgents };
+}
 function runInteractiveCli(executablePath, cwd, command) {
   const pseudoTerminalRunner = [
     "import errno, os, pty, sys, time",
@@ -120,21 +124,27 @@ async function prepareRemoteDirectory() {
   temporaryDirectory = mkdtempSync(join(tmpdir(), "agents-release-remote-")); directory = temporaryDirectory;
   const latest = await download(new URL("latest.json", base).toString()); writeFileSync(join(directory, "latest.json"), latest);
   const manifest = JSON.parse(latest.toString("utf8"));
-  for (const artifact of Object.values({ catalog: manifest.catalog, cli: manifest.cli, opencode: manifest.opencode, codexAgents: manifest.codexAgents })) {
+  for (const artifact of Object.values(releaseArtifacts(manifest))) {
     assert(artifact && typeof artifact.url === "string", "원격 latest.json artifact가 올바르지 않습니다.");
     assert(artifact.url.includes(`/releases/download/${encodeURIComponent(tag)}/`), "원격 artifact URL이 현재 release tag를 가리키지 않습니다.");
     const fileName = new URL(artifact.url).pathname.split("/").at(-1); assert(fileName, "원격 artifact 파일 이름이 없습니다.");
     writeFileSync(join(directory, fileName), await download(artifact.url));
   }
+  const npmLatest = await download(new URL("npm-latest.json", base).toString()); writeFileSync(join(directory, "npm-latest.json"), npmLatest);
+  const npmManifest = JSON.parse(npmLatest.toString("utf8"));
+  assert(isVersion(npmManifest.cliVersion), "npm 배포 목록의 CLI 버전이 올바르지 않습니다.");
+  const npmPackageFileName = `livteam-agents-cli-${npmManifest.cliVersion}.tar.gz`;
+  writeFileSync(join(directory, npmPackageFileName), await download(new URL(npmPackageFileName, base).toString()));
 }
 
 try {
   if (remote) await prepareRemoteDirectory();
   const manifest = JSON.parse(readFileSync(join(directory, "latest.json"), "utf8"));
+  const npmManifest = JSON.parse(readFileSync(join(directory, "npm-latest.json"), "utf8"));
   assert(manifest.formatVersion === 2, "latest.json formatVersion은 2여야 합니다.");
   assert(isVersion(manifest.cliVersion) && isVersion(manifest.minimumCliVersion) && isVersion(manifest.minimumPluginVersion), "latest.json의 CLI/Plugin 버전이 올바르지 않습니다.");
   assert(typeof manifest.catalogVersion === "string" && manifest.catalogVersion.length > 0, "latest.json catalogVersion이 없습니다.");
-  for (const [name, artifact] of Object.entries({ catalog: manifest.catalog, cli: manifest.cli, opencode: manifest.opencode, codexAgents: manifest.codexAgents })) {
+  for (const [name, artifact] of Object.entries(releaseArtifacts(manifest))) {
     assert(artifact && typeof artifact === "object", `${name} artifact가 없습니다.`);
     assert(typeof artifact.url === "string" && typeof artifact.sha256 === "string", `${name} artifact URL 또는 SHA-256이 없습니다.`);
     assert(Number.isSafeInteger(artifact.size) && artifact.size > 0 && artifact.size <= maxArtifactBytes, `${name} artifact size 계약이 올바르지 않습니다.`);
@@ -199,12 +209,60 @@ try {
       assert(catalogVersion === manifest.catalogVersion && catalogVersion === artifact.version, "catalog artifact 버전이 배포 목록과 일치하지 않습니다.");
     }
   }
-  if (manifest.signing) {
-    const encodedKey = process.env.AGENTS_RELEASE_PUBLIC_KEY_BASE64; assert(encodedKey, "서명 검증에는 AGENTS_RELEASE_PUBLIC_KEY_BASE64가 필요합니다.");
-    const publicKey = Buffer.from(encodedKey, "base64").toString("utf8");
-    assert(manifest.signing.algorithm === "ed25519", "지원하지 않는 manifest 서명 알고리즘입니다.");
-    assert(verify(null, canonicalManifest(manifest), createPublicKey(publicKey), Buffer.from(manifest.signing.signature, "base64")), "latest.json 서명 검증에 실패했습니다.");
-  } else assert(!requiresSignature, "게시 배포에는 서명된 latest.json이 필요합니다.");
+  assert(npmManifest.formatVersion === 1, "npm 배포 목록 formatVersion은 1이어야 합니다.");
+  assert(npmManifest.cliVersion === manifest.cliVersion, "npm 배포 목록의 CLI 버전이 latest.json과 일치하지 않습니다.");
+  const npmArtifact = npmManifest.npmCli;
+  assert(npmArtifact && typeof npmArtifact === "object", "npm 배포 묶음 artifact가 없습니다.");
+  assert(typeof npmArtifact.url === "string" && typeof npmArtifact.sha256 === "string" && /^[a-f0-9]{64}$/.test(npmArtifact.sha256), "npm 배포 묶음 URL 또는 SHA-256이 올바르지 않습니다.");
+  assert(Number.isSafeInteger(npmArtifact.size) && npmArtifact.size > 0 && npmArtifact.size <= maxArtifactBytes, "npm 배포 묶음 크기 계약이 올바르지 않습니다.");
+  assert(isVersion(npmArtifact.version) && npmArtifact.version === npmManifest.cliVersion, "npm 배포 묶음 버전이 올바르지 않습니다.");
+  assert(npmArtifact.compatibility && isVersion(npmArtifact.compatibility.minimumCliVersion) && isVersion(npmArtifact.compatibility.maximumCliVersion) && compareVersions(npmArtifact.compatibility.minimumCliVersion, npmArtifact.compatibility.maximumCliVersion) <= 0, "npm 배포 묶음 호환 범위가 올바르지 않습니다.");
+  assert(Array.isArray(npmArtifact.requiredFiles) && npmArtifact.requiredFiles.length > 0 && npmArtifact.requiredFiles.every((file) => typeof file === "string" && file && !file.includes("..") && !file.startsWith("/")), "npm 배포 묶음 필수 파일 목록이 안전하지 않습니다.");
+  assert(npmArtifact.url.includes(`/releases/download/v${encodeURIComponent(npmManifest.cliVersion)}/`), "npm 배포 묶음 URL은 현재 release tag를 가리켜야 합니다.");
+  const npmPackageFileName = new URL(npmArtifact.url).pathname.split("/").at(-1);
+  assert(npmPackageFileName === `livteam-agents-cli-${manifest.cliVersion}.tar.gz`, "npm 배포 묶음 이름이 GitHub Release 버전과 일치하지 않습니다.");
+  const npmPackagePath = join(directory, npmPackageFileName);
+  assert(existsSync(npmPackagePath), "npm 배포 묶음이 없습니다.");
+  const npmPackageContent = readFileSync(npmPackagePath);
+  assert(npmPackageContent.length === npmArtifact.size && statSync(npmPackagePath).size === npmArtifact.size, "npm 배포 묶음 크기가 배포 목록과 일치하지 않습니다.");
+  assert(sha256(npmPackageContent) === npmArtifact.sha256, "npm 배포 묶음 SHA-256이 일치하지 않습니다.");
+  const npmPackageEntries = tarEntries(npmPackageContent);
+  const npmRequiredFiles = ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json"];
+  for (const requiredFile of npmRequiredFiles) assert(npmPackageEntries.has(requiredFile), `npm 배포 묶음의 필수 파일이 없습니다: ${requiredFile}`);
+  for (const entryName of npmPackageEntries.keys()) {
+    assert(!entryName.split("/").some((segment) => segment === ".npmrc" || segment === ".env" || segment.startsWith(".env.")), `npm 배포 묶음에 민감한 설정 파일이 포함되었습니다: ${entryName}`);
+    assert(!entryName.split("/").some((segment) => ["src", "node_modules", ".git"].includes(segment)), `npm 배포 묶음에 배포 대상이 아닌 파일이 포함되었습니다: ${entryName}`);
+  }
+  const verifyManifestSignature = (signedManifest, label) => {
+    if (signedManifest.signing) {
+      const encodedKey = process.env.AGENTS_RELEASE_PUBLIC_KEY_BASE64; assert(encodedKey, "서명 검증에는 AGENTS_RELEASE_PUBLIC_KEY_BASE64가 필요합니다.");
+      const publicKey = Buffer.from(encodedKey, "base64").toString("utf8");
+      assert(signedManifest.signing.algorithm === "ed25519", `지원하지 않는 ${label} 서명 알고리즘입니다.`);
+      assert(verify(null, canonicalManifest(signedManifest), createPublicKey(publicKey), Buffer.from(signedManifest.signing.signature, "base64")), `${label} 서명 검증에 실패했습니다.`);
+    } else assert(!requiresSignature, `게시 배포에는 서명된 ${label}이 필요합니다.`);
+  };
+  verifyManifestSignature(manifest, "latest.json");
+  verifyManifestSignature(npmManifest, "npm-latest.json");
+  const npmPackageDirectory = mkdtempSync(join(tmpdir(), "agents-npm-package-"));
+  try {
+    extractEntries(npmPackageEntries, npmPackageDirectory);
+    const npmPackageJson = JSON.parse(readFileSync(join(npmPackageDirectory, "package.json"), "utf8"));
+    assert(npmPackageJson.name === "@livteam/agents-cli", "npm package 이름이 올바르지 않습니다.");
+    assert(npmPackageJson.version === manifest.cliVersion, "npm package 버전이 GitHub Release 버전과 일치하지 않습니다.");
+    assert(npmPackageJson.private !== true, "npm package은 private일 수 없습니다.");
+    assert(npmPackageJson.bin?.agents === "bin/agents", "npm package agents 실행 파일 설정이 올바르지 않습니다.");
+    assert(npmPackageJson.publishConfig?.access === "public" && npmPackageJson.publishConfig?.registry === "https://registry.npmjs.org", "npm package 공개 배포 설정이 올바르지 않습니다.");
+    assert(npmPackageJson.engines?.node === ">=18", "npm package Node.js 지원 범위가 올바르지 않습니다.");
+    assert(npmPackageJson.repository?.type === "git" && npmPackageJson.repository?.url === "git+https://github.com/buYoung/agents.git", "npm package repository 설정이 올바르지 않습니다.");
+    const smoke = spawnSync(process.execPath, [join(npmPackageDirectory, "bin", "agents"), "--help"], { cwd: npmPackageDirectory, encoding: "utf8" });
+    assert(smoke.status === 0 && smoke.stdout.includes("사용법: agents"), `npm package 독립 실행 확인 실패: ${smoke.stderr || smoke.error?.message || "알 수 없는 오류"}`);
+  } finally { rmSync(npmPackageDirectory, { recursive: true, force: true }); }
+  if (npmPackageDirectoryArgument) {
+    const npmPackageOutputDirectory = resolve(process.cwd(), npmPackageDirectoryArgument);
+    assert(!existsSync(npmPackageOutputDirectory), `npm 배포 디렉터리가 이미 있습니다: ${npmPackageOutputDirectory}`);
+    mkdirSync(npmPackageOutputDirectory, { recursive: true });
+    extractEntries(npmPackageEntries, npmPackageOutputDirectory);
+  }
   console.log(directory);
 } finally {
   if (temporaryDirectory) rmSync(temporaryDirectory, { recursive: true, force: true });

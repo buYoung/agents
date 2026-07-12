@@ -22,16 +22,22 @@ const semanticVersionPattern = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 const expectedModelProfiles: Record<
   string,
-  { model: string; effort: string; sandbox: string; promptMarker: string }
+  {
+    model: string;
+    effort: string;
+    sandbox?: "read-only";
+    defaultPermissions?: "orchestration-artifacts";
+    promptMarker: string;
+  }
 > = {
   "intent-checker": { model: "gpt-5.6-terra", effort: "high", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator." },
-  worker: { model: "gpt-5.6-terra", effort: "high", sandbox: "workspace-write", promptMarker: "You are **worker**" },
-  planner: { model: "gpt-5.6-sol", effort: "high", sandbox: "workspace-write", promptMarker: "You are the **planner** subagent." },
-  research: { model: "gpt-5.6-terra", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **research** subagent." },
-  "code-explorer": { model: "gpt-5.6-luna", effort: "low", sandbox: "workspace-write", promptMarker: "You are the **code-explorer** subagent." },
-  "idea-generator": { model: "gpt-5.6-sol", effort: "medium", sandbox: "workspace-write", promptMarker: "You are the **idea-generator** subagent." },
-  "adversarial-review": { model: "gpt-5.6-sol", effort: "high", sandbox: "workspace-write", promptMarker: "You are **adversarial-review**" },
-  "constructive-feedback": { model: "gpt-5.6-terra", effort: "medium", sandbox: "workspace-write", promptMarker: "You are **constructive-feedback**" },
+  worker: { model: "gpt-5.6-terra", effort: "high", defaultPermissions: "orchestration-artifacts", promptMarker: "You are **worker**" },
+  planner: { model: "gpt-5.6-sol", effort: "high", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **planner** subagent." },
+  research: { model: "gpt-5.6-terra", effort: "medium", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **research** subagent." },
+  "code-explorer": { model: "gpt-5.6-luna", effort: "low", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **code-explorer** subagent." },
+  "idea-generator": { model: "gpt-5.6-sol", effort: "medium", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **idea-generator** subagent." },
+  "adversarial-review": { model: "gpt-5.6-sol", effort: "high", defaultPermissions: "orchestration-artifacts", promptMarker: "You are **adversarial-review**" },
+  "constructive-feedback": { model: "gpt-5.6-terra", effort: "medium", defaultPermissions: "orchestration-artifacts", promptMarker: "You are **constructive-feedback**" },
 };
 
 describe("Codex custom agent TOML", () => {
@@ -50,7 +56,25 @@ describe("Codex custom agent TOML", () => {
       expect((parsed.description as string).length).toBeGreaterThan(0);
       expect(parsed.model).toBe(profile.model);
       expect(parsed.model_reasoning_effort).toBe(profile.effort);
-      expect(parsed.sandbox_mode).toBe(profile.sandbox);
+      if (profile.sandbox) {
+        expect(parsed.sandbox_mode).toBe(profile.sandbox);
+        expect(parsed.default_permissions).toBeUndefined();
+        expect(parsed.permissions).toBeUndefined();
+      } else {
+        expect(parsed.sandbox_mode).toBeUndefined();
+        expect(parsed.default_permissions).toBe(profile.defaultPermissions);
+        const permissions = parsed.permissions as Record<string, unknown>;
+        expect(Object.keys(permissions)).toEqual(["orchestration-artifacts"]);
+        const artifactPermissions = permissions["orchestration-artifacts"] as Record<string, unknown>;
+        expect(artifactPermissions.description).toBe(
+          "Workspace access with writes reopened only for .agents/orchestration artifacts.",
+        );
+        expect(artifactPermissions.extends).toBe(":workspace");
+        const filesystem = artifactPermissions.filesystem as Record<string, unknown>;
+        const workspaceRoots = filesystem[":workspace_roots"] as Record<string, unknown>;
+        expect(Object.keys(workspaceRoots)).toEqual([".agents/orchestration"]);
+        expect(workspaceRoots[".agents/orchestration"]).toBe("write");
+      }
       expect(typeof parsed.developer_instructions).toBe("string");
       expect(parsed.developer_instructions as string).toContain(
         profile.promptMarker,
@@ -108,6 +132,14 @@ describe("Codex custom agent TOML", () => {
       "Review only an immutable integrated result",
       "Path:",
       "Paths-only handoff와 SSOT",
+      "artifact-writing leaf의 `spawn_agent` 직전",
+      "정확한 상대 Output을 모두 검증한 뒤",
+      "정확히 `.agents/orchestration/<taskId>/<workItemId>/`만 `mkdir -p`",
+      "검증 → mkdir -p .agents/orchestration/<taskId>/<workItemId>/ → spawn_agent",
+      "coordinator의 task-wide 할당 기록으로 아직 할당되지 않은 workItemId인지 확인한다.",
+      "명시적인 same-taskId, same-role follow-up만 기존 active Output과 그 부모를 재사용할 수 있다.",
+      "다른 경로로 우회하거나 성공을 주장하지 않는다.",
+      "stateless `intent-checker`에는 이 작업을 하지 않는다.",
     ]) {
       expect(instructions).toContain(marker);
     }

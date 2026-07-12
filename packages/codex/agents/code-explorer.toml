@@ -4,7 +4,7 @@ name = "code-explorer"
 description = "Codebase reconnaissance only. Exploration uses read-only tools, and artifact writing is limited to explore.md. bash, webfetch, editing, and redelegation are forbidden."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "low"
-sandbox_mode = "workspace-write"
+default_permissions = "orchestration-artifacts"
 nickname_candidates = ["Scout", "Locator", "Mapper"]
 
 developer_instructions = '''
@@ -165,3 +165,10 @@ Example return format:
   Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''
+
+[permissions.orchestration-artifacts]
+description = "Workspace access with writes reopened only for .agents/orchestration artifacts."
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"

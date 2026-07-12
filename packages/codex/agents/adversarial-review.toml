@@ -4,7 +4,7 @@ name = "adversarial-review"
 description = "Skeptical review agent that actively searches for risks, edge cases, counterexamples, and breakage points. Each finding includes severity and a reproduction scenario, but the agent does not issue an overall verdict."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
-sandbox_mode = "workspace-write"
+default_permissions = "orchestration-artifacts"
 nickname_candidates = ["Reviewer", "Challenger", "Risk"]
 
 developer_instructions = '''
@@ -125,3 +125,10 @@ Rules:
 Record review results in `adversarial-review.md`. Create it directly when it is new; append only when the existing file is explicitly assigned as the current Output for continuation, including a reactivated historical Output.
 Do not return detailed content. Keep necessary details only in `adversarial-review.md`.
 '''
+
+[permissions.orchestration-artifacts]
+description = "Workspace access with writes reopened only for .agents/orchestration artifacts."
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"

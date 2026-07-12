@@ -308,9 +308,13 @@ function readCliPackage(version: string): Buffer {
   const packageJson = JSON.parse(
     fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8"),
   ) as Record<string, unknown>;
+  packageJson.name = "cli";
   packageJson.version = version;
   return Buffer.from(JSON.stringify(packageJson, null, 2) + "\n");
 }
+
+const cliPackagePath = path.join(process.cwd(), "package.json");
+const originalCliPackageContent = fs.readFileSync(cliPackagePath);
 
 const stubInput = {
   client: {} as never,
@@ -333,7 +337,7 @@ describe("release fixture 빌드", () => {
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",
@@ -384,6 +388,7 @@ describe("update + managed catalog", () => {
   afterEach(() => {
     fs.rmSync(projectDir, { recursive: true, force: true });
     fs.rmSync(fixtureDir, { recursive: true, force: true });
+    fs.writeFileSync(cliPackagePath, originalCliPackageContent);
   });
 
   test("install → update: catalog checksum 검증 성공 + managed state 저장", async () => {
@@ -487,7 +492,7 @@ output_modalities = ["text"]
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",
@@ -586,7 +591,7 @@ output_modalities = ["text"]
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",
@@ -703,7 +708,7 @@ output_modalities = ["text"]
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",
@@ -966,6 +971,7 @@ describe("upgrade + checksum", () => {
   afterEach(() => {
     fs.rmSync(projectDir, { recursive: true, force: true });
     fs.rmSync(fixtureDir, { recursive: true, force: true });
+    fs.writeFileSync(cliPackagePath, originalCliPackageContent);
   });
 
   test("upgrade: checksum 검증 후 artifact 적용", async () => {
@@ -1003,7 +1009,7 @@ describe("upgrade + checksum", () => {
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",
@@ -1089,7 +1095,7 @@ describe("upgrade + checksum", () => {
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.0"),
         },
         {
           name: "bin/agents",

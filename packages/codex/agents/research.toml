@@ -4,7 +4,7 @@ name = "research"
 description = "Investigates external documentation, libraries, and the web, then records sourced results in research.md. webfetch is allowed. Source edits are forbidden."
 model = "gpt-5.6-terra"
 model_reasoning_effort = "medium"
-sandbox_mode = "workspace-write"
+default_permissions = "orchestration-artifacts"
 nickname_candidates = ["Researcher", "Sourcer", "Analyst"]
 
 developer_instructions = '''
@@ -149,3 +149,10 @@ Example return format:
   Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''
+
+[permissions.orchestration-artifacts]
+description = "Workspace access with writes reopened only for .agents/orchestration artifacts."
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"

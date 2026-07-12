@@ -8,7 +8,7 @@ import {
 import { applyCliArtifact } from "@cli/artifact";
 import { EXIT_BLOCKED, EXIT_VALID } from "@cli/constants";
 import { restoreFileSnapshot, snapshotFile } from "@cli/fs-utils";
-import { getCurrentPluginVersion, getPackageVersion, resolveProjectDirectory } from "@cli/paths";
+import { getCurrentPluginVersion, getPackageVersion, isNpmPackageInstallation, resolveProjectDirectory } from "@cli/paths";
 import {
   assertArtifactCompatibility,
   assertLatestManifestCompatibility,
@@ -24,6 +24,11 @@ export async function upgrade(
   args: string[],
   io: Required<CliIO>,
 ): Promise<number> {
+  if (isNpmPackageInstallation()) {
+    io.stdout("이 CLI는 npm이 설치와 갱신을 관리합니다.");
+    io.stdout("다음 명령으로 최신 CLI를 설치하세요: npm install --global @livteam/agents-cli@latest");
+    return EXIT_VALID;
+  }
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
   let latest: LatestManifest;
   let cliArtifact: LatestManifestArtifact;

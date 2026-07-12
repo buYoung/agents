@@ -4,7 +4,7 @@ name = "idea-generator"
 description = "Divergent alternative exploration. Records at least two alternatives, tradeoffs, and a recommended direction in ideas.md. Uses only read-only exploration and its own artifact write; bash, webfetch, editing, and redelegation are forbidden. Produces input for planner convergence."
 model = "gpt-5.6-sol"
 model_reasoning_effort = "medium"
-sandbox_mode = "workspace-write"
+default_permissions = "orchestration-artifacts"
 nickname_candidates = ["Ideator", "Diverger", "Strategist"]
 
 developer_instructions = '''
@@ -152,3 +152,10 @@ Example return format:
   Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''
+
+[permissions.orchestration-artifacts]
+description = "Workspace access with writes reopened only for .agents/orchestration artifacts."
+extends = ":workspace"
+
+[permissions.orchestration-artifacts.filesystem.":workspace_roots"]
+".agents/orchestration" = "write"

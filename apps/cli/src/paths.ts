@@ -19,14 +19,31 @@ export function resolveUserConfigDirectory(env: NodeJS.ProcessEnv): string {
 }
 
 export function getPackageVersion(): string {
+  return readPackageManifest()?.version ?? "0.0.0";
+}
+
+type CliPackageManifest = {
+  name?: string;
+  version?: string;
+  private?: boolean;
+  bin?: string | Record<string, string>;
+};
+
+const CLI_PACKAGE_NAMES = new Set(["cli", "@livteam/agents-cli"]);
+
+function readPackageManifest(): CliPackageManifest | null {
   const packageRoot = getPackageRoot();
-  if (!packageRoot) return "0.0.0";
+  if (!packageRoot) return null;
+  return JSON.parse(
+    fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
+  ) as CliPackageManifest;
+}
+
+export function isNpmPackageInstallation(): boolean {
+  const packageManifest = readPackageManifest();
   return (
-    (
-      JSON.parse(
-        fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
-      ) as { version?: string }
-    ).version ?? "0.0.0"
+    packageManifest?.name === "@livteam/agents-cli" &&
+    packageManifest.private !== true
   );
 }
 
@@ -36,10 +53,7 @@ export function getPackageRoot(): string | null {
   while (currentDirectory !== path.dirname(currentDirectory)) {
     const packagePath = path.join(currentDirectory, "package.json");
     if (fs.existsSync(packagePath)) {
-      const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8")) as {
-        name?: string;
-        bin?: string | Record<string, string>;
-      };
+      const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8")) as CliPackageManifest;
       const binPath =
         typeof packageJson.bin === "string"
           ? packageJson.bin
@@ -48,7 +62,7 @@ export function getPackageRoot(): string | null {
       const bundledCliPath = path.join(currentDirectory, "dist", "cli.mjs");
       if (
         binPath &&
-        packageJson.name === "cli" &&
+        CLI_PACKAGE_NAMES.has(packageJson.name ?? "") &&
         fs.existsSync(path.resolve(currentDirectory, binPath)) &&
         (fs.existsSync(sourceCliPath) || fs.existsSync(bundledCliPath))
       ) {

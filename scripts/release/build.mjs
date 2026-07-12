@@ -125,11 +125,30 @@ cpSync(join(repositoryRoot, "packages", "codex", "skills", "codex-orchestrator")
 writeFileSync(join(resourceDirectory, "codex", "package.json"), JSON.stringify({ name: "codex", version }, null, 2) + "\n");
 
 tarGz(cliDirectory, join(outputDirectory, `agents-cli-${version}.tar.gz`));
+const npmCliDirectory = join(outputDirectory, "npm-cli");
+cpSync(cliDirectory, npmCliDirectory, { recursive: true });
+writeFileSync(join(npmCliDirectory, "package.json"), JSON.stringify({
+  name: "@livteam/agents-cli",
+  version,
+  type: "module",
+  bin: { agents: "bin/agents" },
+  engines: { node: ">=18" },
+  repository: { type: "git", url: "git+https://github.com/buYoung/agents.git" },
+  publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
+}, null, 2) + "\n");
+cpSync(join(repositoryRoot, "docs", "guides", "cli-usage.md"), join(npmCliDirectory, "README.md"));
+tarGz(npmCliDirectory, join(outputDirectory, `livteam-agents-cli-${version}.tar.gz`));
+rmSync(npmCliDirectory, { recursive: true, force: true });
 tarGz(join(resourceDirectory, "opencode"), join(outputDirectory, `agents-opencode-${version}.tar.gz`));
 tarGz(join(resourceDirectory, "codex"), join(outputDirectory, `agents-codex-${version}.tar.gz`));
 cpSync(join(resourceDirectory, "opencode", "catalog.toml"), join(outputDirectory, `catalog-${version}.toml`));
 const catalogVersion = /^catalogVersion\s*=\s*"([^"]+)"/m.exec(readFileSync(join(resourceDirectory, "opencode", "catalog.toml"), "utf8"))?.[1];
 if (!catalogVersion) throw new Error("catalogVersion을 찾을 수 없습니다.");
+const npmManifest = {
+  formatVersion: 1,
+  cliVersion: version,
+  npmCli: artifactRecord(`livteam-agents-cli-${version}.tar.gz`, version, ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json"]),
+};
 const manifest = {
   formatVersion: 2,
   cliVersion: version,
@@ -143,4 +162,5 @@ const manifest = {
   codexAgents: artifactRecord(`agents-codex-${version}.tar.gz`, JSON.parse(readFileSync(join(resourceDirectory, "codex", "package.json"), "utf8")).version, ["agents/versions.json", "agents/worker.toml", "skills/codex-orchestrator/SKILL.md", "skills/codex-orchestrator/agents/openai.yaml"])
 };
 writeFileSync(join(outputDirectory, "latest.json"), JSON.stringify(signManifest(manifest, publicKey), null, 2) + "\n");
+writeFileSync(join(outputDirectory, "npm-latest.json"), JSON.stringify(signManifest(npmManifest, publicKey), null, 2) + "\n");
 console.log(outputDirectory);
