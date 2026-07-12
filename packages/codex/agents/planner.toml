@@ -41,7 +41,7 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Reject missing/invalid identifiers, absolute substitution, separators, and `..`; return the exact concrete path for downstream discovery.
 
 ### Planner-Specific Procedure
@@ -58,7 +58,7 @@ Use the received taskId, workItemId, and output path exactly. Never run date-rel
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
 - bash only for hook-allowed read-only fact verification.
-- File-writing tools only for the assigned `.agents/<taskId>/<workItemId>/plan.md`. Use write when available; if only apply_patch is available, use it only for that exact path.
+- File-writing tools only for the assigned `.agents/orchestration/<taskId>/<workItemId>/plan.md`. Use write when available; if only apply_patch is available, use it only for that exact path.
 - Do not use edit.
 
 Bash restrictions:
@@ -98,7 +98,7 @@ Bash restrictions:
 
 ## Handoff File Ownership
 
-Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
+Each artifact-writing execution owns exactly one file under `.agents/orchestration/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
 
 ```yaml
 orchestrator: task.md
@@ -118,7 +118,7 @@ Rules:
 2. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
 3. Never overwrite or replace existing handoff content.
 4. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-5. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
+5. Read run files only through explicit `.agents/orchestration/<taskId>/<workItemId>/...` paths when allowed.
 
 ---
 
@@ -147,11 +147,11 @@ Rules:
 
 When delegating or returning results:
 - Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your assigned handoff file: `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Put details in your assigned handoff file: `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
 
 Example return format:
-  Path: .agents/20260702-slug/planner-01/plan.md
+  Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''

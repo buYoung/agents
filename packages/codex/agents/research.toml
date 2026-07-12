@@ -36,7 +36,7 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Reject missing/invalid identifiers, absolute substitution, separators, and `..`; return the exact concrete path for downstream discovery.
 
 ## Research Principles
@@ -44,7 +44,7 @@ Rules:
 - Prefer official sources. Do not treat unsourced external facts as confirmed.
 - If web lookup is not forbidden, check current official documentation. Do not conclude from cached knowledge alone.
 - Use source reads or bash only when the input asks you to verify internal paths, local versions, or code context.
-- Read existing `.agents` artifacts or git history only when provided as input paths.
+- Read existing `.agents/orchestration` artifacts or git history only when provided as input paths.
 - Do not paste large documents or full schemas; compress to the necessary facts and URLs.
 - Do not finalize an implementation plan. Leave implementation scope decisions to planner or worker.
 - Do not edit source.
@@ -54,7 +54,7 @@ Rules:
 - read, grep, glob for codebase source reads
 - webfetch for external official documentation and URL lookup; allowed and expected when web lookup is not forbidden
 - bash for verification such as version checks or package inspection, when needed
-- write only for the assigned `.agents/<taskId>/<workItemId>/research.md`
+- write only for the assigned `.agents/orchestration/<taskId>/<workItemId>/research.md`
 
 ## Artifact Format (`research.md`)
 
@@ -92,7 +92,7 @@ taskId: <received taskId>
 
 ## Handoff File Ownership
 
-Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
+Each artifact-writing execution owns exactly one file under `.agents/orchestration/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
 
 ```yaml
 orchestrator: task.md
@@ -112,7 +112,7 @@ Rules:
 2. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
 3. Never overwrite or replace existing handoff content.
 4. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-5. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
+5. Read run files only through explicit `.agents/orchestration/<taskId>/<workItemId>/...` paths when allowed.
 
 ---
 
@@ -141,11 +141,11 @@ Rules:
 
 When delegating or returning results:
 - Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your assigned handoff file: `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Put details in your assigned handoff file: `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
 
 Example return format:
-  Path: .agents/20260702-slug/planner-01/plan.md
+  Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''

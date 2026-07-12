@@ -3,7 +3,7 @@
  *
  * 설계 원칙:
  * - 단일 PERMISSION_POLICY 테이블: 에이전트 한 줄 수정으로 권한 조정 가능.
- * - 기본(baseline): 정규 `.agents/<taskId>/<workItemId>/<role-file>.md`
+ * - 기본(baseline): 정규 `.agents/orchestration/<taskId>/<workItemId>/<role-file>.md`
  *   읽기와 해당 역할 소유 파일 쓰기만 허용.
  * - 각 에이전트는 베이스라인 위에 추가 델타(delta)를 가진다.
  * - sessionID → 에이전트명 매핑은 chat.message 훅으로 유지 (tool.execute.before 입력에 에이전트명 없음).

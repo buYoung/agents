@@ -54,7 +54,7 @@ function buildExecutionContract({ agent, caseName, fixture }) {
   return {
     taskId,
     workItemId,
-    outputPath: `.agents/${taskId}/${workItemId}/${artifactFile}`,
+    outputPath: `.agents/orchestration/${taskId}/${workItemId}/${artifactFile}`,
   };
 }
 
@@ -565,7 +565,9 @@ function prepareWorkspace(temporaryWorkspace) {
     path.join(repositoryRoot, "packages", "codex", "agents"),
     path.join(temporaryWorkspace, "packages", "codex", "agents"),
   );
-  fs.mkdirSync(path.join(temporaryWorkspace, ".agents"), { recursive: true });
+  fs.mkdirSync(path.join(temporaryWorkspace, ".agents", "orchestration"), {
+    recursive: true,
+  });
 }
 
 function codexExecArgs({ caseName, prompt, temporaryWorkspace }) {

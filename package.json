@@ -1,5 +1,6 @@
 {
   "name": "buyong-agents",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "build": "turbo run build",
@@ -7,10 +8,15 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "release": "release-it",
+    "release:build": "node scripts/release/build.mjs",
+    "release:verify": "node scripts/release/verify.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "prettier": "^3.7.4",
+    "release-it": "^20.0.0",
     "turbo": "^2.10.3",
     "typescript": "5.9.2",
     "vitest": "^4.1.9"

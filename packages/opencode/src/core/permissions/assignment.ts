@@ -4,6 +4,7 @@
 
 import {
   DOCUMENTED_AGENTS,
+  RUN_DIR_ROOT,
   type AgentName,
   type DocumentedAgent,
 } from "@opencode/core/doc-protocol";
@@ -65,8 +66,11 @@ function assignmentFromArtifactPath(
   };
 }
 
-const ARTIFACT_PATH_PATTERN =
-  /\.agents\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\.md/g;
+const ARTIFACT_PATH_PATTERN = new RegExp(
+  `${RUN_DIR_ROOT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/` +
+    "[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\\.md",
+  "g",
+);
 const EXPLICIT_MARKER_PATTERN = /^[\t ]*(Output|Input):[\t ]*(.*?)[\t ]*$/gm;
 const EXPLICIT_MARKER_DETECTOR = /^[\t ]*(?:Output|Input):/m;
 

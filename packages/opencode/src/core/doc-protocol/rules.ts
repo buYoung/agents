@@ -13,13 +13,13 @@ export const PATHS_ONLY_RULE = `
 
 When delegating or returning results:
 - Return only \`Path:\` plus a one-line \`Summary:\`. Do not inline full working content.
-- Put details in your assigned handoff file: \`.agents/<taskId>/<workItemId>/<your-file>.md\`.
+- Put details in your assigned handoff file: \`.agents/orchestration/<taskId>/<workItemId>/<your-file>.md\`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
 - Downstream agents discover artifacts only from the concrete \`Path:\` returned by the producing agent or from the orchestrator index. Never scan work-item directories.
 
 Example return format:
-  Path: .agents/20260702-slug/planner-01/plan.md
+  Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 `.trim();
 
@@ -33,7 +33,7 @@ export const APPEND_ONLY_RULE = `
 ## Handoff File Ownership
 
 Each artifact-writing execution owns exactly one file under
-\`.agents/<taskId>/<workItemId>/\`. The orchestrator assigns a unique
+\`.agents/orchestration/<taskId>/<workItemId>/\`. The orchestrator assigns a unique
 \`workItemId\` for every new logical work item. A continuation of that same
 work item reuses the exact assignment. Write only to the active Output path.
 
@@ -51,8 +51,8 @@ constructive-feedback: constructive-feedback.md
 \`intent-checker\` is stateless and owns no file.
 
 Assignment lines:
-- Exactly one \`Output: .agents/<taskId>/<workItemId>/<your-file>.md\` identifies the active readable/writable assignment.
-- Zero or more \`Input: .agents/<taskId>/<workItemId>/<role-file>.md\` lines identify readable, never writable, input artifacts.
+- Exactly one \`Output: .agents/orchestration/<taskId>/<workItemId>/<your-file>.md\` identifies the active readable/writable assignment.
+- Zero or more \`Input: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md\` lines identify readable, never writable, input artifacts.
 - A prior Output moved to session history is readable but remains non-writable until an explicit same-task/same-role continuation reactivates it.
 
 Rules:
@@ -111,7 +111,7 @@ Rules:
 - Do not assume today's date is the taskId date.
 - Every new artifact-writing work item must receive a kebab-case workItemId, such as \`planner-01\` or \`worker-parse-fix-02\`. It is unique across all roles and sessions within the taskId. A continuation of the same logical work item reuses the same workItemId; a new work item never does.
 - If either identifier is missing or invalid, stop before writing and request the missing identity. Do not substitute an absolute path, path separator, \`..\`, or another task's identifier.
-- Do not hard-code or derive a different handoff path. Use \`runDocPath(taskId, workItemId, agentName)\` to resolve \`.agents/<taskId>/<workItemId>/<your-file>.md\`.
+- Do not hard-code or derive a different handoff path. Use \`runDocPath(taskId, workItemId, agentName)\` to resolve \`.agents/orchestration/<taskId>/<workItemId>/<your-file>.md\`.
 - Return the exact concrete path so downstream agents do not need directory discovery.
-- All run files stay under the canonical workspace \`.agents/<taskId>/<workItemId>/\` scope.
+- All run files stay under the canonical workspace \`.agents/orchestration/<taskId>/<workItemId>/\` scope.
 `.trim();

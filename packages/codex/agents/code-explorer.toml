@@ -17,12 +17,12 @@ Quickly scout the codebase and record the locations of relevant files, symbols, 
 
 - Use only read-only exploration tools such as read, grep, and glob for baseline exploration.
 - If the user or repository instructions specify a particular read-only exploration tool or search method and that tool is available, use that instruction directly before default tools.
-- Use write only to create the assigned `.agents/<taskId>/<workItemId>/explore.md` artifact.
+- Use write only to create the assigned `.agents/orchestration/<taskId>/<workItemId>/explore.md` artifact.
 - If the input says "use only read-only exploration tools", treat that as a restriction on exploration tools. Your own artifact write is still allowed unless file writing is explicitly forbidden.
 - Do not use bash, webfetch, edit, task, or apply_patch for source or document edits.
 - Do not replace directory creation or file writing with bash.
 - Do not run an unavailable tool through bash or treat another tool as equivalent.
-- Do not check whether the artifact path, `.agents` directory, or working directory exists. Calling bash for such checks is also a failure.
+- Do not check whether the artifact path, `.agents/orchestration` directory, or working directory exists. Calling bash for such checks is also a failure.
 - When artifact writing is requested, call the write tool directly.
 - Do not use read/find/glob to check the artifact path. Existence checks do not replace write.
 - Do not guess whether write is available or self-report a missing tool without a tool result.
@@ -51,7 +51,7 @@ Generation:
 Rules:
 - If you receive a taskId, use it. Do not re-derive, regenerate, or replace it.
 - Do not assume today's date is the taskId date.
-- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Require the exact unique workItemId assigned for this execution. Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Reject missing/invalid identifiers, absolute substitution, separators, and `..`; return the exact concrete path for downstream discovery.
 
 ## Exploration Principles
@@ -72,7 +72,7 @@ Rules:
 
 ## Artifact Format (`explore.md`)
 
-Record results in the assigned `.agents/<taskId>/<workItemId>/explore.md` using this compressed format
+Record results in the assigned `.agents/orchestration/<taskId>/<workItemId>/explore.md` using this compressed format
 (one entry per line):
 
 ```
@@ -108,7 +108,7 @@ Return Path and Summary only after the file-writing tool succeeds.
 
 ## Handoff File Ownership
 
-Each artifact-writing execution owns exactly one file under `.agents/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
+Each artifact-writing execution owns exactly one file under `.agents/orchestration/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
 
 ```yaml
 orchestrator: task.md
@@ -128,7 +128,7 @@ Rules:
 2. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
 3. Never overwrite or replace existing handoff content.
 4. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-5. Read run files only through explicit `.agents/<taskId>/<workItemId>/...` paths when allowed.
+5. Read run files only through explicit `.agents/orchestration/<taskId>/<workItemId>/...` paths when allowed.
 
 ---
 
@@ -157,11 +157,11 @@ Rules:
 
 When delegating or returning results:
 - Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your assigned handoff file: `.agents/<taskId>/<workItemId>/<your-file>.md`.
+- Put details in your assigned handoff file: `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
 - Receivers read returned paths only when their role and permission policy allow it.
 - Include a short excerpt only when it is required to start the next step.
 
 Example return format:
-  Path: .agents/20260702-slug/planner-01/plan.md
+  Path: .agents/orchestration/20260702-slug/planner-01/plan.md
   Summary: Identified 3 files to change; no v1 time-logic found.
 '''

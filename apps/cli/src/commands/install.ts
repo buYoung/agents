@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   EXIT_BLOCKED,
   EXIT_VALID,
+  EXIT_WARNING,
   OPENCODE_CONFIG_SCHEMA,
   OPENCODE_PLUGIN_ENTRY,
 } from "@cli/constants";
@@ -27,6 +28,11 @@ import {
   resolveUserConfigDirectory,
 } from "@cli/paths";
 import type { CliIO } from "@cli/types";
+import { ReleaseManifestError } from "@cli/types";
+import { assertLatestManifestCompatibility, readLatestManifest, reportReleaseManifestError } from "@cli/release";
+import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
+import { executeLifecycle } from "@cli/lifecycle/orchestrator";
+import { stageRemoteTargetSources, verifyOpencodeExecutable } from "@cli/lifecycle/targets";
 
 function getAgentsExamplePath(): string {
   const packageRoot = getPackageRoot();
@@ -56,6 +62,58 @@ export async function install(
   args: string[],
   io: Required<CliIO>,
 ): Promise<number> {
+  const targets = readTargets(args);
+  if (targets) {
+    const scope = readOpencodeScope(args);
+    if (targets.includes("opencode") && !scope) {
+      io.stderr("OpenCode 설치에는 --opencode-scope user 또는 project를 명시해야 합니다. 기존 --scope도 사용할 수 있습니다.");
+      return EXIT_BLOCKED;
+    }
+    const projectDirectory = resolveProjectDirectory(args, io.cwd);
+    let stagedSources: Awaited<ReturnType<typeof stageRemoteTargetSources>> | undefined;
+    let sourceEnv = io.env;
+    try {
+      try {
+        const latest = await readLatestManifest(io.env);
+        assertLatestManifestCompatibility(latest, projectDirectory, "update");
+        const staged = await stageRemoteTargetSources(latest, targets, io.env);
+        stagedSources = staged;
+        sourceEnv = staged.env;
+      } catch (error) {
+        if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+      }
+      const results = executeLifecycle(
+        targets,
+        "install",
+        projectDirectory,
+        sourceEnv,
+        { scope: scope ?? undefined, adopt: args.includes("--adopt"), allowDowngrade: args.includes("--allow-downgrade") },
+      );
+      for (const result of results) {
+        io.stdout(`target=${result.target}`);
+        io.stdout(`requestedOperation=${result.requestedOperation}`);
+        io.stdout(`resolvedOperation=${result.resolvedOperation}`);
+        io.stdout(`status=${result.status}`);
+        if (result.backupId) io.stdout(`backupId=${result.backupId}`);
+        io.stdout(result.message);
+      }
+      if (targets.includes("opencode")) {
+        const runtime = verifyOpencodeExecutable(sourceEnv);
+        io.stdout(`opencodeRuntimeVerification=${runtime}`);
+        if (runtime !== "available") {
+          io.stderr("OpenCode 실행 파일을 찾지 못해 실제 기동 확인은 완료되지 않았습니다. local plugin과 설정의 정적 검증만 통과했습니다.");
+          return EXIT_WARNING;
+        }
+      }
+      return EXIT_VALID;
+    } catch (error) {
+      if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
+      io.stderr(`install-failed: ${error instanceof Error ? error.message : String(error)}`);
+      return EXIT_BLOCKED;
+    } finally {
+      stagedSources?.cleanup();
+    }
+  }
   const scopeIndex = args.indexOf("--scope");
   const scope = scopeIndex >= 0 ? args[scopeIndex + 1] : undefined;
   if (scope !== "user" && scope !== "project") {

@@ -8,11 +8,11 @@ import * as path from "node:path";
 import { runDocPath, AGENT_DOC_MAP } from "@opencode/core/doc-protocol";
 
 describe("runDocPath", () => {
-  test("planner → .agents/<taskId>/<workItemId>/plan.md", () => {
+  test("planner → .agents/orchestration/<taskId>/<workItemId>/plan.md", () => {
     const taskId = "20260702-smoke-roundtrip";
     const workItemId = "planner-01";
     expect(runDocPath(taskId, workItemId, "planner")).toBe(
-      `.agents/${taskId}/${workItemId}/plan.md`,
+      `.agents/orchestration/${taskId}/${workItemId}/plan.md`,
     );
   });
 });
@@ -37,7 +37,7 @@ describe("doc round-trip", () => {
     const plannerWorkItemId = "planner-01";
     const orchestratorWorkItemId = "orchestrator-index";
 
-    const smokeRunDir = path.join(".agents", smokeTaskId);
+    const smokeRunDir = path.join(".agents", "orchestration", smokeTaskId);
 
     const plannerDocPath = runDocPath(
       smokeTaskId,

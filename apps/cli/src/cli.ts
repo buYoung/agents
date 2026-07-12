@@ -14,12 +14,16 @@ import { validate } from "@cli/commands/validate";
 import { doctor } from "@cli/commands/doctor";
 import { update } from "@cli/commands/update";
 import { upgrade } from "@cli/commands/upgrade";
+import { backup } from "@cli/commands/backup";
+import { restore } from "@cli/commands/restore";
+import { status } from "@cli/commands/status";
 
 function printHelp(stdout: (line: string) => void): void {
   stdout(
-    "사용법: agents <install|uninstall|validate|doctor|update|upgrade> [options]",
+    "사용법: agents <install|uninstall|update|backup|restore|status|validate|doctor|upgrade> [options]",
   );
-  stdout("명령: install, uninstall, validate, doctor, update, upgrade");
+  stdout("명령: install, uninstall, update, backup, restore, status, validate, doctor, upgrade");
+  stdout("대상: install/update/uninstall/backup/restore는 --target codex|opencode|all을 지원합니다.");
 }
 
 export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
@@ -50,6 +54,12 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
         return await update(args, resolvedIO);
       case "upgrade":
         return await upgrade(args, resolvedIO);
+      case "backup":
+        return await backup(args, resolvedIO);
+      case "restore":
+        return await restore(args, resolvedIO);
+      case "status":
+        return await status(args, resolvedIO);
       default:
         resolvedIO.stderr(`알 수 없는 명령: ${command}`);
         printHelp(resolvedIO.stderr);
@@ -75,6 +85,9 @@ export const CLI_COMMANDS = [
   "doctor",
   "update",
   "upgrade",
+  "backup",
+  "restore",
+  "status",
 ] as const;
 export const RELEASE_BASE_PREFIX = GITHUB_RELEASE_BASE;
 export const BUNDLED_CATALOG_PATH = getBundledCatalogPath();

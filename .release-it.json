@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/release-it@20/schema/release-it.json",
+  "git": {
+    "requireBranch": "main",
+    "requireCleanWorkingDir": true,
+    "requireUpstream": true,
+    "commitMessage": "chore(release): v${version}"
+  },
+  "npm": {
+    "publish": false
+  },
+  "github": {
+    "release": true,
+    "releaseName": "agents v${version}",
+    "autoGenerate": true,
+    "assets": ["dist/release/*"]
+  },
+  "hooks": {
+    "before:init": ["pnpm test", "pnpm check-types"],
+    "after:bump": [
+      "node scripts/release/build.mjs --publish --version ${version} --tag v${version}",
+      "node scripts/release/verify.mjs --directory dist/release --require-signature"
+    ],
+    "after:release": "node scripts/release/verify.mjs --remote --tag v${version} --require-signature"
+  }
+}

@@ -36,12 +36,12 @@ Quickly scout the codebase and record the locations of relevant files, symbols, 
 
 - Use only read-only exploration tools such as read, grep, and glob for baseline exploration.
 - If the user or repository instructions specify a particular read-only exploration tool or search method and that tool is available, use that instruction directly before default tools.
-- Use write only to create the assigned \`.agents/<taskId>/<workItemId>/${OUTPUT_FILE}\` artifact.
+- Use write only to create the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\` artifact.
 - If the input says "use only read-only exploration tools", treat that as a restriction on exploration tools. Your own artifact write is still allowed unless file writing is explicitly forbidden.
 - Do not use bash, webfetch, edit, task, or apply_patch for source or document edits.
 - Do not replace directory creation or file writing with bash.
 - Do not run an unavailable tool through bash or treat another tool as equivalent.
-- Do not check whether the artifact path, \`.agents\` directory, or working directory exists. Calling bash for such checks is also a failure.
+- Do not check whether the artifact path, \`.agents/orchestration\` directory, or working directory exists. Calling bash for such checks is also a failure.
 - When artifact writing is requested, call the write tool directly.
 - Do not use read/find/glob to check the artifact path. Existence checks do not replace write.
 - Do not guess whether write is available or self-report a missing tool without a tool result.
@@ -78,7 +78,7 @@ ${TASKID_RULE}
 
 ## Artifact Format (\`${OUTPUT_FILE}\`)
 
-Record results in the assigned \`.agents/<taskId>/<workItemId>/${OUTPUT_FILE}\` using this compressed format
+Record results in the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\` using this compressed format
 (one entry per line):
 
 \`\`\`

@@ -275,8 +275,8 @@ describe("플러그인 로드", () => {
       subagent_type: "planner",
       prompt: [
         "taskId=20260710-hook workItemId=planner-01",
-        "Output: .agents/20260710-hook/planner-01/plan.md",
-        "Input: .agents/20260710-hook/worker-input/work.md",
+        "Output: .agents/orchestration/20260710-hook/planner-01/plan.md",
+        "Input: .agents/orchestration/20260710-hook/worker-input/work.md",
       ].join("\n"),
     };
     await beforeHook(
@@ -353,8 +353,8 @@ describe("플러그인 로드", () => {
       task_id: "lifecycle-child",
       prompt: [
         "taskId=20260710-hook workItemId=planner-02",
-        "Output: .agents/20260710-hook/planner-02/plan.md",
-        "Input: .agents/20260710-hook/planner-01/plan.md",
+        "Output: .agents/orchestration/20260710-hook/planner-02/plan.md",
+        "Input: .agents/orchestration/20260710-hook/planner-01/plan.md",
       ].join("\n"),
     };
     await beforeHook(
@@ -385,7 +385,11 @@ describe("플러그인 로드", () => {
         sessionID: "lifecycle-child",
         callID: "history-read",
       },
-      { args: { path: ".agents/20260710-hook/planner-01/plan.md" } },
+      {
+        args: {
+          path: ".agents/orchestration/20260710-hook/planner-01/plan.md",
+        },
+      },
     );
     await expect(
       beforeHook(
@@ -394,7 +398,11 @@ describe("플러그인 로드", () => {
           sessionID: "lifecycle-child",
           callID: "history-write",
         },
-        { args: { path: ".agents/20260710-hook/planner-01/plan.md" } },
+        {
+          args: {
+            path: ".agents/orchestration/20260710-hook/planner-01/plan.md",
+          },
+        },
       ),
     ).rejects.toThrow("다른 실행 할당의 산출물 쓰기 거부");
     await beforeHook(
@@ -403,7 +411,11 @@ describe("플러그인 로드", () => {
         sessionID: "lifecycle-child",
         callID: "active-write",
       },
-      { args: { path: ".agents/20260710-hook/planner-02/plan.md" } },
+      {
+        args: {
+          path: ".agents/orchestration/20260710-hook/planner-02/plan.md",
+        },
+      },
     );
     await expect(
       beforeHook(
@@ -417,7 +429,7 @@ describe("플러그인 로드", () => {
             subagent_type: "worker",
             prompt: [
               "taskId=20260710-hook workItemId=planner-02",
-              "Output: .agents/20260710-hook/planner-02/work.md",
+              "Output: .agents/orchestration/20260710-hook/planner-02/work.md",
             ].join("\n"),
           },
         },
@@ -432,7 +444,7 @@ describe("플러그인 로드", () => {
       },
       {
         args: {
-          path: ".agents/20260710-hook/orchestrator-index/task.md",
+          path: ".agents/orchestration/20260710-hook/orchestrator-index/task.md",
         },
       },
     );
@@ -445,7 +457,7 @@ describe("플러그인 로드", () => {
         },
         {
           args: {
-            path: ".agents/20260710-other/orchestrator-index/task.md",
+            path: ".agents/orchestration/20260710-other/orchestrator-index/task.md",
           },
         },
       ),
@@ -489,7 +501,7 @@ describe("플러그인 로드", () => {
             subagent_type: "planner",
             prompt: [
               "taskId=20260710-hook workItemId=planner-02",
-              "Output: .agents/20260710-hook/planner-02/plan.md",
+              "Output: .agents/orchestration/20260710-hook/planner-02/plan.md",
             ].join("\n"),
           },
         },

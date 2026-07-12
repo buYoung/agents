@@ -30,12 +30,39 @@ import {
   resolveProjectDirectory,
 } from "@cli/paths";
 import type { CliIO } from "@cli/types";
+import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
+import { inspectTargets } from "@cli/lifecycle/orchestrator";
 
 export async function doctor(
   args: string[],
   io: Required<CliIO>,
 ): Promise<number> {
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
+  const targets = readTargets(args);
+  if (targets) {
+    try {
+      const scope = readOpencodeScope(args);
+      if (targets.includes("opencode") && !scope) {
+        io.stderr("OpenCode 진단에는 --opencode-scope user 또는 project가 필요합니다.");
+        return EXIT_INVALID;
+      }
+      const inspections = inspectTargets(targets, projectDirectory, io.env, scope ?? undefined);
+      for (const inspection of inspections) {
+        io.stdout(`target=${inspection.target}`);
+        io.stdout(`status=${inspection.status}`);
+        io.stdout(`installedVersion=${inspection.installedVersion ?? "unknown"}`);
+        io.stdout(`availableVersion=${inspection.availableVersion ?? "unknown"}`);
+        io.stdout(`userModifiedFiles=${inspection.userModifiedPaths.length}`);
+        if (inspection.reason) io.stderr(`${inspection.target}: ${inspection.reason}`);
+      }
+      return inspections.every((inspection) => inspection.status === "healthy-current" || inspection.status === "ahead")
+        ? EXIT_VALID
+        : EXIT_INVALID;
+    } catch (error) {
+      io.stderr(`target-doctor-failed: ${error instanceof Error ? error.message : String(error)}`);
+      return EXIT_INVALID;
+    }
+  }
   let catalogSource = getCatalogSource(projectDirectory);
   const managedCatalogPath = getManagedCatalogPath(projectDirectory);
   const projectConfigPath = getProjectConfigPath(projectDirectory);

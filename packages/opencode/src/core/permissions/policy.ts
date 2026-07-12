@@ -51,7 +51,7 @@ export interface PathPermissionPolicy {
 
 /**
  * 에이전트 한 행(row)의 권한 정책.
- * 베이스라인(.agents/** 읽기+쓰기) 위에 적용되는 델타.
+ * 베이스라인(.agents/orchestration/** 읽기+쓰기) 위에 적용되는 델타.
  */
 export interface PermissionPolicy {
   /** 에이전트 이름 */
@@ -72,7 +72,7 @@ export const SUBAGENT_NAMES: readonly AgentName[] = AGENT_NAMES_IMPL.filter(
  * 권한 변경은 이 테이블만 수정한다.
  *
  * 베이스라인 (모든 에이전트 공통):
- *   - 정규 `.agents/<taskId>/<workItemId>/<role-file>.md` 읽기와 역할 소유
+ *   - 정규 `.agents/orchestration/<taskId>/<workItemId>/<role-file>.md` 읽기와 역할 소유
  *     파일 쓰기는 enforcement baseline에서 처리 (여기서는 delta만 인코딩)
  */
 export const PERMISSION_POLICY: readonly PermissionPolicy[] = [

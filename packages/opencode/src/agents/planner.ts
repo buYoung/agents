@@ -63,7 +63,7 @@ Use the received assignment exactly. Never run date-related bash or invent a rep
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
 - bash only for hook-allowed read-only fact verification.
-- File-writing tools only for the assigned \`.agents/<taskId>/<workItemId>/${OUTPUT_FILE}\`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to that exact path.
+- File-writing tools only for the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to that exact path.
 - Do not use edit.
 
 Bash restrictions:

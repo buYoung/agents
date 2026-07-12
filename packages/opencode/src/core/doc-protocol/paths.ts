@@ -4,8 +4,8 @@
 
 import { AGENT_DOC_MAP, type DocumentedAgent } from "./names";
 
-/** Root directory that contains every per-run task folder. */
-export const RUN_DIR_ROOT = ".agents" as const;
+/** Root directory that contains every orchestration task folder. */
+export const RUN_DIR_ROOT = ".agents/orchestration" as const;
 
 /** Canonical task and work-item identifier formats used in run paths. */
 export const TASK_ID_PATTERN = /^\d{8}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -38,8 +38,8 @@ function assertRunIdentifier(
  *                e.g. `"20260702-agents-plugin"`.
  * @param workItemId Unique identifier assigned once per delegation/execution.
  * @param agent   One of the {@link DocumentedAgent} values (not `intent-checker`).
- * @returns       `.agents/<taskId>/<workItemId>/<filename>`, consistent with the
- *                `.agents/**` scope the permission layer enforces.
+ * @returns       `.agents/orchestration/<taskId>/<workItemId>/<filename>`,
+ *                consistent with the run-artifact scope the permission layer enforces.
  */
 export function runDocPath(
   taskId: string,

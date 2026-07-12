@@ -7,7 +7,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
+import { pathToFileURL } from "node:url";
 import { runCli } from "@cli/cli";
+import { parseLatestManifest } from "@cli/release";
+import { stageRemoteTargetSources } from "@cli/lifecycle/targets";
+import { executeLifecycle } from "@cli/lifecycle/orchestrator";
 import { sha256, getManagedCatalogPath } from "opencode/core";
 import _pluginFactory from "opencode";
 
@@ -20,6 +24,167 @@ const pluginFactory =
           .server;
 
 const cliEnv = { ...process.env, OLLAMA_API_KEY: "present-for-smoke" };
+
+describe("배포 목록 v2 검증", () => {
+  test("대상별 실제 버전·호환 범위·필수 파일을 보존한다", () => {
+    const checksum = "a".repeat(64);
+    const manifest = parseLatestManifest(JSON.stringify({
+      formatVersion: 2,
+      cliVersion: "0.1.0",
+      catalogVersion: "2026.07.05.1",
+      minimumCliVersion: "0.1.0",
+      minimumPluginVersion: "0.1.0",
+      publishedAt: "2026-07-12T00:00:00.000Z",
+      catalog: { url: "https://example.test/catalog.toml", sha256: checksum, size: 1, version: "2026.07.05.1", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["catalog.toml"] },
+      cli: { url: "https://example.test/cli.tar.gz", sha256: checksum, size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["bin/agents"] },
+      opencode: { url: "https://example.test/opencode.tar.gz", sha256: checksum, size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["plugin.mjs"] },
+      codexAgents: { url: "https://example.test/codex.tar.gz", sha256: checksum, size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["agents/versions.json"] }
+    }));
+    expect(manifest.opencode?.version).toBe("0.1.0");
+    expect(manifest.codexAgents?.requiredFiles).toContain("agents/versions.json");
+  });
+
+  test("필수 파일 경로 탈출을 거부한다", () => {
+    expect(() => parseLatestManifest(JSON.stringify({
+      cliVersion: "0.1.0", catalogVersion: "2026.07.05.1", minimumCliVersion: "0.1.0", minimumPluginVersion: "0.1.0", publishedAt: "2026-07-12T00:00:00.000Z",
+      cli: { url: "https://example.test/cli.tar.gz", sha256: "a".repeat(64), requiredFiles: ["../escape"] }
+    }))).toThrow("requiredFiles");
+  });
+
+  test("v2 artifact에 크기 계약이 없으면 거부한다", () => {
+    expect(() => parseLatestManifest(JSON.stringify({
+      formatVersion: 2,
+      cliVersion: "0.1.0", catalogVersion: "2026.07.05.1", minimumCliVersion: "0.1.0", minimumPluginVersion: "0.1.0", publishedAt: "2026-07-12T00:00:00.000Z",
+      catalog: { url: "https://example.test/catalog.toml", sha256: "a".repeat(64), version: "2026.07.05.1", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["catalog.toml"] },
+      cli: { url: "https://example.test/cli.tar.gz", sha256: "a".repeat(64), size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["bin/agents"] },
+      opencode: { url: "https://example.test/opencode.tar.gz", sha256: "a".repeat(64), size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["plugin.mjs"] },
+      codexAgents: { url: "https://example.test/codex.tar.gz", sha256: "a".repeat(64), size: 1, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["agents/versions.json"] },
+    }))).toThrow("v2 계약");
+  });
+
+  test("대상 수명주기는 원격 artifact를 임시 source로 준비한다", async () => {
+    const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "agents-target-release-"));
+    const artifactPath = path.join(fixtureDirectory, "agents-codex-0.1.0.tar.gz");
+    const content = createTarGz([
+      { name: "package.json", content: Buffer.from(JSON.stringify({ name: "codex", version: "0.1.0" })) },
+      { name: "agents/versions.json", content: Buffer.from("{}") },
+      { name: "skills/codex-orchestrator/SKILL.md", content: Buffer.from("# skill\n") },
+      { name: "skills/codex-orchestrator/agents/openai.yaml", content: Buffer.from("name: test\n") },
+    ]);
+    fs.writeFileSync(artifactPath, content);
+    const manifest = {
+      cliVersion: "0.1.0", catalogVersion: "2026.07.05.1", minimumCliVersion: "0.1.0", minimumPluginVersion: "0.1.0", publishedAt: "2026-07-12T00:00:00.000Z",
+      codexAgents: { url: `file://${artifactPath}`, sha256: sha256(content), size: content.length, version: "0.1.0", compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" }, requiredFiles: ["agents/versions.json", "skills/codex-orchestrator/SKILL.md", "skills/codex-orchestrator/agents/openai.yaml"] },
+    } as never;
+    const staged = await stageRemoteTargetSources(manifest, ["codex"], cliEnv);
+    try {
+      expect(staged.env.AGENTS_CODEX_ARTIFACT_ROOT).toBeDefined();
+      expect(fs.existsSync(path.join(staged.env.AGENTS_CODEX_ARTIFACT_ROOT!, "agents", "versions.json"))).toBe(true);
+    } finally {
+      staged.cleanup();
+      fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("원격 OpenCode plugin은 임시 source 정리 뒤에도 영구 사본으로 설치·업데이트·복원·삭제·실패 복구한다", async () => {
+    const projectDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "agents-opencode-remote-lifecycle-"));
+    const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "agents-opencode-remote-artifact-"));
+    const catalogContent = fs.readFileSync(
+      path.join(process.cwd(), "..", "..", "packages", "opencode", "src", "core", "catalog", "catalog.toml"),
+      "utf-8",
+    );
+    const agentsContent = fs.readFileSync(
+      path.join(process.cwd(), "..", "..", "packages", "opencode", "agents.example.toml"),
+      "utf-8",
+    );
+    const customPluginPath = path.join(projectDirectory, "custom-plugin.mjs");
+    const nativeConfigPath = path.join(projectDirectory, "opencode.json");
+    const managedPluginPath = path.join(projectDirectory, ".opencode", "agents", "plugin", "plugin.mjs");
+    const managedEntryPath = path.join(projectDirectory, ".opencode", "agents", "plugin", "plugin.ts");
+    const environment = {
+      ...cliEnv,
+      XDG_STATE_HOME: path.join(projectDirectory, "state"),
+    };
+    const stageArtifact = async (version: string, pluginVersion: string, artifactCatalog = catalogContent) => {
+      const artifactPath = path.join(fixtureDirectory, `agents-opencode-${version}.tar.gz`);
+      const content = createTarGz([
+        { name: "package.json", content: Buffer.from(JSON.stringify({ name: "opencode", version })) },
+        { name: "plugin.mjs", content: Buffer.from(`export const version = ${JSON.stringify(pluginVersion)}; export default async () => ({ event: async () => {} });\n`) },
+        { name: "agents.example.toml", content: Buffer.from(agentsContent) },
+        { name: "catalog.toml", content: Buffer.from(artifactCatalog) },
+      ]);
+      fs.writeFileSync(artifactPath, content);
+      return stageRemoteTargetSources({
+        cliVersion: "0.1.0",
+        catalogVersion: "2026.07.05.1",
+        minimumCliVersion: "0.1.0",
+        minimumPluginVersion: "0.1.0",
+        publishedAt: "2026-07-12T00:00:00.000Z",
+        opencode: {
+          url: `file://${artifactPath}`,
+          sha256: sha256(content),
+          size: content.length,
+          version,
+          compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" },
+          requiredFiles: ["package.json", "plugin.mjs", "agents.example.toml", "catalog.toml"],
+        },
+      } as never, ["opencode"], environment);
+    };
+
+    try {
+      fs.writeFileSync(customPluginPath, "export default {};\n", "utf-8");
+      fs.writeFileSync(nativeConfigPath, JSON.stringify({ plugin: [`file://${customPluginPath}`] }), "utf-8");
+
+      const firstStage = await stageArtifact("0.1.1", "first");
+      try {
+        executeLifecycle(["opencode"], "install", projectDirectory, firstStage.env, { scope: "project" });
+      } finally {
+        firstStage.cleanup();
+      }
+      expect(fs.readFileSync(managedEntryPath, "utf-8")).toContain('"./plugin.mjs"');
+      expect(fs.readFileSync(managedEntryPath, "utf-8")).not.toContain("agents-target-release-");
+      expect((await import(`${pathToFileURL(managedPluginPath).href}?version=first`)).version).toBe("first");
+
+      const secondStage = await stageArtifact("0.1.2", "second");
+      let updateBackupId: string | undefined;
+      try {
+        updateBackupId = executeLifecycle(["opencode"], "update", projectDirectory, secondStage.env, { scope: "project" })[0]?.backupId;
+      } finally {
+        secondStage.cleanup();
+      }
+      expect(updateBackupId).toBeDefined();
+      expect((await import(`${pathToFileURL(managedPluginPath).href}?version=second`)).version).toBe("second");
+
+      const restoreOutput = collectOutput();
+      expect(await runCli(["restore", "--target", "opencode", "--opencode-scope", "project", "--backup", updateBackupId ?? ""], {
+        cwd: projectDirectory,
+        env: environment,
+        stdout: restoreOutput.stdout,
+        stderr: restoreOutput.stderr,
+      }), restoreOutput.err.join("\n")).toBe(0);
+      expect((await import(`${pathToFileURL(managedPluginPath).href}?version=restored`)).version).toBe("first");
+
+      const failingStage = await stageArtifact("0.1.3", "broken", "");
+      try {
+        expect(() => executeLifecycle(["opencode"], "update", projectDirectory, failingStage.env, { scope: "project" })).toThrow();
+      } finally {
+        failingStage.cleanup();
+      }
+      expect((await import(`${pathToFileURL(managedPluginPath).href}?version=recovered`)).version).toBe("first");
+
+      const userManagedPluginPath = path.join(path.dirname(managedPluginPath), "custom.mjs");
+      fs.writeFileSync(userManagedPluginPath, "export default {};\n", "utf-8");
+      executeLifecycle(["opencode"], "uninstall", projectDirectory, environment, { scope: "project" });
+      expect(fs.existsSync(managedEntryPath)).toBe(false);
+      expect(fs.existsSync(managedPluginPath)).toBe(false);
+      expect(fs.existsSync(userManagedPluginPath)).toBe(true);
+      expect(fs.readFileSync(nativeConfigPath, "utf-8")).toContain(`file://${customPluginPath}`);
+    } finally {
+      fs.rmSync(projectDirectory, { recursive: true, force: true });
+      fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+    }
+  });
+});
 
 function writeOpencodeJson(dir: string, config: Record<string, unknown>): void {
   fs.writeFileSync(
@@ -139,6 +304,14 @@ function writeLatestManifest(
   );
 }
 
+function readCliPackage(version: string): Buffer {
+  const packageJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8"),
+  ) as Record<string, unknown>;
+  packageJson.version = version;
+  return Buffer.from(JSON.stringify(packageJson, null, 2) + "\n");
+}
+
 const stubInput = {
   client: {} as never,
   project: {} as never,
@@ -154,7 +327,7 @@ describe("release fixture 빌드", () => {
     const fixtureDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "agents-fixture-build-"),
     );
-    const cliArtifactPath = path.join(fixtureDir, "agents-0.1.1.tgz");
+    const cliArtifactPath = path.join(fixtureDir, "agents-0.1.0.tgz");
     fs.writeFileSync(
       cliArtifactPath,
       createTarGz([
@@ -524,7 +697,7 @@ output_modalities = ["text"]
     fs.writeFileSync(catalogArtifactPath, v2Content, "utf-8");
     const v2Checksum = sha256(fs.readFileSync(catalogArtifactPath));
 
-    const cliArtifactPath = path.join(fixtureDir, "agents-0.1.1.tgz");
+    const cliArtifactPath = path.join(fixtureDir, "agents-0.1.0.tgz");
     fs.writeFileSync(
       cliArtifactPath,
       createTarGz([
@@ -546,7 +719,7 @@ output_modalities = ["text"]
     const cliArtifactChecksum = sha256(fs.readFileSync(cliArtifactPath));
 
     writeLatestManifest(latestPath, {
-      cliVersion: "0.1.1",
+      cliVersion: "0.1.0",
       catalogVersion: "2026.07.05.2",
       catalog: { url: `file://${catalogArtifactPath}`, sha256: v2Checksum },
       cli: { url: `file://${cliArtifactPath}`, sha256: cliArtifactChecksum },
@@ -846,7 +1019,7 @@ describe("upgrade + checksum", () => {
     const cliArtifactChecksum = sha256(fs.readFileSync(cliArtifactPath));
 
     writeLatestManifest(latestPath, {
-      cliVersion: "0.1.1",
+      cliVersion: "0.1.0",
       catalogVersion: "2026.07.05.2",
       catalog: {
         url: `file://${catalogArtifactPath}`,
@@ -935,7 +1108,7 @@ describe("upgrade + checksum", () => {
     const cliArtifactChecksum = sha256(fs.readFileSync(cliArtifactPath));
 
     writeLatestManifest(latestPath, {
-      cliVersion: "0.1.1",
+      cliVersion: "0.1.0",
       catalogVersion: "2026.07.05.2",
       catalog: {
         url: `file://${catalogArtifactPath}`,
@@ -1007,7 +1180,7 @@ describe("upgrade + checksum", () => {
       createTarGz([
         {
           name: "package.json",
-          content: fs.readFileSync(path.join(process.cwd(), "package.json")),
+          content: readCliPackage("0.1.1"),
         },
         {
           name: "bin/agents",
@@ -1036,5 +1209,52 @@ describe("upgrade + checksum", () => {
       stderr: io.stderr,
     });
     expect(exit).not.toBe(0);
+  });
+
+  test("upgrade: 빈 배포 묶음과 실제 버전 불일치를 성공으로 기록하지 않는다", async () => {
+    const emptyArtifactPath = path.join(fixtureDir, "empty.tgz");
+    fs.writeFileSync(
+      emptyArtifactPath,
+      createTarGz([{ name: "README.md", content: Buffer.from("empty") }]),
+    );
+    const emptyChecksum = sha256(fs.readFileSync(emptyArtifactPath));
+    writeLatestManifest(latestPath, {
+      cliVersion: "0.1.1",
+      catalogVersion: "2026.07.05.2",
+      catalog: { url: `file://${catalogArtifactPath}`, sha256: "0".repeat(64) },
+      cli: { url: `file://${emptyArtifactPath}`, sha256: emptyChecksum },
+    });
+    const emptyExit = await runCli(["upgrade"], {
+      cwd: projectDir,
+      env: releaseEnv(),
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+    expect(emptyExit).not.toBe(0);
+
+    const mismatchArtifactPath = path.join(fixtureDir, "mismatch.tgz");
+    fs.writeFileSync(
+      mismatchArtifactPath,
+      createTarGz([
+        { name: "package.json", content: readCliPackage("0.0.9") },
+        { name: "bin/agents", content: fs.readFileSync(path.join(process.cwd(), "bin", "agents")), mode: 0o755 },
+        { name: "src/cli.ts", content: fs.readFileSync(path.join(process.cwd(), "src", "cli.ts")) },
+      ]),
+    );
+    const mismatchChecksum = sha256(fs.readFileSync(mismatchArtifactPath));
+    writeLatestManifest(latestPath, {
+      cliVersion: "0.1.1",
+      catalogVersion: "2026.07.05.2",
+      catalog: { url: `file://${catalogArtifactPath}`, sha256: "0".repeat(64) },
+      cli: { url: `file://${mismatchArtifactPath}`, sha256: mismatchChecksum },
+    });
+    const mismatchExit = await runCli(["upgrade"], {
+      cwd: projectDir,
+      env: releaseEnv(),
+      stdout: io.stdout,
+      stderr: io.stderr,
+    });
+    expect(mismatchExit).not.toBe(0);
+    expect(io.err.some((line) => line.includes("실제 버전"))).toBe(true);
   });
 });

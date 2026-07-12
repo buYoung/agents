@@ -44,9 +44,9 @@ function collectOutput(): {
 }
 
 describe("CLI 명령 라우팅", () => {
-  test("CLI_COMMANDS = install/uninstall/validate/doctor/update/upgrade", () => {
+  test("CLI_COMMANDS에 수명주기 명령을 포함한다", () => {
     expect(CLI_COMMANDS.join(",")).toBe(
-      "install,uninstall,validate,doctor,update,upgrade",
+      "install,uninstall,validate,doctor,update,upgrade,backup,restore,status",
     );
     expect(CLI_COMMANDS.includes("generate" as never)).toBe(false);
     expect(CLI_COMMANDS.includes("migrate" as never)).toBe(false);

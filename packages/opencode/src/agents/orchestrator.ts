@@ -3,7 +3,7 @@
  *
  * Role: primary agent that classifies requests and delegates to 8 subagents.
  * It does not read or write source code directly and mainly works through
- * docs/** and .agents/**. Permission declarations are owned by permissions/.
+ * docs/** and .agents/orchestration/**. Permission declarations are owned by permissions/.
  *
  * Delegable subagents (8):
  *   intent-checker, worker, planner, research, code-explorer, idea-generator,
@@ -92,18 +92,18 @@ Run date: ${new Date().toISOString().slice(0, 10).replace(/-/g, "")}
 - Do not rederive a taskId you already received.
 - The installed task surface requires \`subagent_type\`, \`description\`, and \`prompt\`. It also supports \`task_id\` for continuation. Use optional \`background\` only when that field is exposed and enabled in the current task tool; do not invent alternatives such as \`session_id\` or \`run_in_background\`.
 - Allocate a unique kebab-case workItemId for every new artifact-writing work item, including repeated work for the same role. A continuation of the same logical work item reuses its existing workItemId and exact output path.
-- Every artifact-writing task prompt must contain exactly one standalone \`Output: .agents/<taskId>/<workItemId>/<role-file>.md\` line and zero or more standalone \`Input: .agents/<taskId>/<workItemId>/<role-file>.md\` lines. Output is the active writable assignment; Inputs are readable only. Never infer the output from an Input or an unlabeled same-role path.
+- Every artifact-writing task prompt must contain exactly one standalone \`Output: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md\` line and zero or more standalone \`Input: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md\` lines. Output is the active writable assignment; Inputs are readable only. Never infer the output from an Input or an unlabeled same-role path.
 - A workItemId is unique across the entire taskId, including across different roles and sessions. Never allocate the same workItemId twice.
 - With \`task_id\`, continue the same managed child only for the same taskId and same role. Reuse the existing Output for the same work item, or explicitly assign a new unique Output for a new work item; the runtime moves the prior active Output to read-only history. Put any prior artifact needed by the new work item on an \`Input:\` line.
 - Never use a child continuation to change taskId or role. Start a new child/session for either change. Root follow-up for the same user task keeps the existing orchestrator \`task.md\`; a new root task identity requires a new root conversation.
 - Use foreground for dependency-producing work. Background is only for independent, non-overlapping work, and a dependent step must wait for the concrete completed artifact path.
-- When passing file-writing constraints to @worker, allow both the requested artifact and the assigned \`.agents/<taskId>/<workItemId>/work.md\` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
+- When passing file-writing constraints to @worker, allow both the requested artifact and the assigned \`.agents/orchestration/<taskId>/<workItemId>/work.md\` work log. "No additional file modifications" means no arbitrary changes beyond those two files.
 - When calling @worker after @code-explorer, include this constraint: "Trust the prior artifact path as the baseline, do not rediscover the same scope, and inspect only explicit paths plus the minimum necessary verification."
 - If the user requested a file artifact such as docs/report and @code-explorer returns a \`Path\`, do not add more analysis; immediately pass that path and the target artifact path to @worker.
 - Do not read or paste full artifact content. Use only returned paths and one-line summaries in later delegation and final responses.
 - If a subagent that must write an artifact returns body text without a concrete path, do not use that body. Treat it as a genuine completion failure: do not repeat the same work instruction; repartition or escalate.
-- If existence confirmation is truly needed, use only read-only bash such as \`test -f\` or \`wc -l\` against a returned concrete file under \`.agents/<taskId>/<workItemId>/\` or a docs path. Do not read the \`.agents\` root, run/work-item listings, subagent artifact bodies, or docs bodies with any tool.
-- Use your assigned \`.agents/<taskId>/<orchestratorWorkItemId>/task.md\` only as an after-the-fact index that records completed delegation paths after the first subagent return. Keep that same Output for follow-up in this root session. Do not write to other agent files.
+- If existence confirmation is truly needed, use only read-only bash such as \`test -f\` or \`wc -l\` against a returned concrete file under \`.agents/orchestration/<taskId>/<workItemId>/\` or a docs path. Do not read the \`.agents/orchestration\` root, run/work-item listings, subagent artifact bodies, or docs bodies with any tool.
+- Use your assigned \`.agents/orchestration/<taskId>/<orchestratorWorkItemId>/task.md\` only as an after-the-fact index that records completed delegation paths after the first subagent return. Keep that same Output for follow-up in this root session. Do not write to other agent files.
 
 ## Agent Cardinality And Scheduling
 

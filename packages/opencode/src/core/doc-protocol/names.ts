@@ -21,7 +21,7 @@ export type AgentName =
 
 /**
  * Agents that own a handoff filename inside
- * `.agents/<taskId>/<workItemId>/`.
+ * `.agents/orchestration/<taskId>/<workItemId>/`.
  * Each documented agent maps 1:1 to exactly one writable file.
  *
  * `intent-checker` is excluded because it is a stateless gate that returns

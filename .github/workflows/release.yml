@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: 배포 버전 증가 방식
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major, prepatch, preminor, premajor, prerelease]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Git 작성자 설정
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: GitHub Release 생성
+        run: pnpm release -- ${{ inputs.increment }} --ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENTS_RELEASE_SIGNING_KEY: ${{ secrets.AGENTS_RELEASE_SIGNING_KEY }}
+          AGENTS_RELEASE_PUBLIC_KEY_BASE64: ${{ vars.AGENTS_RELEASE_PUBLIC_KEY_BASE64 }}

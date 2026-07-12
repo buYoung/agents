@@ -604,7 +604,7 @@ export function inspectBashArtifactAccess(
     if (!identity) {
       return {
         identities: [...identities.values()],
-        invalidReason: `산출물 경로는 정확한 .agents/<taskId>/<workItemId>/<role-file>.md 형식이어야 함: ${targetPath}`,
+        invalidReason: `산출물 경로는 정확한 .agents/orchestration/<taskId>/<workItemId>/<role-file>.md 형식이어야 함: ${targetPath}`,
       };
     }
     identities.set(identity.relativePath, identity);

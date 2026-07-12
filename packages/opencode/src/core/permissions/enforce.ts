@@ -113,7 +113,7 @@ function resolveToolKind(toolName: string):
  * 처리 흐름:
  * 1. 호출 에이전트를 sessionAgentMap에서 해석
  * 2. 도구 종류를 정규화
- * 3. `.agents/**` 대상이면 정규 run 경로와 역할 소유권을 검증
+ * 3. `.agents/orchestration/**` 대상이면 정규 run 경로와 역할 소유권을 검증
  * 4. 정책 테이블 조회 후 허용/거부 판단
  * 5. Fail-safe: 에이전트 미확인 시 변경 도구 거부, 읽기 허용
  */
@@ -293,7 +293,7 @@ export function enforcePermission(
       if (!identity) {
         return {
           allowed: false,
-          reason: `[baseline] 산출물 경로는 .agents/<taskId>/<workItemId>/<role-file>.md 형식이어야 함 — path=${artifactPath.pathValue}`,
+          reason: `[baseline] 산출물 경로는 .agents/orchestration/<taskId>/<workItemId>/<role-file>.md 형식이어야 함 — path=${artifactPath.pathValue}`,
         };
       }
       if (isEditTool && identity.owner !== agent) {
@@ -394,7 +394,7 @@ export function enforcePermission(
       if (outsideWorkspaceArtifactPath) {
         return {
           allowed: false,
-          reason: `[baseline] .agents/** 산출물은 workspace 내부만 허용 — path=${outsideWorkspaceArtifactPath}`,
+          reason: `[baseline] .agents/orchestration/** 산출물은 workspace 내부만 허용 — path=${outsideWorkspaceArtifactPath}`,
         };
       }
       const rootEnumerationPath = targetPaths.find((pathValue) =>
@@ -403,7 +403,7 @@ export function enforcePermission(
       if (agent === "orchestrator" && isReadTool && rootEnumerationPath) {
         return {
           allowed: false,
-          reason: `[policy] orchestrator는 .agents 루트/전체 산출물 목록 열람 금지 — tool=${toolName}, path=${rootEnumerationPath}`,
+          reason: `[policy] orchestrator는 .agents 및 .agents/orchestration 루트/전체 산출물 목록 열람 금지 — tool=${toolName}, path=${rootEnumerationPath}`,
         };
       }
       const subagentArtifactPath = targetPaths.find(
@@ -420,7 +420,7 @@ export function enforcePermission(
       }
       return {
         allowed: true,
-        reason: `[baseline] 역할 소유권이 확인된 .agents 산출물 접근 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
+        reason: `[baseline] 역할 소유권이 확인된 .agents/orchestration 산출물 접근 허용 — agent=${agent}, tool=${toolName}, path=${targetPath}`,
       };
     }
   }
@@ -534,7 +534,7 @@ export function enforcePermission(
     if (artifactAccess.identities.length > 0 && !isReadOnlyBash(bashCommand)) {
       return {
         allowed: false,
-        reason: "[baseline] .agents 산출물을 대상으로 한 변경 가능 bash 거부 — 파일 도구와 역할 소유 경로를 사용하라",
+        reason: "[baseline] .agents/orchestration 산출물을 대상으로 한 변경 가능 bash 거부 — 파일 도구와 역할 소유 경로를 사용하라",
       };
     }
     if (
@@ -545,7 +545,7 @@ export function enforcePermission(
     ) {
       return {
         allowed: false,
-        reason: "[policy] orchestrator는 bash로 .agents 루트/전체 산출물 목록 열람 금지",
+        reason: "[policy] orchestrator는 bash로 .agents 및 .agents/orchestration 루트/전체 산출물 목록 열람 금지",
       };
     }
     if (

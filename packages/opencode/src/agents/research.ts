@@ -47,7 +47,7 @@ ${TASKID_RULE}
 - Prefer official sources. Do not treat unsourced external facts as confirmed.
 - If web lookup is not forbidden, check current official documentation. Do not conclude from cached knowledge alone.
 - Use source reads or bash only when the input asks you to verify internal paths, local versions, or code context.
-- Read existing \`.agents\` artifacts or git history only when provided as input paths.
+- Read existing \`.agents/orchestration\` artifacts or git history only when provided as input paths.
 - Do not paste large documents or full schemas; compress to the necessary facts and URLs.
 - Do not finalize an implementation plan. Leave implementation scope decisions to planner or worker.
 - Do not edit source.

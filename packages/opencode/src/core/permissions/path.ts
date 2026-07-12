@@ -8,6 +8,7 @@ import path from "node:path";
 import {
   AGENT_DOC_MAP,
   DOCUMENTED_AGENTS,
+  RUN_DIR_ROOT,
   isValidTaskId,
   isValidWorkItemId,
   type DocumentedAgent,
@@ -35,6 +36,7 @@ export interface RunArtifactIdentity {
 const OWNER_BY_FILENAME = new Map<string, DocumentedAgent>(
   DOCUMENTED_AGENTS.map((agent) => [AGENT_DOC_MAP[agent], agent]),
 );
+const RUN_DIR_SEGMENTS = RUN_DIR_ROOT.split("/");
 
 function normalizedInput(targetPath: string): string {
   return targetPath.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -183,11 +185,16 @@ export function getRunArtifactIdentity(
   }
 
   const segments = inspectedPath.workspaceRelativePath.split("/");
-  if (segments.length !== 4 || segments[0] !== ".agents") {
+  if (
+    segments.length !== RUN_DIR_SEGMENTS.length + 3 ||
+    !RUN_DIR_SEGMENTS.every((segment, index) => segments[index] === segment)
+  ) {
     return undefined;
   }
 
-  const [, taskId, workItemId, filename] = segments;
+  const [taskId, workItemId, filename] = segments.slice(
+    RUN_DIR_SEGMENTS.length,
+  );
   const owner = OWNER_BY_FILENAME.get(filename);
   if (
     !owner ||
@@ -266,7 +273,12 @@ export function isAgentsRootEnumerationPath(
     relativePath === ".agents/*" ||
     relativePath === ".agents/**" ||
     relativePath === ".agents/*/*" ||
-    relativePath === ".agents/**/*"
+    relativePath === ".agents/**/*" ||
+    relativePath === RUN_DIR_ROOT ||
+    relativePath === `${RUN_DIR_ROOT}/*` ||
+    relativePath === `${RUN_DIR_ROOT}/**` ||
+    relativePath === `${RUN_DIR_ROOT}/*/*` ||
+    relativePath === `${RUN_DIR_ROOT}/**/*`
   );
 }
 

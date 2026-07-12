@@ -7,14 +7,16 @@ import {
   USER_CONFIG_SCHEMA_VERSION,
   writeManagedState,
 } from "opencode/core";
-import { EXIT_BLOCKED, EXIT_VALID } from "@cli/constants";
+import { EXIT_BLOCKED, EXIT_VALID, EXIT_WARNING } from "@cli/constants";
 import { restoreFileSnapshot, snapshotFile } from "@cli/fs-utils";
 import {
   getCodexAgentsDirectory,
+  getCurrentPluginVersion,
   getPackageVersion,
   resolveProjectDirectory,
 } from "@cli/paths";
 import {
+  assertArtifactCompatibility,
   assertLatestManifestCompatibility,
   readLatestManifest,
   readLocation,
@@ -23,12 +25,68 @@ import {
   verifyChecksum,
 } from "@cli/release";
 import type { CliIO, LatestManifest, LatestManifestArtifact } from "@cli/types";
+import { ReleaseManifestError } from "@cli/types";
 import { applyCodexAgentsArtifact } from "@cli/artifact";
+import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
+import { executeLifecycle } from "@cli/lifecycle/orchestrator";
+import { stageRemoteTargetSources, verifyOpencodeExecutable } from "@cli/lifecycle/targets";
 
 export async function update(
   args: string[],
   io: Required<CliIO>,
 ): Promise<number> {
+  const targets = readTargets(args);
+  if (targets) {
+    const scope = readOpencodeScope(args);
+    if (targets.includes("opencode") && !scope) {
+      io.stderr("OpenCode 업데이트에는 --opencode-scope user 또는 project를 명시해야 합니다.");
+      return EXIT_BLOCKED;
+    }
+    const projectDirectory = resolveProjectDirectory(args, io.cwd);
+    let stagedSources: Awaited<ReturnType<typeof stageRemoteTargetSources>> | undefined;
+    let sourceEnv = io.env;
+    try {
+      try {
+        const latest = await readLatestManifest(io.env);
+        assertLatestManifestCompatibility(latest, projectDirectory, "update");
+        const staged = await stageRemoteTargetSources(latest, targets, io.env);
+        stagedSources = staged;
+        sourceEnv = staged.env;
+      } catch (error) {
+        if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+      }
+      const results = executeLifecycle(
+        targets,
+        "update",
+        projectDirectory,
+        sourceEnv,
+        { scope: scope ?? undefined, adopt: args.includes("--adopt"), allowDowngrade: args.includes("--allow-downgrade") },
+      );
+      for (const result of results) {
+        io.stdout(`target=${result.target}`);
+        io.stdout(`requestedOperation=${result.requestedOperation}`);
+        io.stdout(`resolvedOperation=${result.resolvedOperation}`);
+        io.stdout(`status=${result.status}`);
+        if (result.backupId) io.stdout(`backupId=${result.backupId}`);
+        io.stdout(result.message);
+      }
+      if (targets.includes("opencode")) {
+        const runtime = verifyOpencodeExecutable(sourceEnv);
+        io.stdout(`opencodeRuntimeVerification=${runtime}`);
+        if (runtime !== "available") {
+          io.stderr("OpenCode 실행 파일을 찾지 못해 실제 기동 확인은 완료되지 않았습니다. local plugin과 설정의 정적 검증만 통과했습니다.");
+          return EXIT_WARNING;
+        }
+      }
+      return EXIT_VALID;
+    } catch (error) {
+      if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
+      io.stderr(`update-failed: ${error instanceof Error ? error.message : String(error)}`);
+      return EXIT_BLOCKED;
+    } finally {
+      stagedSources?.cleanup();
+    }
+  }
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
   let latest: LatestManifest;
   let catalogArtifact: LatestManifestArtifact;
@@ -38,16 +96,26 @@ export async function update(
     assertLatestManifestCompatibility(latest, projectDirectory, "update");
     catalogArtifact = requireLatestManifestArtifact(latest, "catalog");
     codexAgentsArtifact = latest.codexAgents;
+    assertArtifactCompatibility(catalogArtifact, getPackageVersion());
+    if (codexAgentsArtifact) assertArtifactCompatibility(codexAgentsArtifact, getPackageVersion());
   } catch (error) {
     if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
     throw error;
   }
-  const catalogContent = await readLocation(catalogArtifact.url);
+  const catalogContent = await readLocation(catalogArtifact.url, undefined, catalogArtifact.size);
+  if (catalogArtifact.size !== undefined && catalogContent.length !== catalogArtifact.size) {
+    io.stderr("update-failed: catalog artifact 크기가 배포 목록과 일치하지 않습니다.");
+    return EXIT_BLOCKED;
+  }
   verifyChecksum(catalogContent, catalogArtifact.sha256);
   const codexAgentsContent = codexAgentsArtifact
-    ? await readLocation(codexAgentsArtifact.url)
+    ? await readLocation(codexAgentsArtifact.url, undefined, codexAgentsArtifact.size)
     : null;
   if (codexAgentsArtifact && codexAgentsContent) {
+    if (codexAgentsArtifact.size !== undefined && codexAgentsContent.length !== codexAgentsArtifact.size) {
+      io.stderr("update-failed: Codex artifact 크기가 배포 목록과 일치하지 않습니다.");
+      return EXIT_BLOCKED;
+    }
     verifyChecksum(codexAgentsContent, codexAgentsArtifact.sha256);
   }
   const catalog = parseCatalog(catalogContent.toString("utf-8"));
@@ -75,7 +143,7 @@ export async function update(
       );
     }
     writeManagedState(projectDirectory, {
-      pluginVersion: getPackageVersion(),
+      pluginVersion: getCurrentPluginVersion(),
       cliVersion: getPackageVersion(),
       catalogVersion: catalog.catalogVersion,
       catalogChecksum: catalogArtifact.sha256,

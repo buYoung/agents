@@ -24,7 +24,7 @@ function executionAssignment(
     agent,
     taskId,
     workItemId,
-    artifactPath: `.agents/${taskId}/${workItemId}/${filename}`,
+    artifactPath: `.agents/orchestration/${taskId}/${workItemId}/${filename}`,
   };
 }
 
@@ -38,7 +38,7 @@ function artifactTaskArgs(
     subagent_type: agent,
     prompt: [
       `taskId=20260702-test workItemId=${workItemId}`,
-      `Output: .agents/20260702-test/${workItemId}/${filename}`,
+      `Output: .agents/orchestration/20260702-test/${workItemId}/${filename}`,
       ...inputs.map((input) => `Input: ${input}`),
     ].join("\n"),
   };
@@ -124,10 +124,10 @@ describe("권한 매트릭스", () => {
       sessionExecution,
     };
     const commands = [
-      "ls .agents/20260702-test/orchestrator-index/task.md",
-      "wc -l .agents/20260702-test/orchestrator-index/task.md",
-      "test -f .agents/20260702-test/orchestrator-index/task.md",
-      "rg --files .agents/20260702-test/orchestrator-index/task.md | wc -l",
+      "ls .agents/orchestration/20260702-test/orchestrator-index/task.md",
+      "wc -l .agents/orchestration/20260702-test/orchestrator-index/task.md",
+      "test -f .agents/orchestration/20260702-test/orchestrator-index/task.md",
+      "rg --files .agents/orchestration/20260702-test/orchestrator-index/task.md | wc -l",
       "git --no-pager log --oneline -5",
     ];
 
@@ -187,7 +187,7 @@ describe("권한 매트릭스", () => {
         tool: "read",
         sessionID: "session-orch",
         args: {
-          path: ".agents/20260702-test/orchestrator-index/task.md",
+          path: ".agents/orchestration/20260702-test/orchestrator-index/task.md",
         },
       },
       testMap,
@@ -197,7 +197,7 @@ describe("권한 매트릭스", () => {
         tool: "read",
         sessionID: "session-orch",
         args: {
-          path: ".agents/20260702-test/explorer-01/explore.md",
+          path: ".agents/orchestration/20260702-test/explorer-01/explore.md",
         },
       },
       testMap,
@@ -231,11 +231,11 @@ describe("권한 매트릭스", () => {
 
   test("orchestrator: 쓰기 가능 bash 거부", () => {
     const commands = [
-      "mkdir -p .agents/20260702-test",
-      "rm -rf .agents/20260702-test",
-      "cat .agents/20260702-test/task.md > /tmp/task.md",
-      "sed -i '' 's/a/b/' .agents/20260702-test/task.md",
-      "find .agents/20260702-test -type f -delete",
+      "mkdir -p .agents/orchestration/20260702-test",
+      "rm -rf .agents/orchestration/20260702-test",
+      "cat .agents/orchestration/20260702-test/task.md > /tmp/task.md",
+      "sed -i '' 's/a/b/' .agents/orchestration/20260702-test/task.md",
+      "find .agents/orchestration/20260702-test -type f -delete",
       "git checkout -- packages/opencode/src/core/permissions.ts",
       "git status --short",
     ];
@@ -265,13 +265,13 @@ describe("권한 매트릭스", () => {
     expect(result.allowed).toBe(true);
   });
 
-  test("orchestrator: .agents/** write 허용 (baseline)", () => {
+  test("orchestrator: .agents/orchestration/** write 허용 (baseline)", () => {
     const result = enforcePermission(
       {
         tool: "write",
         sessionID: "session-orch",
         args: {
-          path: "/Users/buyong/workspace/private/buyong-agents/.agents/20260702-test/orchestrator-index/task.md",
+          path: "/Users/buyong/workspace/private/buyong-agents/.agents/orchestration/20260702-test/orchestrator-index/task.md",
         },
       },
       testMap,
@@ -284,13 +284,13 @@ describe("권한 매트릭스", () => {
     expect(classifyPath("src/not.agents.md")).toBe("source");
   });
 
-  test("code-explorer: .agents/** write 허용 (baseline)", () => {
+  test("code-explorer: .agents/orchestration/** write 허용 (baseline)", () => {
     const result = enforcePermission(
       {
         tool: "write",
         sessionID: "session-explore",
         args: {
-          path: ".agents/20260702-test/explorer-01/explore.md",
+          path: ".agents/orchestration/20260702-test/explorer-01/explore.md",
         },
       },
       testMap,
@@ -334,7 +334,9 @@ describe("fail-safe", () => {
         {
           tool: "read",
           sessionID: "session-unknown",
-          args: { path: ".agents/20260702-test/worker-01/work.md" },
+          args: {
+            path: ".agents/orchestration/20260702-test/worker-01/work.md",
+          },
         },
         testMap,
       ).allowed,
@@ -589,7 +591,7 @@ describe("추가 정책 spot-check", () => {
           tool: "write",
           sessionID: "s-research",
           args: {
-            path: "/repo/project/.agents/20260702-test/research-01/research.md",
+            path: "/repo/project/.agents/orchestration/20260702-test/research-01/research.md",
           },
         },
         fullMap,
@@ -602,7 +604,7 @@ describe("추가 정책 spot-check", () => {
           tool: "write",
           sessionID: "s-research",
           args: {
-            path: "/tmp/.agents/20260702-test/research-01/research.md",
+            path: "/tmp/.agents/orchestration/20260702-test/research-01/research.md",
           },
         },
         fullMap,
@@ -645,7 +647,7 @@ describe("추가 정책 spot-check", () => {
             sessionID,
             args: {
               command:
-                "wc -l .agents/20260707-test/planner-01/plan.md",
+                "wc -l .agents/orchestration/20260707-test/planner-01/plan.md",
             },
           },
           fullMap,
@@ -907,7 +909,9 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "edit",
           sessionID: "s-planner",
-          args: { path: ".agents/20260707-test/planner-01/plan.md" },
+          args: {
+            path: ".agents/orchestration/20260707-test/planner-01/plan.md",
+          },
         },
         fullMap,
         { sessionAssignments: fullAssignments },
@@ -918,7 +922,9 @@ describe("추가 정책 spot-check", () => {
         {
           tool: "write",
           sessionID: "s-planner",
-          args: { path: ".agents/20260707-test/planner-01/plan.md" },
+          args: {
+            path: ".agents/orchestration/20260707-test/planner-01/plan.md",
+          },
         },
         fullMap,
         { sessionAssignments: fullAssignments },
@@ -928,7 +934,7 @@ describe("추가 정책 spot-check", () => {
     const lifecycle = createSessionAgentMap();
     expect(lifecycle.updateSessionAgent("parent", "orchestrator")).toBe(true);
     const delegatedInput =
-      ".agents/20260702-test/worker-input-01/work.md";
+      ".agents/orchestration/20260702-test/worker-input-01/work.md";
     const firstContext = getTaskExecutionContext(
       artifactTaskArgs(
         "planner",
@@ -984,7 +990,7 @@ describe("추가 정책 spot-check", () => {
           tool: "read",
           sessionID: "planner-child",
           args: {
-            path: ".agents/20260702-test/unregistered-worker/work.md",
+            path: ".agents/orchestration/20260702-test/unregistered-worker/work.md",
           },
         },
         lifecycle.map,
@@ -1057,9 +1063,9 @@ describe("추가 정책 spot-check", () => {
       ).toBe(true);
     }
     for (const path of [
-      ".agents/20260702-test/planner-unregistered/plan.md",
-      ".agents/20260702-test/worker-unregistered/work.md",
-      ".agents/20260703-other/planner-unregistered/plan.md",
+      ".agents/orchestration/20260702-test/planner-unregistered/plan.md",
+      ".agents/orchestration/20260702-test/worker-unregistered/work.md",
+      ".agents/orchestration/20260703-other/planner-unregistered/plan.md",
     ]) {
       expect(
         enforcePermission(
@@ -1107,7 +1113,7 @@ describe("추가 정책 spot-check", () => {
           sessionID: "root-session",
           args: {
             command:
-              "wc -l .agents/20260703-other/orchestrator-index/task.md",
+              "wc -l .agents/orchestration/20260703-other/orchestrator-index/task.md",
           },
         },
         rootLifecycle.map,
@@ -1174,7 +1180,7 @@ describe("추가 정책 spot-check", () => {
       subagent_type: "worker",
       prompt: [
         "taskId=20260702-test workItemId=planner-session-02",
-        "Output: .agents/20260702-test/planner-session-02/work.md",
+        "Output: .agents/orchestration/20260702-test/planner-session-02/work.md",
       ].join("\n"),
     });
     if (!duplicateAcrossRoles) throw new Error("duplicate context must parse");
@@ -1190,8 +1196,8 @@ describe("추가 정책 spot-check", () => {
       getTaskExecutionContext({
         subagent_type: "planner",
         prompt: [
-          "Output: .agents/20260702-test/planner-a/plan.md",
-          "Output: .agents/20260702-test/planner-b/plan.md",
+          "Output: .agents/orchestration/20260702-test/planner-a/plan.md",
+          "Output: .agents/orchestration/20260702-test/planner-b/plan.md",
         ].join("\n"),
       }),
     ).toBeUndefined();
@@ -1199,7 +1205,7 @@ describe("추가 정책 spot-check", () => {
       getTaskExecutionContext({
         subagent_type: "planner",
         prompt:
-          ".agents/20260702-test/planner-a/plan.md .agents/20260702-test/planner-b/plan.md",
+          ".agents/orchestration/20260702-test/planner-a/plan.md .agents/orchestration/20260702-test/planner-b/plan.md",
       }),
     ).toBeUndefined();
 
@@ -1274,7 +1280,9 @@ describe("추가 정책 spot-check", () => {
       {
         tool: "read",
         sessionID: "s-intent",
-        args: { path: ".agents/20260702-test/worker-01/work.md" },
+        args: {
+          path: ".agents/orchestration/20260702-test/worker-01/work.md",
+        },
       },
       fullMap,
     );

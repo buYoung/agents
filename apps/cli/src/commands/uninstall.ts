@@ -21,11 +21,40 @@ import {
   resolveProjectDirectory,
 } from "@cli/paths";
 import type { CliIO } from "@cli/types";
+import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
+import { executeLifecycle } from "@cli/lifecycle/orchestrator";
 
 export async function uninstall(
   args: string[],
   io: Required<CliIO>,
 ): Promise<number> {
+  const targets = readTargets(args);
+  if (targets) {
+    const scope = readOpencodeScope(args);
+    if (targets.includes("opencode") && !scope) {
+      io.stderr("OpenCode 삭제에는 --opencode-scope user 또는 project를 명시해야 합니다.");
+      return EXIT_BLOCKED;
+    }
+    try {
+      const results = executeLifecycle(
+        targets,
+        "uninstall",
+        resolveProjectDirectory(args, io.cwd),
+        io.env,
+        { scope: scope ?? undefined },
+      );
+      for (const result of results) {
+        io.stdout(`target=${result.target}`);
+        io.stdout(`resolvedOperation=${result.resolvedOperation}`);
+        if (result.backupId) io.stdout(`backupId=${result.backupId}`);
+        io.stdout(result.message);
+      }
+      return EXIT_VALID;
+    } catch (error) {
+      io.stderr(`uninstall-failed: ${error instanceof Error ? error.message : String(error)}`);
+      return EXIT_BLOCKED;
+    }
+  }
   const scopeIndex = args.indexOf("--scope");
   const scope = scopeIndex >= 0 ? args[scopeIndex + 1] : undefined;
   if (scope !== "user" && scope !== "project") {

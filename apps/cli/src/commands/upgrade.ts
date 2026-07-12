@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   getCatalogChecksum,
   USER_CONFIG_SCHEMA_VERSION,
@@ -7,8 +8,9 @@ import {
 import { applyCliArtifact } from "@cli/artifact";
 import { EXIT_BLOCKED, EXIT_VALID } from "@cli/constants";
 import { restoreFileSnapshot, snapshotFile } from "@cli/fs-utils";
-import { resolveProjectDirectory } from "@cli/paths";
+import { getCurrentPluginVersion, getPackageVersion, resolveProjectDirectory } from "@cli/paths";
 import {
+  assertArtifactCompatibility,
   assertLatestManifestCompatibility,
   readLatestManifest,
   readLocation,
@@ -29,13 +31,27 @@ export async function upgrade(
     latest = await readLatestManifest(io.env);
     assertLatestManifestCompatibility(latest, projectDirectory, "upgrade");
     cliArtifact = requireLatestManifestArtifact(latest, "cli");
+    assertArtifactCompatibility(cliArtifact, getPackageVersion());
   } catch (error) {
     if (reportReleaseManifestError(error, io)) return EXIT_BLOCKED;
     throw error;
   }
-  const cliArtifactContent = await readLocation(cliArtifact.url);
+  const cliArtifactContent = await readLocation(cliArtifact.url, undefined, cliArtifact.size);
+  if (cliArtifact.size !== undefined && cliArtifactContent.length !== cliArtifact.size) {
+    io.stderr("upgrade-failed: CLI artifact 크기가 배포 목록과 일치하지 않습니다.");
+    return EXIT_BLOCKED;
+  }
   verifyChecksum(cliArtifactContent, cliArtifact.sha256);
   const cliArtifactApplyResult = applyCliArtifact(cliArtifactContent);
+  if (cliArtifactApplyResult.actualVersion !== latest.cliVersion) {
+    for (const targetSnapshot of [...cliArtifactApplyResult.targetSnapshots].reverse()) {
+      restoreFileSnapshot(targetSnapshot);
+    }
+    io.stderr(
+      `upgrade-failed: artifact 실제 버전 ${cliArtifactApplyResult.actualVersion}이(가) 배포 목록 ${latest.cliVersion}과 일치하지 않습니다.`,
+    );
+    return EXIT_BLOCKED;
+  }
   const managedStatePath = path.join(
     projectDirectory,
     ".opencode",
@@ -43,8 +59,17 @@ export async function upgrade(
   );
   const managedStateSnapshot = snapshotFile(managedStatePath);
   try {
+    const executablePath = path.join(cliArtifactApplyResult.packageRoot, "bin", "agents");
+    const smoke = spawnSync(executablePath, ["--help"], {
+      cwd: cliArtifactApplyResult.packageRoot,
+      env: io.env,
+      encoding: "utf-8",
+    });
+    if (smoke.status !== 0) {
+      throw new Error(`갱신 후 agents --help 확인 실패: ${smoke.stderr || smoke.error?.message || "알 수 없는 오류"}`);
+    }
     writeManagedState(projectDirectory, {
-      pluginVersion: latest.cliVersion,
+      pluginVersion: getCurrentPluginVersion(),
       cliVersion: latest.cliVersion,
       catalogVersion: latest.catalogVersion,
       catalogChecksum: getCatalogChecksum(projectDirectory),
