@@ -17,6 +17,7 @@ import { upgrade } from "@cli/commands/upgrade";
 import { backup } from "@cli/commands/backup";
 import { restore } from "@cli/commands/restore";
 import { status } from "@cli/commands/status";
+import { readTerminalLine } from "@cli/interactive";
 
 function printHelp(stdout: (line: string) => void): void {
   stdout(
@@ -24,6 +25,7 @@ function printHelp(stdout: (line: string) => void): void {
   );
   stdout("명령: install, uninstall, update, backup, restore, status, validate, doctor, upgrade");
   stdout("대상: install/update/uninstall/backup/restore는 --target codex|opencode|all을 지원합니다.");
+  stdout("install/update에서 --target을 생략하면 대화형 터미널에서 대상과 OpenCode 설치 위치를 고릅니다.");
 }
 
 export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
@@ -32,6 +34,8 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
     env: io.env ?? process.env,
     stdout: io.stdout ?? ((line) => console.log(line)),
     stderr: io.stderr ?? ((line) => console.error(line)),
+    isInteractive: io.isInteractive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    readLine: io.readLine ?? readTerminalLine,
   };
   const [command, ...args] = argv;
   try {
@@ -40,7 +44,13 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
       await notifyUpgradeIfAvailable(resolvedIO);
       return command ? EXIT_VALID : EXIT_BLOCKED;
     }
-    await notifyUpgradeIfAvailable(resolvedIO);
+    // 대상 선택을 취소하거나 입력이 끝난 경우에는 배포 목록조차 읽지 않는다.
+    // 대화형 install/update는 대상 선택 뒤 명령 안에서 필요한 목록만 읽는다.
+    const defersVersionNotice =
+      (command === "install" || command === "update") &&
+      resolvedIO.isInteractive &&
+      !args.includes("--target");
+    if (!defersVersionNotice) await notifyUpgradeIfAvailable(resolvedIO);
     switch (command) {
       case "install":
         return await install(args, resolvedIO);

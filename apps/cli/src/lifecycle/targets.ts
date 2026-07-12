@@ -189,7 +189,7 @@ function getCodexSource(env: NodeJS.ProcessEnv): { root: string; version: string
       path.join(bundledRoot, "skills", "codex-orchestrator", "agents", "openai.yaml"),
     ];
     if (required.every((filePath) => fs.existsSync(filePath))) {
-      return { root: bundledRoot, version: readPackageVersion(path.join(bundledRoot, "package.json")) };
+      return { root: bundledRoot, version: env.AGENTS_CODEX_ARTIFACT_VERSION ?? readPackageVersion(path.join(bundledRoot, "package.json")) };
     }
     throw new Error("독립 CLI의 Codex 배포 묶음이 손상되었습니다.");
   }
@@ -203,7 +203,7 @@ function getCodexSource(env: NodeJS.ProcessEnv): { root: string; version: string
   if (!root || required.some((filePath) => !fs.existsSync(filePath))) {
     throw new Error("Codex 배포 파일을 찾을 수 없습니다. 검증된 Codex 대상 묶음을 포함한 CLI를 사용하세요.");
   }
-  return { root, version: readPackageVersion(path.join(root, "package.json")) };
+  return { root, version: env.AGENTS_CODEX_ARTIFACT_VERSION ?? readPackageVersion(path.join(root, "package.json")) };
 }
 
 function getOpencodeSource(env: NodeJS.ProcessEnv): { root: string; version: string } {
@@ -218,7 +218,7 @@ function getOpencodeSource(env: NodeJS.ProcessEnv): { root: string; version: str
       path.join(bundledRoot, "catalog.toml"),
     ];
     if (required.every((filePath) => fs.existsSync(filePath))) {
-      return { root: bundledRoot, version: readPackageVersion(path.join(bundledRoot, "package.json")) };
+      return { root: bundledRoot, version: env.AGENTS_OPENCODE_ARTIFACT_VERSION ?? readPackageVersion(path.join(bundledRoot, "package.json")) };
     }
     throw new Error("독립 CLI의 OpenCode 배포 묶음이 손상되었습니다.");
   }
@@ -232,7 +232,7 @@ function getOpencodeSource(env: NodeJS.ProcessEnv): { root: string; version: str
   if (!root || required.some((filePath) => !fs.existsSync(filePath))) {
     throw new Error("OpenCode plugin 배포 파일을 찾을 수 없습니다. 검증된 OpenCode 대상 묶음을 포함한 CLI를 사용하세요.");
   }
-  return { root, version: readPackageVersion(path.join(root, "package.json")) };
+  return { root, version: env.AGENTS_OPENCODE_ARTIFACT_VERSION ?? readPackageVersion(path.join(root, "package.json")) };
 }
 
 function readCodexSourceFiles(sourceRoot: string): string[] {
@@ -270,6 +270,26 @@ export interface LifecycleTargetHandler {
 export interface StagedTargetSources {
   env: NodeJS.ProcessEnv;
   cleanup(): void;
+}
+
+/** artifact를 받기 전, 배포 목록의 버전만 사용해 대화형 실행 계획을 계산한다. */
+export function createRemoteTargetPlanEnvironment(
+  manifest: LatestManifest,
+  targets: LifecycleTarget[],
+  env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const plannedEnv = { ...env };
+  for (const target of targets) {
+    const artifactName = target === "codex" ? "codexAgents" : "opencode";
+    const artifact = requireLatestManifestArtifact(manifest, artifactName);
+    assertArtifactCompatibility(artifact, getPackageVersion());
+    if (!artifact.version) {
+      throw new Error(`원격 ${target} artifact에 계획에 필요한 버전이 없습니다.`);
+    }
+    if (target === "codex") plannedEnv.AGENTS_CODEX_ARTIFACT_VERSION = artifact.version;
+    else plannedEnv.AGENTS_OPENCODE_ARTIFACT_VERSION = artifact.version;
+  }
+  return plannedEnv;
 }
 
 function assertArtifactFiles(root: string, requiredFiles: string[], targetName: string): void {

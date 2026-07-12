@@ -3,6 +3,10 @@ export interface CliIO {
   env?: NodeJS.ProcessEnv;
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
+  /** 터미널 질문을 표시할 수 있는지 명시한다. 테스트에서는 process.stdin에 의존하지 않는다. */
+  isInteractive?: boolean;
+  /** 대화형 질문의 응답을 제공한다. 기본값은 현재 터미널의 한 줄 입력이다. */
+  readLine?: (question: string) => Promise<string>;
 }
 
 export interface LatestManifest {
@@ -143,6 +147,13 @@ export interface LifecycleResult {
   status: LifecycleStatus;
   backupId?: string;
   message: string;
+}
+
+export interface LifecyclePlanItem {
+  inspection: LifecycleInspection;
+  resolvedOperation: ResolvedOperation;
+  /** 계획 판단에 사용한 상태 기록·관리 경로·버전 입력의 안정된 지문이다. */
+  decisionFingerprint: string;
 }
 
 export interface BackupEntry {

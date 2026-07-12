@@ -1,5 +1,6 @@
 import type {
   LifecycleInspection,
+  LifecyclePlanItem,
   LifecycleResult,
   LifecycleStatus,
   LifecycleTarget,
@@ -7,6 +8,7 @@ import type {
   RequestedOperation,
   ResolvedOperation,
 } from "@cli/types";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createBackup, readBackup, restoreBackup } from "@cli/lifecycle/backup";
@@ -39,6 +41,64 @@ function resolveOperation(
   throw new Error("상태를 안전하게 판정할 수 없어 변경하지 않았습니다.");
 }
 
+function appendPathFingerprint(
+  hash: crypto.Hash,
+  filePath: string,
+  visitedPaths = new Set<string>(),
+): void {
+  const resolvedPath = path.resolve(filePath);
+  let stats: fs.BigIntStats;
+  try {
+    stats = fs.lstatSync(resolvedPath, { bigint: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      hash.update(`absent\0${resolvedPath}\0`);
+      return;
+    }
+    throw error;
+  }
+  hash.update(`path\0${resolvedPath}\0mode\0${stats.mode}\0mtime\0${stats.mtimeNs}\0`);
+  if (stats.isSymbolicLink()) {
+    const linkTarget = fs.readlinkSync(resolvedPath);
+    hash.update(`symlink\0${linkTarget}\0`);
+    const canonicalPath = fs.realpathSync(resolvedPath);
+    if (!visitedPaths.has(canonicalPath)) {
+      visitedPaths.add(canonicalPath);
+      appendPathFingerprint(hash, canonicalPath, visitedPaths);
+    }
+    return;
+  }
+  if (stats.isDirectory()) {
+    hash.update("directory\0");
+    for (const entry of fs.readdirSync(resolvedPath).sort()) {
+      appendPathFingerprint(hash, path.join(resolvedPath, entry), visitedPaths);
+    }
+    return;
+  }
+  if (stats.isFile()) {
+    hash.update("file\0");
+    hash.update(crypto.createHash("sha256").update(fs.readFileSync(resolvedPath)).digest());
+    return;
+  }
+  hash.update("other\0");
+}
+
+function createDecisionFingerprint(
+  inspection: LifecycleInspection,
+  projectDirectory: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  const hash = crypto.createHash("sha256");
+  hash.update(`target\0${inspection.target}\0scope\0${inspection.scope ?? ""}\0`);
+  hash.update(`installed\0${inspection.installedVersion ?? ""}\0available\0${inspection.availableVersion ?? ""}\0`);
+  const managedPaths = TARGET_REGISTRY[inspection.target]
+    .getBackupPaths(projectDirectory, env, inspection.scope)
+    .map((filePath) => path.resolve(filePath))
+    .sort();
+  for (const managedPath of managedPaths) appendPathFingerprint(hash, managedPath);
+  return hash.digest("hex");
+}
+
 interface LifecycleJournal {
   schemaVersion: 1;
   backupId: string;
@@ -57,6 +117,11 @@ function writeJournal(env: NodeJS.ProcessEnv, journal: LifecycleJournal): void {
 
 function clearJournal(env: NodeJS.ProcessEnv): void {
   fs.rmSync(getLifecycleJournalPath(env), { force: true });
+}
+
+/** 대화형 확인 전에는 이전 실행 복구도 파일 변경이므로 존재 여부만 확인한다. */
+export function hasInterruptedLifecycle(env: NodeJS.ProcessEnv): boolean {
+  return fs.existsSync(getLifecycleJournalPath(env));
 }
 
 function recoverInterruptedLifecycle(projectDirectory: string, env: NodeJS.ProcessEnv): void {
@@ -94,19 +159,59 @@ export function inspectTargets(
   return targets.map((target) => TARGET_REGISTRY[target].inspect(projectDirectory, env, target === "opencode" ? scope : undefined));
 }
 
-export function executeLifecycle(
+export function planLifecycle(
   targets: LifecycleTarget[],
   requestedOperation: RequestedOperation,
   projectDirectory: string,
   env: NodeJS.ProcessEnv,
   options: { scope?: OpencodeScope; adopt?: boolean; allowDowngrade?: boolean } = {},
-): LifecycleResult[] {
-  recoverInterruptedLifecycle(projectDirectory, env);
+): LifecyclePlanItem[] {
   const inspections = inspectTargets(targets, projectDirectory, env, options.scope);
-  const planned = inspections.map((inspection) => ({
+  return inspections.map((inspection) => ({
     inspection,
     resolvedOperation: resolveOperation(requestedOperation, inspection.status, options.adopt === true, options.allowDowngrade === true),
+    decisionFingerprint: createDecisionFingerprint(inspection, projectDirectory, env),
   }));
+}
+
+export function areLifecyclePlansEqual(
+  expected: LifecyclePlanItem[],
+  actual: LifecyclePlanItem[],
+): boolean {
+  return expected.length === actual.length && expected.every((item, index) => {
+    const other = actual[index];
+    return other !== undefined &&
+      item.inspection.target === other.inspection.target &&
+      item.inspection.scope === other.inspection.scope &&
+      item.inspection.status === other.inspection.status &&
+      item.inspection.installedVersion === other.inspection.installedVersion &&
+      item.inspection.availableVersion === other.inspection.availableVersion &&
+      item.inspection.reason === other.inspection.reason &&
+      item.inspection.userModifiedPaths.join("\0") === other.inspection.userModifiedPaths.join("\0") &&
+      item.decisionFingerprint === other.decisionFingerprint &&
+      item.resolvedOperation === other.resolvedOperation;
+  });
+}
+
+export function executeLifecycle(
+  targets: LifecycleTarget[],
+  requestedOperation: RequestedOperation,
+  projectDirectory: string,
+  env: NodeJS.ProcessEnv,
+  options: { scope?: OpencodeScope; adopt?: boolean; allowDowngrade?: boolean; expectedPlan?: LifecyclePlanItem[] } = {},
+): LifecycleResult[] {
+  if (options.expectedPlan) {
+    if (hasInterruptedLifecycle(env)) {
+      throw new Error("이전 수명주기 복구가 필요해 확인한 계획을 그대로 실행하지 않았습니다. 현재 상태를 다시 검토하세요.");
+    }
+  } else {
+    recoverInterruptedLifecycle(projectDirectory, env);
+  }
+  const actualPlan = planLifecycle(targets, requestedOperation, projectDirectory, env, options);
+  if (options.expectedPlan && !areLifecyclePlansEqual(options.expectedPlan, actualPlan)) {
+    throw new Error("확인 후 대상 상태 또는 배포 버전이 바뀌어 표시한 계획을 실행하지 않았습니다. 현재 상태를 다시 검토하세요.");
+  }
+  const planned = options.expectedPlan ?? actualPlan;
   const changed = planned.filter((item) => item.resolvedOperation !== "verify" && item.resolvedOperation !== "none");
   const backup = changed.length === 0
     ? undefined

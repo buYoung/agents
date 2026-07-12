@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { runCli } from "@cli/cli";
 import { createBackup, readBackup, restoreBackup } from "@cli/lifecycle/backup";
-import { getLifecycleBackupDirectory } from "@cli/lifecycle/paths";
+import { getCodexLifecycleStatePath, getLifecycleBackupDirectory, getLifecycleJournalPath } from "@cli/lifecycle/paths";
 
 function createIo(): {
   out: string[];
@@ -15,6 +15,17 @@ function createIo(): {
   const out: string[] = [];
   const err: string[] = [];
   return { out, err, stdout: (line) => out.push(line), stderr: (line) => err.push(line) };
+}
+
+function createInteractiveIo(answers: string[]): ReturnType<typeof createIo> & {
+  isInteractive: true;
+  readLine: (question: string) => Promise<string>;
+} {
+  return {
+    ...createIo(),
+    isInteractive: true,
+    readLine: async () => answers.shift() ?? "",
+  };
 }
 
 describe.sequential("명시적 대상 수명주기", () => {
@@ -228,5 +239,236 @@ describe.sequential("명시적 대상 수명주기", () => {
     fs.writeFileSync(customAgentPath, "name = \"my-agent\"\n", "utf-8");
     expect(await runCli(["install", "--target", "codex", "--adopt"], { cwd: root, env, stdout: io.stdout, stderr: io.stderr })).toBe(0);
     expect(fs.readFileSync(customAgentPath, "utf-8")).toBe("name = \"my-agent\"\n");
+  });
+
+  test("비대화형 install은 대상이 없으면 필요한 옵션을 알리고 파일을 바꾸지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-noninteractive-"));
+    temporaryDirectories.push(root);
+    const io = createIo();
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+
+    expect(await runCli(["install"], { cwd: root, env, stdout: io.stdout, stderr: io.stderr })).toBe(3);
+    expect(io.err.join("\n")).toContain("--target codex, opencode 또는 all");
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+  });
+
+  test("비대화형 update도 대상이 없으면 대상 옵션을 요청한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-update-noninteractive-"));
+    temporaryDirectories.push(root);
+    const io = createIo();
+
+    expect(await runCli(["update"], { cwd: root, env: { ...process.env }, stdout: io.stdout, stderr: io.stderr })).toBe(3);
+    expect(io.err.join("\n")).toContain("--target codex, opencode 또는 all");
+  });
+
+  test("대화형 선택 취소는 파일을 변경하지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-cancel-"));
+    temporaryDirectories.push(root);
+    const io = createInteractiveIo(["0"]);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+
+    expect(await runCli(["install"], { cwd: root, env, ...io })).toBe(0);
+    expect(io.out).toContain("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+  });
+
+  test("대화형 확인 취소는 원격 artifact를 읽거나 대상 파일을 만들지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-remote-cancel-"));
+    temporaryDirectories.push(root);
+    const missingArtifactPath = path.join(root, "missing-codex.tar.gz");
+    const latestPath = path.join(root, "latest.json");
+    fs.writeFileSync(latestPath, JSON.stringify({
+      cliVersion: "0.1.0",
+      catalogVersion: "2026.07.12.1",
+      minimumCliVersion: "0.1.0",
+      minimumPluginVersion: "0.1.0",
+      publishedAt: "2026-07-12T00:00:00.000Z",
+      codexAgents: {
+        url: `file://${missingArtifactPath}`,
+        sha256: "a".repeat(64),
+        size: 1,
+        version: "0.1.0",
+        compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" },
+        requiredFiles: ["agents/versions.json"],
+      },
+    }), "utf-8");
+    const io = createInteractiveIo(["1", "n"]);
+    const env = {
+      ...process.env,
+      AGENTS_RELEASE_URL: `file://${latestPath}`,
+      CODEX_HOME: path.join(root, "codex"),
+      XDG_STATE_HOME: path.join(root, "state"),
+    };
+
+    expect(await runCli(["install"], { cwd: root, env, ...io })).toBe(0);
+    expect(io.out).toContain("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+    expect(fs.existsSync(missingArtifactPath)).toBe(false);
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "state"))).toBe(false);
+  });
+
+  test("대화형 입력 종료는 내부 오류 대신 변경 없는 취소로 처리한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-input-ended-"));
+    temporaryDirectories.push(root);
+    const output = createIo();
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+
+    expect(await runCli(["install"], {
+      cwd: root,
+      env,
+      ...output,
+      isInteractive: true,
+      readLine: async () => { throw new Error("input closed"); },
+    })).toBe(0);
+    expect(output.out).toContain("입력이 종료되어 작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+    expect(output.err.join("\n")).not.toContain("internal-error");
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+  });
+
+  test("실행 전 확인에서 취소하면 선택한 대상도 변경하지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-confirm-cancel-"));
+    temporaryDirectories.push(root);
+    const io = createInteractiveIo(["1", "n"]);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+
+    expect(await runCli(["install"], { cwd: root, env, ...io })).toBe(0);
+    expect(io.out.join("\n")).toContain("설치 전 확인:");
+    expect(io.out).toContain("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+  });
+
+  test("확인 뒤 대상 상태가 바뀌면 표시한 계획을 실행하지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-plan-race-"));
+    temporaryDirectories.push(root);
+    const output = createIo();
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    let questionCount = 0;
+
+    expect(await runCli(["install"], {
+      cwd: root,
+      env,
+      ...output,
+      isInteractive: true,
+      readLine: async () => {
+        questionCount += 1;
+        if (questionCount === 1) return "1";
+        fs.mkdirSync(path.join(root, "codex", "agents"), { recursive: true });
+        fs.writeFileSync(path.join(root, "codex", "agents", "external.toml"), "name = \"external\"\n", "utf-8");
+        return "y";
+      },
+    })).toBe(3);
+    expect(output.err.join("\n")).toContain("표시한 계획을 실행하지 않았습니다");
+    expect(fs.existsSync(path.join(root, "codex", "agents", "worker.toml"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "state"))).toBe(false);
+  });
+
+  test("상태 기록만 바뀌어도 원격 artifact를 받기 전에 안전하게 중단한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-state-race-"));
+    temporaryDirectories.push(root);
+    const initialOutput = createIo();
+    const stateDirectory = path.join(root, "state");
+    const env = {
+      ...process.env,
+      CODEX_HOME: path.join(root, "codex"),
+      XDG_STATE_HOME: stateDirectory,
+    };
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...initialOutput })).toBe(0);
+
+    const statePath = getCodexLifecycleStatePath(env);
+    const originalWorker = fs.readFileSync(path.join(root, "codex", "agents", "worker.toml"), "utf-8");
+    const backupEntriesBefore = fs.readdirSync(getLifecycleBackupDirectory(env)).sort();
+    const missingArtifactPath = path.join(root, "missing-codex-artifact.tar.gz");
+    const latestPath = path.join(root, "latest.json");
+    fs.writeFileSync(latestPath, JSON.stringify({
+      cliVersion: "0.1.0",
+      catalogVersion: "2026.07.12.1",
+      minimumCliVersion: "0.1.0",
+      minimumPluginVersion: "0.1.0",
+      publishedAt: "2026-07-12T00:00:00.000Z",
+      codexAgents: {
+        url: `file://${missingArtifactPath}`,
+        sha256: "a".repeat(64),
+        size: 1,
+        version: "0.1.1",
+        compatibility: { minimumCliVersion: "0.1.0", maximumCliVersion: "0.1.0" },
+        requiredFiles: ["agents/versions.json"],
+      },
+    }), "utf-8");
+    const output = createIo();
+    let questionCount = 0;
+    let externallyChangedState: string | undefined;
+    const interactiveEnv = { ...env, AGENTS_RELEASE_URL: `file://${latestPath}` };
+
+    expect(await runCli(["update"], {
+      cwd: root,
+      env: interactiveEnv,
+      ...output,
+      isInteractive: true,
+      readLine: async () => {
+        questionCount += 1;
+        if (questionCount === 1) return "1";
+        const state = JSON.parse(fs.readFileSync(statePath, "utf-8")) as { files: Array<{ path: string }> };
+        state.files = state.files.filter((file) => !file.path.endsWith(`${path.sep}worker.toml`));
+        externallyChangedState = JSON.stringify(state, null, 2) + "\n";
+        fs.writeFileSync(statePath, externallyChangedState, "utf-8");
+        return "y";
+      },
+    })).toBe(3);
+
+    expect(output.err.join("\n")).toContain("원격 artifact를 받거나 표시한 계획을 실행하지 않았습니다");
+    expect(fs.existsSync(missingArtifactPath)).toBe(false);
+    expect(fs.readFileSync(path.join(root, "codex", "agents", "worker.toml"), "utf-8")).toBe(originalWorker);
+    expect(fs.readFileSync(statePath, "utf-8")).toBe(externallyChangedState);
+    expect(fs.readdirSync(getLifecycleBackupDirectory(env)).sort()).toEqual(backupEntriesBefore);
+    expect(fs.existsSync(getLifecycleJournalPath(env))).toBe(false);
+  });
+
+  test("중단된 수명주기 기록이 있으면 대화형 실행은 복구나 다른 작업을 시작하지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-journal-review-"));
+    temporaryDirectories.push(root);
+    const io = createInteractiveIo(["1"]);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const journalPath = getLifecycleJournalPath(env);
+    fs.mkdirSync(path.dirname(journalPath), { recursive: true });
+    fs.writeFileSync(journalPath, JSON.stringify({ schemaVersion: 1, backupId: "missing", projectDirectory: root, targets: [{ target: "codex" }], phase: "applying" }), "utf-8");
+
+    expect(await runCli(["update"], { cwd: root, env, ...io })).toBe(3);
+    expect(io.err.join("\n")).toContain("이전 수명주기 복구가 필요합니다");
+    expect(fs.existsSync(journalPath)).toBe(true);
+    expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
+  });
+
+  test("대화형 install은 미설치 대상을 새 설치로 안내하고, 설치된 대상은 확인만 안내한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-interactive-current-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const installIo = createInteractiveIo(["1", "y"]);
+
+    expect(await runCli(["install"], { cwd: root, env, ...installIo })).toBe(0);
+    expect(installIo.out.join("\n")).toContain("설치되지 않아 새로 설치합니다.");
+
+    const updateIo = createInteractiveIo(["1", "y"]);
+    expect(await runCli(["update"], { cwd: root, env, ...updateIo })).toBe(0);
+    expect(updateIo.out.join("\n")).toContain("최신 상태라 변경하지 않고 적용 상태만 확인합니다.");
+  });
+
+  test("대화형 all은 대상별 혼합 상태와 이전 설치의 재구성을 각각 안내한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-interactive-mixed-"));
+    temporaryDirectories.push(root);
+    const env = {
+      ...process.env,
+      CODEX_HOME: path.join(root, "codex"),
+      XDG_CONFIG_HOME: path.join(root, "config"),
+      XDG_STATE_HOME: path.join(root, "state"),
+    };
+    const legacyStatePath = path.join(root, ".opencode", "agents.install.json");
+    fs.mkdirSync(path.dirname(legacyStatePath), { recursive: true });
+    fs.writeFileSync(legacyStatePath, JSON.stringify({ pluginAdded: true, providerAdded: true, nativeConfigPath: "", agentsConfigManaged: true, installedAt: "2020-01-01T00:00:00.000Z" }), "utf-8");
+    const io = createInteractiveIo(["3", "2", "y"]);
+
+    expect([0, 1]).toContain(await runCli(["update"], { cwd: root, env, ...io }));
+    const output = io.out.join("\n");
+    expect(output).toContain("Codex: 설치되지 않아 새로 설치합니다.");
+    expect(output).toContain("OpenCode: 너무 오래된 설치라 사용자 설정을 보존하고 새 방식으로 다시 설치합니다.");
   });
 });
