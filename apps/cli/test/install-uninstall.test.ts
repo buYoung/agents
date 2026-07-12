@@ -51,6 +51,13 @@ describe("CLI 명령 라우팅", () => {
     expect(CLI_COMMANDS.includes("generate" as never)).toBe(false);
     expect(CLI_COMMANDS.includes("migrate" as never)).toBe(false);
   });
+
+  test("공개 도움말은 doctor만 진단 명령으로 안내하고 호환 명령은 숨긴다", async () => {
+    const output = collectOutput();
+    expect(await runCli(["--help"], { env: cliEnv, ...output })).toBe(0);
+    expect(output.out.join("\n")).toContain("doctor");
+    expect(output.out.join("\n")).not.toMatch(/\bstatus\b|\bvalidate\b/);
+  });
 });
 
 describe("bin 래퍼", () => {

@@ -16,13 +16,15 @@ import { upgrade } from "@cli/commands/upgrade";
 import { backup } from "@cli/commands/backup";
 import { restore } from "@cli/commands/restore";
 import { status } from "@cli/commands/status";
-import { readTerminalLine } from "@cli/interactive";
+import { isJsonFormat, isKeyValueFormat } from "@cli/diagnostic-result";
+import { clackTui } from "@cli/tui";
 
 function printHelp(stdout: (line: string) => void): void {
   stdout(
-    "사용법: agents <install|uninstall|update|backup|restore|status|validate|doctor|upgrade> [options]",
+    "사용법: agents <install|uninstall|update|backup|restore|doctor|upgrade> [options]",
   );
-  stdout("명령: install, uninstall, update, backup, restore, status, validate, doctor, upgrade");
+  stdout("명령: install, uninstall, update, backup, restore, doctor, upgrade");
+  stdout("진단: `agents doctor`로 설정, 설치 상태, 실행 준비를 한 번에 확인합니다.");
   stdout("대상: install/update/uninstall/backup/restore는 --target codex|opencode|all을 지원합니다.");
   stdout("install/update에서 --target을 생략하면 대화형 터미널에서 대상과 OpenCode 설치 위치를 고릅니다.");
 }
@@ -34,7 +36,7 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
     stdout: io.stdout ?? ((line) => console.log(line)),
     stderr: io.stderr ?? ((line) => console.error(line)),
     isInteractive: io.isInteractive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    readLine: io.readLine ?? readTerminalLine,
+    tui: io.tui ?? clackTui,
   };
   const [command, ...args] = argv;
   try {
@@ -49,7 +51,10 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
       (command === "install" || command === "update") &&
       resolvedIO.isInteractive &&
       !args.includes("--target");
-    if (!defersVersionNotice) await notifyUpgradeIfAvailable(resolvedIO);
+    const usesMachineOutput = isJsonFormat(args) || isKeyValueFormat(args);
+    const suppressVersionNotice =
+      usesMachineOutput && ["doctor", "status", "validate", "backup", "restore"].includes(command);
+    if (!defersVersionNotice && !suppressVersionNotice) await notifyUpgradeIfAvailable(resolvedIO);
     switch (command) {
       case "install":
         return await install(args, resolvedIO);

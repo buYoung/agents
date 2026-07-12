@@ -220,6 +220,7 @@ export function executeLifecycle(
         requestedOperation,
         changed.map(({ inspection }) => ({ target: inspection.target, scope: inspection.scope })),
         changed.flatMap(({ inspection }) => TARGET_REGISTRY[inspection.target].getBackupPaths(projectDirectory, env, inspection.scope)),
+        changed.map(({ inspection }) => ({ target: inspection.target, scope: inspection.scope, installedVersion: inspection.installedVersion })),
       );
   if (backup) {
     writeJournal(env, {

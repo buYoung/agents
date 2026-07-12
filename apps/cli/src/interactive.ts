@@ -1,6 +1,4 @@
-import * as readline from "node:readline/promises";
-import { stdin, stdout } from "node:process";
-import type { CliIO, LifecyclePlanItem, LifecycleTarget, OpencodeScope } from "@cli/types";
+import { TUI_CANCEL, type LifecyclePlanItem, type LifecycleTarget, type OpencodeScope, type TuiAdapter } from "@cli/types";
 
 export interface InteractiveSelection {
   targets: LifecycleTarget[];
@@ -9,49 +7,22 @@ export interface InteractiveSelection {
   adopt: boolean;
 }
 
-export async function readTerminalLine(question: string): Promise<string> {
-  const terminal = readline.createInterface({ input: stdin, output: stdout });
-  try {
-    return await terminal.question(question);
-  } finally {
-    terminal.close();
-  }
-}
-
-async function choose(
-  io: Required<CliIO>,
-  title: string,
-  options: readonly string[],
-): Promise<number | null> {
-  io.stdout(title);
-  options.forEach((option, index) => io.stdout(`  ${index + 1}. ${option}`));
-  io.stdout("  0. 취소");
-  let answer: string;
-  try {
-    answer = (await io.readLine("선택 번호: ")).trim();
-  } catch {
-    io.stdout("입력이 종료되어 작업을 취소했습니다. 파일은 변경하지 않았습니다.");
-    return null;
-  }
-  if (answer === "0" || answer.toLowerCase() === "q") return null;
-  const choice = Number(answer);
-  if (!Number.isInteger(choice) || choice < 1 || choice > options.length) {
-    io.stderr("선택 번호가 올바르지 않습니다. 작업을 시작하지 않았습니다.");
-    return null;
-  }
-  return choice - 1;
-}
-
-/** --target이 생략된 대화형 install/update의 대상과 OpenCode 범위를 선택한다. */
-export async function selectLifecycleTargets(io: Required<CliIO>): Promise<InteractiveSelection | null> {
-  const targetChoice = await choose(io, "처리할 대상을 선택하세요.", ["Codex", "OpenCode", "Codex와 OpenCode 모두"]);
-  if (targetChoice === null) return null;
-  const targets: LifecycleTarget[] = targetChoice === 0 ? ["codex"] : targetChoice === 1 ? ["opencode"] : ["codex", "opencode"];
+/** --target이 생략된 대화형 install/update/backup의 대상과 OpenCode 범위를 고른다. */
+export async function selectLifecycleTargets(tui: TuiAdapter): Promise<InteractiveSelection | null> {
+  const selected = await tui.multiselect("처리할 대상을 선택하세요.", [
+    { value: "codex", label: "Codex", hint: "Codex agent와 skill" },
+    { value: "opencode", label: "OpenCode", hint: "OpenCode plugin과 설정" },
+  ]);
+  if (selected === TUI_CANCEL || selected.length === 0) return null;
+  const targets = selected as LifecycleTarget[];
   let scope: OpencodeScope | undefined;
   if (targets.includes("opencode")) {
-    const scopeChoice = await choose(io, "OpenCode 설치 위치를 선택하세요.", ["사용자 전체", "현재 프로젝트"]);
-    if (scopeChoice === null) return null;
-    scope = scopeChoice === 0 ? "user" : "project";
+    const selectedScope = await tui.select("OpenCode 설치 위치를 선택하세요.", [
+      { value: "user", label: "사용자 전체", hint: "사용자 설정 디렉터리" },
+      { value: "project", label: "현재 프로젝트", hint: ".opencode 아래" },
+    ]);
+    if (selectedScope === TUI_CANCEL) return null;
+    scope = selectedScope;
   }
   return { targets, scope, adopt: true };
 }
@@ -67,24 +38,24 @@ function operationMessage(item: LifecyclePlanItem): string {
   return "변경할 파일이 없습니다.";
 }
 
-/** 실제 파일 변경 전에 대상별 상태와 결정된 작업을 알리고 확인한다. */
+/** 실제 파일 변경 전에 대상별 상태·설치/사용 가능 버전·예정 작업을 보여주고 승인받는다. */
 export async function confirmLifecyclePlan(
-  io: Required<CliIO>,
+  tui: TuiAdapter,
   operation: "install" | "update",
   plan: LifecyclePlanItem[],
-): Promise<boolean> {
-  io.stdout(`${operation === "install" ? "설치" : "업데이트"} 전 확인:`);
-  for (const item of plan) {
-    const displayName = item.inspection.target === "codex" ? "Codex" : "OpenCode";
-    io.stdout(`- ${displayName}: ${operationMessage(item)}`);
-    if (item.inspection.reason) io.stdout(`  현재 상태: ${item.inspection.reason}`);
-  }
-  let answer: string;
-  try {
-    answer = (await io.readLine("계속하시겠습니까? [y/N]: ")).trim().toLowerCase();
-  } catch {
-    io.stdout("입력이 종료되어 작업을 취소했습니다. 파일은 변경하지 않았습니다.");
-    return false;
-  }
-  return answer === "y" || answer === "yes" || answer === "예";
+): Promise<boolean | null> {
+  const details = plan.map((item) => {
+    const inspection = item.inspection;
+    const name = inspection.target === "codex" ? "Codex" : `OpenCode (${inspection.scope})`;
+    return [
+      `${name}`,
+      `현재 상태: ${inspection.status}${inspection.reason ? ` — ${inspection.reason}` : ""}`,
+      `설치 버전: ${inspection.installedVersion ?? "없음"}`,
+      `사용 가능 버전: ${inspection.availableVersion ?? "확인 불가"}`,
+      `예정 작업: ${operationMessage(item)}`,
+    ].join("\n");
+  }).join("\n\n");
+  tui.note(details, `${operation === "install" ? "설치" : "업데이트"} 전 확인`);
+  const answer = await tui.confirm("표시한 계획을 실행하시겠습니까?");
+  return answer === TUI_CANCEL ? null : answer;
 }

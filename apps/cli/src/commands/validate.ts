@@ -1,97 +1,54 @@
-import {
-  loadCatalog,
-  loadPluginConfig,
-  validatePluginConfig,
-  type ConfigLoadWarning,
-} from "opencode/core";
-import {
-  AGENT_RECORD,
-  EXIT_INVALID,
-  EXIT_VALID,
-  EXIT_WARNING,
-} from "@cli/constants";
+import { EXIT_INVALID, EXIT_VALID, EXIT_WARNING } from "@cli/constants";
+import { diagnosticExitCode, emitJson, isJsonFormat, type DiagnosticStatus } from "@cli/diagnostic-result";
+import { collectConfigDiagnostics, collectTargetDiagnostics } from "@cli/diagnostic-reports";
+import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
 import { resolveProjectDirectory } from "@cli/paths";
 import type { CliIO } from "@cli/types";
-import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
-import { inspectTargets } from "@cli/lifecycle/orchestrator";
 
-export async function validate(
-  args: string[],
-  io: Required<CliIO>,
-): Promise<number> {
+function exitCodeForConfigStatus(status: DiagnosticStatus): number {
+  if (status === "valid") return EXIT_VALID;
+  if (status === "warning") return EXIT_WARNING;
+  return EXIT_INVALID;
+}
+
+/**
+ * `validate`은 설정 파일 호환 명령이므로, doctor의 실행 환경·저장소 진단을
+ * 보고서에는 유지하되 기존 설정 검증 종료 코드에는 반영하지 않는다.
+ */
+function validateCompatibilityExitCode(report: ReturnType<typeof collectConfigDiagnostics>["report"]): number {
+  const configCheck = report.checks.find((check) => check.id === "config");
+  return configCheck ? exitCodeForConfigStatus(configCheck.status) : diagnosticExitCode(report);
+}
+
+/** 한 버전 동안 유지하는 숨은 호환 명령이다. */
+export async function validate(args: string[], io: Required<CliIO>): Promise<number> {
   const projectDirectory = resolveProjectDirectory(args, io.cwd);
-  const targets = readTargets(args);
-  if (targets) {
-    try {
+  try {
+    const targets = readTargets(args);
+    if (targets) {
       const scope = readOpencodeScope(args);
-      if (targets.includes("opencode") && !scope) {
-        io.stderr("OpenCode 검증에는 --opencode-scope user 또는 project가 필요합니다.");
-        return EXIT_INVALID;
+      if (targets.includes("opencode") && !scope) throw new Error("OpenCode 검증에는 --opencode-scope user 또는 project가 필요합니다.");
+      const collection = collectTargetDiagnostics(targets, projectDirectory, io.env, scope ?? undefined);
+      if (isJsonFormat(args)) emitJson(io, collection.report);
+      else {
+        for (const check of collection.report.checks) {
+          io.stdout(`target=${check.metadata?.target ?? "unknown"}`);
+          io.stdout(`targetStatus=${check.metadata?.lifecycleStatus ?? "unknown"}`);
+          if (check.detail) io.stderr(`${check.metadata?.target ?? "target"}: ${check.detail}`);
+        }
       }
-      const inspections = inspectTargets(targets, projectDirectory, io.env, scope ?? undefined);
-      for (const inspection of inspections) {
-        io.stdout(`target=${inspection.target}`);
-        io.stdout(`targetStatus=${inspection.status}`);
-        if (inspection.reason) io.stderr(`${inspection.target}: ${inspection.reason}`);
-      }
-      return inspections.every((inspection) => inspection.status === "healthy-current" || inspection.status === "ahead")
-        ? EXIT_VALID
-        : EXIT_INVALID;
-    } catch (error) {
-      io.stderr(`target-validation-failed: ${error instanceof Error ? error.message : String(error)}`);
-      return EXIT_INVALID;
+      return collection.report.checks.every((check) => check.status === "valid") ? EXIT_VALID : EXIT_INVALID;
     }
-  }
-  const catalog = loadCatalog(projectDirectory);
-  const warnings: ConfigLoadWarning[] = [];
-  const config = loadPluginConfig(projectDirectory, {
-    silent: true,
-    catalog,
-    agentRecord: AGENT_RECORD,
-    onWarning: (warning) => warnings.push(warning),
-  });
-  const validationMessages = validatePluginConfig(
-    config,
-    catalog,
-    AGENT_RECORD,
-  );
-  for (const warning of warnings) {
-    io.stderr(`${warning.kind}: ${warning.message}`);
-  }
-  const warningKeys = new Set(
-    warnings.map((warning) => `${warning.kind}:${warning.message}`),
-  );
-  for (const message of validationMessages) {
-    if (warningKeys.has(`${message.kind}:${message.message}`)) {
-      continue;
+    const collection = collectConfigDiagnostics(projectDirectory, io.env);
+    if (isJsonFormat(args)) emitJson(io, collection.report);
+    else {
+      for (const error of collection.errors) io.stderr(error);
+      if (collection.report.summary.status === "valid") io.stdout("valid: agents.toml 설정이 유효합니다.");
     }
-    io.stderr(`${message.kind}: ${message.message}`);
+    return validateCompatibilityExitCode(collection.report);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    io.stderr(`validation-failed: ${message}`);
+    return 3;
   }
-  if (
-    warnings.some(
-      (warning) =>
-        warning.kind === "invalid-model" ||
-        warning.kind === "invalid-reasoning-effort" ||
-        warning.kind === "protected-agent-disabled" ||
-        warning.kind === "invalid-schema" ||
-        warning.kind === "invalid-toml",
-    )
-  ) {
-    return EXIT_INVALID;
-  }
-  if (
-    validationMessages.some(
-      (message) =>
-        message.kind === "invalid-model" ||
-        message.kind === "invalid-reasoning-effort" ||
-        message.kind === "protected-agent-disabled",
-    )
-  ) {
-    return EXIT_INVALID;
-  }
-  if (warnings.length > 0 || validationMessages.length > 0) {
-    return EXIT_WARNING;
-  }
-  io.stdout("valid: agents.toml 설정이 유효합니다.");
-  return EXIT_VALID;
 }

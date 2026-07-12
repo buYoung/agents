@@ -5,8 +5,35 @@ export interface CliIO {
   stderr?: (line: string) => void;
   /** 터미널 질문을 표시할 수 있는지 명시한다. 테스트에서는 process.stdin에 의존하지 않는다. */
   isInteractive?: boolean;
-  /** 대화형 질문의 응답을 제공한다. 기본값은 현재 터미널의 한 줄 입력이다. */
-  readLine?: (question: string) => Promise<string>;
+  /** 테스트에서 실제 터미널 없이 대화형 흐름을 대체하는 얇은 TUI 어댑터다. */
+  tui?: TuiAdapter;
+}
+
+export interface TuiOption<T extends string> {
+  value: T;
+  label: string;
+  hint?: string;
+  disabled?: boolean | string;
+}
+
+export interface TuiSpinner {
+  start(message?: string): void;
+  stop(message?: string): void;
+}
+
+export const TUI_CANCEL = Symbol("tui-cancel");
+export type TuiCancel = typeof TUI_CANCEL;
+
+/** `@clack/prompts`를 실제 UI로 쓰되 테스트에서는 이 경계만 대체한다. */
+export interface TuiAdapter {
+  intro(message: string): void;
+  outro(message: string): void;
+  cancel(message: string): void;
+  note(message: string, title?: string): void;
+  select<T extends string>(message: string, options: TuiOption<T>[]): Promise<T | TuiCancel>;
+  multiselect<T extends string>(message: string, options: TuiOption<T>[]): Promise<T[] | TuiCancel>;
+  confirm(message: string): Promise<boolean | TuiCancel>;
+  spinner(): TuiSpinner;
 }
 
 export interface LatestManifest {
@@ -168,10 +195,32 @@ export interface BackupEntry {
 }
 
 export interface BackupIndex {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   id: string;
   createdAt: string;
   reason: string;
   targets: Array<{ target: LifecycleTarget; scope?: OpencodeScope }>;
   entries: BackupEntry[];
+  metadata?: BackupMetadata;
+}
+
+export interface BackupMetadata {
+  createdAt: string;
+  targets: Array<{ target: LifecycleTarget; scope?: OpencodeScope; installedVersion?: string }>;
+  reason: string;
+  fileCount: number;
+  totalSizeBytes: number;
+  restorable: boolean;
+  restoreFailureReason?: string;
+}
+
+export interface BackupSummary {
+  id: string;
+  createdAt: string;
+  targets: Array<{ target: LifecycleTarget; scope?: OpencodeScope; installedVersion?: string }>;
+  reason: string;
+  fileCount: number;
+  totalSizeBytes: number;
+  restorable: boolean;
+  restoreFailureReason?: string;
 }

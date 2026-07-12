@@ -31,6 +31,7 @@ import { readOpencodeScope, readTargets } from "@cli/lifecycle/args";
 import { areLifecyclePlansEqual, executeLifecycle, hasInterruptedLifecycle, planLifecycle } from "@cli/lifecycle/orchestrator";
 import { createRemoteTargetPlanEnvironment, stageRemoteTargetSources, verifyOpencodeExecutable } from "@cli/lifecycle/targets";
 import { confirmLifecyclePlan, selectLifecycleTargets } from "@cli/interactive";
+import { finishCancelled } from "@cli/tui";
 
 export async function update(
   args: string[],
@@ -39,9 +40,10 @@ export async function update(
   let targets = readTargets(args);
   let interactiveSelection: Awaited<ReturnType<typeof selectLifecycleTargets>> | undefined;
   if (!targets && io.isInteractive) {
-    interactiveSelection = await selectLifecycleTargets(io);
+    io.tui.intro("agents 업데이트");
+    interactiveSelection = await selectLifecycleTargets(io.tui);
     if (!interactiveSelection) {
-      io.stdout("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+      finishCancelled(io.tui);
       return EXIT_VALID;
     }
     targets = interactiveSelection.targets;
@@ -77,8 +79,9 @@ export async function update(
           sourceEnv,
           { scope: scope ?? undefined, adopt, allowDowngrade: args.includes("--allow-downgrade") },
         );
-        if (!await confirmLifecyclePlan(io, "update", plan)) {
-          io.stdout("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+        const approved = await confirmLifecyclePlan(io.tui, "update", plan);
+        if (approved !== true) {
+          finishCancelled(io.tui);
           return EXIT_VALID;
         }
         const confirmedPlan = planLifecycle(
@@ -107,14 +110,24 @@ export async function update(
             return EXIT_BLOCKED;
           }
         }
-        const results = executeLifecycle(
-          targets,
-          "update",
-          projectDirectory,
-          sourceEnv,
-          { scope: scope ?? undefined, adopt, allowDowngrade: args.includes("--allow-downgrade"), expectedPlan: plan },
-        );
-        return reportLifecycleResults(results, targets, sourceEnv, io);
+        const progress = io.tui.spinner();
+        progress.start("업데이트 계획을 적용하는 중");
+        try {
+          const results = executeLifecycle(
+            targets,
+            "update",
+            projectDirectory,
+            sourceEnv,
+            { scope: scope ?? undefined, adopt, allowDowngrade: args.includes("--allow-downgrade"), expectedPlan: plan },
+          );
+          const exit = reportLifecycleResults(results, targets, sourceEnv, io, io.tui);
+          progress.stop(exit === EXIT_VALID ? "업데이트를 완료했습니다." : "업데이트는 완료됐지만 경고가 있습니다.");
+          io.tui.outro(exit === EXIT_VALID ? "업데이트 성공" : "업데이트 경고");
+          return exit;
+        } catch (error) {
+          progress.stop("업데이트에 실패했습니다.");
+          throw error;
+        }
       }
       try {
         const latest = await readLatestManifest(io.env);
@@ -242,6 +255,7 @@ function reportLifecycleResults(
   targets: ReturnType<typeof readTargets>,
   sourceEnv: NodeJS.ProcessEnv,
   io: Required<CliIO>,
+  tui?: Required<CliIO>["tui"],
 ): number {
   for (const result of results) {
     io.stdout(`target=${result.target}`);
@@ -251,6 +265,7 @@ function reportLifecycleResults(
     if (result.backupId) io.stdout(`backupId=${result.backupId}`);
     io.stdout(result.message);
   }
+  if (tui) tui.note(results.map((result) => `${result.target}${result.scope ? ` (${result.scope})` : ""}: ${result.message}`).join("\n"), "실행 결과");
   if (targets?.includes("opencode")) {
     const runtime = verifyOpencodeExecutable(sourceEnv);
     io.stdout(`opencodeRuntimeVerification=${runtime}`);

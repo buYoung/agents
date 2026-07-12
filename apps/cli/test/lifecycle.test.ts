@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runCli } from "@cli/cli";
-import { createBackup, readBackup, restoreBackup } from "@cli/lifecycle/backup";
+import { createBackup, listBackupSummaries, readBackup, restoreBackup } from "@cli/lifecycle/backup";
+import * as backupModule from "@cli/lifecycle/backup";
 import { getCodexLifecycleStatePath, getLifecycleBackupDirectory, getLifecycleJournalPath } from "@cli/lifecycle/paths";
+import { TUI_CANCEL, type TuiAdapter } from "@cli/types";
 
 function createIo(): {
   out: string[];
@@ -19,12 +21,34 @@ function createIo(): {
 
 function createInteractiveIo(answers: string[]): ReturnType<typeof createIo> & {
   isInteractive: true;
-  readLine: (question: string) => Promise<string>;
+  tui: TuiAdapter;
 } {
+  const output = createIo();
+  const next = () => answers.shift() ?? "0";
   return {
-    ...createIo(),
+    ...output,
     isInteractive: true,
-    readLine: async () => answers.shift() ?? "",
+    tui: {
+      intro: (message) => output.out.push(message),
+      outro: (message) => output.out.push(message),
+      cancel: (message) => output.out.push(message),
+      note: (message, title) => output.out.push(`${title ?? "안내"}: ${message}`),
+      select: async <T extends string>() => {
+        const answer = next();
+        if (answer === "0") return TUI_CANCEL;
+        return (answer === "1" ? "user" : "project") as T;
+      },
+      multiselect: async <T extends string>() => {
+        const answer = next();
+        if (answer === "0") return TUI_CANCEL;
+        return (answer === "1" ? ["codex"] : answer === "2" ? ["opencode"] : ["codex", "opencode"]) as T[];
+      },
+      confirm: async () => {
+        const answer = next().toLowerCase();
+        return answer === "0" ? TUI_CANCEL : answer === "y" || answer === "yes" || answer === "예";
+      },
+      spinner: () => ({ start: () => undefined, stop: () => undefined }),
+    },
   };
 }
 
@@ -78,11 +102,292 @@ describe.sequential("명시적 대상 수명주기", () => {
     expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, stdout: io.stdout, stderr: io.stderr })).toBe(0);
     const backupId = io.out.find((line) => line.startsWith("backupId="))?.slice("backupId=".length);
     expect(backupId).toBeTruthy();
+    const backup = readBackup(env, backupId ?? "");
+    expect(backup.schemaVersion).toBe(3);
+    expect(backup.metadata).toMatchObject({
+      reason: "manual",
+      restorable: true,
+      targets: [{ target: "codex", installedVersion: "0.1.0" }],
+    });
+    expect(backup.metadata?.fileCount).toBeGreaterThan(0);
+    expect(backup.metadata?.totalSizeBytes).toBeGreaterThan(0);
     const workerPath = path.join(root, "codex", "agents", "worker.toml");
     const original = fs.readFileSync(workerPath, "utf-8");
     fs.writeFileSync(workerPath, `${original}\n# changed\n`, "utf-8");
     expect(await runCli(["restore", "--target", "codex", "--backup", backupId ?? ""], { cwd: root, env, stdout: io.stdout, stderr: io.stderr }), io.err.join("\n")).toBe(0);
     expect(fs.readFileSync(workerPath, "utf-8")).toBe(original);
+  });
+
+  test("대화형 backup은 Clack 어댑터로 대상을 선택하고 완료 요약을 남긴다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-interactive-backup-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const setup = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...setup })).toBe(0);
+    const io = createInteractiveIo(["1"]);
+
+    expect(await runCli(["backup"], { cwd: root, env, ...io })).toBe(0);
+    expect(io.out.join("\n")).toContain("안전 사본 생성 완료:");
+    expect(io.out.join("\n")).toContain("복원 가능: 예");
+  });
+
+  test("backup/restore 자동 실행은 JSON 계약을 제공하고 대화형 화면에 raw key=value를 섞지 않는다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-machine-output-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const setup = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...setup })).toBe(0);
+    const backupOutput = createIo();
+    expect(await runCli(["backup", "--target", "codex", "--json"], { cwd: root, env, ...backupOutput })).toBe(0);
+    const backup = JSON.parse(backupOutput.out.join("\n")) as { schemaVersion: number; backupId: string; backupFiles: number; restorable: boolean };
+    expect(backup).toMatchObject({ schemaVersion: 1, restorable: true });
+    expect(backup.backupFiles).toBeGreaterThan(0);
+    const workerPath = path.join(root, "codex", "agents", "worker.toml");
+    fs.appendFileSync(workerPath, "\n# changed\n", "utf-8");
+    const restoreOutput = createIo();
+    expect(await runCli(["restore", "--target", "codex", "--backup", backup.backupId, "--json"], { cwd: root, env, ...restoreOutput })).toBe(0);
+    expect(JSON.parse(restoreOutput.out.join("\n"))).toMatchObject({ schemaVersion: 1, restoredBackupId: backup.backupId });
+
+    const humanOutput = createInteractiveIo(["1"]);
+    expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, ...humanOutput })).toBe(0);
+    expect(humanOutput.out.some((line) => line.startsWith("backupId="))).toBe(false);
+    expect(humanOutput.out.join("\n")).toContain("다음 행동:");
+  });
+
+  test("기계 출력 backup/restore는 대화형 선택이나 확인을 실행하지 않고 형식화된 실패 결과만 출력한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-machine-no-tui-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const setup = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...setup })).toBe(0);
+    const calls: string[] = [];
+    const tui: TuiAdapter = {
+      intro: () => calls.push("intro"), outro: () => calls.push("outro"), cancel: () => calls.push("cancel"), note: () => calls.push("note"),
+      select: async <T extends string>() => { calls.push("select"); return TUI_CANCEL as T | typeof TUI_CANCEL; },
+      multiselect: async <T extends string>() => { calls.push("multiselect"); return TUI_CANCEL as T[] | typeof TUI_CANCEL; },
+      confirm: async () => { calls.push("confirm"); return TUI_CANCEL; },
+      spinner: () => ({ start: () => calls.push("start"), stop: () => calls.push("stop") }),
+    };
+
+    const backupOutput = createIo();
+    expect(await runCli(["backup", "--json"], { cwd: root, env, isInteractive: true, tui, ...backupOutput })).toBe(3);
+    expect(JSON.parse(backupOutput.out.join("\n"))).toMatchObject({ schemaVersion: 1, error: expect.any(String) });
+    expect(backupOutput.err).toEqual([]);
+
+    const restoreOutput = createIo();
+    expect(await runCli(["restore", "--format=kv"], { cwd: root, env, isInteractive: true, tui, ...restoreOutput })).toBe(3);
+    expect(restoreOutput.out).toContain("rollbackStatus=not-started");
+    expect(restoreOutput.out.every((line) => line.includes("="))).toBe(true);
+    expect(restoreOutput.err).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  test("rollback 실패는 성공으로 표현하지 않고 안전 사본과 수동 복구 행동을 보고한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-rollback-failure-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const setup = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...setup })).toBe(0);
+    const backupOutput = createIo();
+    expect(await runCli(["backup", "--target", "codex", "--json"], { cwd: root, env, ...backupOutput })).toBe(0);
+    const backupId = (JSON.parse(backupOutput.out.join("\n")) as { backupId: string }).backupId;
+    const restoreSpy = vi.spyOn(backupModule, "restoreBackup").mockImplementation(() => {
+      throw new Error("simulated restore failure");
+    });
+    try {
+      const restoreOutput = createIo();
+      expect(await runCli(["restore", "--target", "codex", "--backup", backupId, "--json"], { cwd: root, env, ...restoreOutput })).toBe(3);
+      const failure = JSON.parse(restoreOutput.out.join("\n")) as { rollbackStatus: string; rollbackRestored: boolean; rollbackBackupId?: string; rollbackError?: string; nextActions: string[] };
+      expect(failure).toMatchObject({ rollbackStatus: "failed", rollbackRestored: false, rollbackBackupId: expect.any(String), rollbackError: "simulated restore failure" });
+      expect(failure.nextActions.join("\n")).toContain("일부 파일 변경이 남아 있을 수 있습니다");
+    } finally {
+      restoreSpy.mockRestore();
+    }
+  });
+
+  test("대화형 restore 성공 화면은 rollback과 doctor 다음 행동을 보여 준다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-interactive-restore-result-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const setup = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...setup })).toBe(0);
+    const backupOutput = createIo();
+    expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, ...backupOutput })).toBe(0);
+    const backupId = backupOutput.out.find((line) => line.startsWith("backupId="))?.slice("backupId=".length);
+    expect(backupId).toBeTruthy();
+    const output = createIo();
+    const tui: TuiAdapter = {
+      intro: (message) => output.out.push(message), outro: (message) => output.out.push(message), cancel: (message) => output.out.push(message),
+      note: (message, title) => output.out.push(`${title}: ${message}`),
+      select: async <T extends string>(): Promise<T | typeof TUI_CANCEL> => backupId as T,
+      multiselect: async <T extends string>() => ["codex"] as T[],
+      confirm: async () => true,
+      spinner: () => ({ start: () => undefined, stop: () => undefined }),
+    };
+    expect(await runCli(["restore"], { cwd: root, env, isInteractive: true, tui, ...output })).toBe(0);
+    expect(output.out.join("\n")).toContain("복원 결과:");
+    expect(output.out.join("\n")).toContain("복원 직전 상태 보관:");
+    expect(output.out.join("\n")).toContain("agents doctor");
+    expect(output.out.some((line) => line.startsWith("restoredBackupId="))).toBe(false);
+  });
+
+  test("손상되거나 조작된 안전 사본은 목록에서 사유와 함께 차단하고 --backup도 거부한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-invalid-backup-"));
+    temporaryDirectories.push(root);
+    const output = createIo();
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...output })).toBe(0);
+    output.out.length = 0;
+    expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, ...output })).toBe(0);
+    const backupId = output.out.find((line) => line.startsWith("backupId="))?.slice("backupId=".length);
+    expect(backupId).toBeTruthy();
+    for (const backupDirectory of fs.readdirSync(getLifecycleBackupDirectory(env))) {
+      const indexPath = path.join(getLifecycleBackupDirectory(env), backupDirectory, "index.json");
+      const index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as { metadata?: { targets: unknown[] } };
+      if (index.metadata) {
+        index.metadata.targets = [{ target: "opencode", scope: "project" }];
+        fs.writeFileSync(indexPath, JSON.stringify(index), "utf-8");
+      } else {
+        fs.writeFileSync(indexPath, "손상된 기록", "utf-8");
+      }
+    }
+
+    const capturedOptions: Array<{ disabled?: boolean | string }> = [];
+    const capturedNotes: string[] = [];
+    const capturedOutros: string[] = [];
+    const backupDirectoriesBeforeRestore = fs.readdirSync(getLifecycleBackupDirectory(env)).sort();
+    const interactiveIo = {
+      ...createIo(),
+      isInteractive: true as const,
+      tui: {
+        intro: () => undefined,
+        outro: (message) => capturedOutros.push(message),
+        cancel: () => undefined,
+        note: (message) => capturedNotes.push(message),
+        select: async <T extends string>(_message: string, options: Array<{ disabled?: boolean | string }>) => {
+          capturedOptions.push(...options);
+          return TUI_CANCEL as T | typeof TUI_CANCEL;
+        },
+        multiselect: async <T extends string>() => TUI_CANCEL as T[] | typeof TUI_CANCEL,
+        confirm: async () => TUI_CANCEL,
+        spinner: () => ({ start: () => undefined, stop: () => undefined }),
+      } satisfies TuiAdapter,
+    };
+    expect(await runCli(["restore"], { cwd: root, env, ...interactiveIo })).toBe(3);
+    expect(capturedOptions).toHaveLength(0);
+    expect(capturedNotes.join("\n")).toContain("복원 가능한 안전 사본이 없습니다");
+    expect(capturedNotes.join("\n")).toContain("메타데이터가 실제 기록과 일치하지 않습니다");
+    expect(capturedNotes.join("\n")).toContain("다음 행동:");
+    expect(capturedOutros).toEqual(["복원을 시작할 수 없습니다."]);
+    expect(fs.readdirSync(getLifecycleBackupDirectory(env)).sort()).toEqual(backupDirectoriesBeforeRestore);
+
+    output.err.length = 0;
+    expect(await runCli(["restore", "--target", "codex", "--backup", backupId ?? ""], { cwd: root, env, ...output })).toBe(3);
+    expect(output.err.join("\n")).toContain("메타데이터가 실제 기록과 일치하지 않습니다");
+  });
+
+  test("목록은 내용·크기·경로를 다시 검증하고 v2 안전 사본은 호환한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-backup-validation-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, XDG_STATE_HOME: path.join(root, "state") };
+    const managedDirectory = path.join(root, "managed");
+    const managedFile = path.join(managedDirectory, "managed.txt");
+    fs.mkdirSync(managedDirectory, { recursive: true });
+    fs.writeFileSync(managedFile, "original", "utf-8");
+    const backup = createBackup(env, "test", [{ target: "codex" }], [managedFile]);
+    const backupDirectory = path.join(getLifecycleBackupDirectory(env), backup.id);
+    const indexPath = path.join(backupDirectory, "index.json");
+    const payloadPath = path.join(backupDirectory, "files", backup.entries[0]?.relativePath ?? "");
+
+    fs.writeFileSync(payloadPath, "changed", "utf-8");
+    const damagedPayload = listBackupSummaries(env, () => [managedDirectory]).find((summary) => summary.id === backup.id);
+    expect(damagedPayload).toMatchObject({ restorable: false });
+    expect(damagedPayload?.restoreFailureReason).toContain("해시가 일치하지 않습니다");
+
+    fs.writeFileSync(payloadPath, "original", "utf-8");
+    const alteredIndex = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as { metadata: { totalSizeBytes: number } };
+    alteredIndex.metadata.totalSizeBytes += 1;
+    fs.writeFileSync(indexPath, JSON.stringify(alteredIndex), "utf-8");
+    const damagedSize = listBackupSummaries(env, () => [managedDirectory]).find((summary) => summary.id === backup.id);
+    expect(damagedSize).toMatchObject({ restorable: false });
+    expect(damagedSize?.restoreFailureReason).toContain("파일 수 또는 크기가 실제 내용과 일치하지 않습니다");
+
+    fs.writeFileSync(indexPath, JSON.stringify({ ...backup, schemaVersion: 2, metadata: undefined }), "utf-8");
+    const legacy = listBackupSummaries(env, () => [managedDirectory]).find((summary) => summary.id === backup.id);
+    expect(legacy).toMatchObject({ restorable: true, totalSizeBytes: "original".length });
+    const differentEnvironment = listBackupSummaries(env, () => [path.join(root, "different-managed-root")]).find((summary) => summary.id === backup.id);
+    expect(differentEnvironment).toMatchObject({ restorable: false });
+    expect(differentEnvironment?.restoreFailureReason).toContain("허용되지 않은 경로");
+    fs.writeFileSync(managedFile, "changed", "utf-8");
+    restoreBackup(env, readBackup(env, backup.id), [managedDirectory]);
+    expect(fs.readFileSync(managedFile, "utf-8")).toBe("original");
+    fs.rmSync(payloadPath);
+    const missingPayload = listBackupSummaries(env, () => [managedDirectory]).find((summary) => summary.id === backup.id);
+    expect(missingPayload).toMatchObject({ restorable: false });
+    expect(missingPayload?.restoreFailureReason).toContain("내용 파일이 없거나 올바르지 않습니다");
+  });
+
+  test("동일한 생성 시각의 안전 사본 목록은 ID로 안정 정렬한다", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-backup-order-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, XDG_STATE_HOME: path.join(root, "state") };
+    const managedDirectory = path.join(root, "managed");
+    fs.mkdirSync(managedDirectory, { recursive: true });
+    const first = createBackup(env, "test", [{ target: "codex" }], [managedDirectory]);
+    const second = createBackup(env, "test", [{ target: "codex" }], [managedDirectory]);
+    for (const backup of [first, second]) {
+      const indexPath = path.join(getLifecycleBackupDirectory(env), backup.id, "index.json");
+      const index = JSON.parse(fs.readFileSync(indexPath, "utf-8")) as { createdAt: string; metadata: { createdAt: string } };
+      index.createdAt = "2026-07-12T00:00:00.000Z";
+      index.metadata.createdAt = index.createdAt;
+      fs.writeFileSync(indexPath, JSON.stringify(index), "utf-8");
+    }
+    expect(listBackupSummaries(env, () => [managedDirectory]).map((summary) => summary.id)).toEqual([first.id, second.id].sort());
+  });
+
+  test("대화형 복원 목록은 손상된 최신 안전 사본보다 복원 가능한 안전 사본을 먼저 표시한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-backup-tui-order-"));
+    temporaryDirectories.push(root);
+    const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
+    const output = createIo();
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...output })).toBe(0);
+    output.out.length = 0;
+    expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, ...output })).toBe(0);
+    const restorableBackupId = output.out.find((line) => line.startsWith("backupId="))?.slice("backupId=".length);
+    output.out.length = 0;
+    expect(await runCli(["backup", "--target", "codex"], { cwd: root, env, ...output })).toBe(0);
+    const damagedBackupId = output.out.find((line) => line.startsWith("backupId="))?.slice("backupId=".length);
+    expect(restorableBackupId).toBeTruthy();
+    expect(damagedBackupId).toBeTruthy();
+    fs.writeFileSync(path.join(getLifecycleBackupDirectory(env), damagedBackupId ?? "", "index.json"), "손상된 기록", "utf-8");
+
+    const capturedOptions: Array<{ value: string; label: string; disabled?: boolean | string }> = [];
+    const interactiveIo = {
+      ...createIo(),
+      isInteractive: true as const,
+      tui: {
+        intro: () => undefined,
+        outro: () => undefined,
+        cancel: () => undefined,
+        note: () => undefined,
+        select: async <T extends string>(_message: string, options: Array<{ value: string; label: string; disabled?: boolean | string }>) => {
+          capturedOptions.push(...options);
+          return TUI_CANCEL as T | typeof TUI_CANCEL;
+        },
+        multiselect: async <T extends string>() => TUI_CANCEL as T[] | typeof TUI_CANCEL,
+        confirm: async () => TUI_CANCEL,
+        spinner: () => ({ start: () => undefined, stop: () => undefined }),
+      } satisfies TuiAdapter,
+    };
+
+    expect(await runCli(["restore"], { cwd: root, env, ...interactiveIo })).toBe(0);
+    const restorableOptionIndex = capturedOptions.findIndex((option) => option.value === restorableBackupId);
+    const damagedOptionIndex = capturedOptions.findIndex((option) => option.value === damagedBackupId);
+    expect(restorableOptionIndex).toBeGreaterThanOrEqual(0);
+    expect(damagedOptionIndex).toBeGreaterThan(restorableOptionIndex);
+    expect(capturedOptions.slice(0, damagedOptionIndex).every((option) => option.disabled === false)).toBe(true);
+    expect(capturedOptions[damagedOptionIndex]?.label).toContain("[복원 불가]");
+    expect(capturedOptions[damagedOptionIndex]?.disabled).toEqual(expect.any(String));
   });
 
   test("OpenCode uninstall은 CLI가 추가한 JSONC 등록만 제거하고 trailing comma를 손상시키지 않는다", async () => {
@@ -307,10 +612,10 @@ describe.sequential("명시적 대상 수명주기", () => {
     expect(fs.existsSync(path.join(root, "state"))).toBe(false);
   });
 
-  test("대화형 입력 종료는 내부 오류 대신 변경 없는 취소로 처리한다", async () => {
+  test("대화형 취소는 내부 오류 대신 변경 없는 취소로 처리한다", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-input-ended-"));
     temporaryDirectories.push(root);
-    const output = createIo();
+    const output = createInteractiveIo(["0"]);
     const env = { ...process.env, CODEX_HOME: path.join(root, "codex"), XDG_STATE_HOME: path.join(root, "state") };
 
     expect(await runCli(["install"], {
@@ -318,9 +623,9 @@ describe.sequential("명시적 대상 수명주기", () => {
       env,
       ...output,
       isInteractive: true,
-      readLine: async () => { throw new Error("input closed"); },
+      tui: output.tui,
     })).toBe(0);
-    expect(output.out).toContain("입력이 종료되어 작업을 취소했습니다. 파일은 변경하지 않았습니다.");
+    expect(output.out).toContain("작업을 취소했습니다. 파일은 변경하지 않았습니다.");
     expect(output.err.join("\n")).not.toContain("internal-error");
     expect(fs.existsSync(path.join(root, "codex"))).toBe(false);
   });
@@ -349,12 +654,14 @@ describe.sequential("명시적 대상 수명주기", () => {
       env,
       ...output,
       isInteractive: true,
-      readLine: async () => {
+      tui: {
+        ...createInteractiveIo(["1", "y"]).tui,
+        confirm: async () => {
         questionCount += 1;
-        if (questionCount === 1) return "1";
         fs.mkdirSync(path.join(root, "codex", "agents"), { recursive: true });
         fs.writeFileSync(path.join(root, "codex", "agents", "external.toml"), "name = \"external\"\n", "utf-8");
-        return "y";
+        return true;
+        },
       },
     })).toBe(3);
     expect(output.err.join("\n")).toContain("표시한 계획을 실행하지 않았습니다");
@@ -404,14 +711,16 @@ describe.sequential("명시적 대상 수명주기", () => {
       env: interactiveEnv,
       ...output,
       isInteractive: true,
-      readLine: async () => {
+      tui: {
+        ...createInteractiveIo(["1", "y"]).tui,
+        confirm: async () => {
         questionCount += 1;
-        if (questionCount === 1) return "1";
         const state = JSON.parse(fs.readFileSync(statePath, "utf-8")) as { files: Array<{ path: string }> };
         state.files = state.files.filter((file) => !file.path.endsWith(`${path.sep}worker.toml`));
         externallyChangedState = JSON.stringify(state, null, 2) + "\n";
         fs.writeFileSync(statePath, externallyChangedState, "utf-8");
-        return "y";
+        return true;
+        },
       },
     })).toBe(3);
 
@@ -468,7 +777,7 @@ describe.sequential("명시적 대상 수명주기", () => {
 
     expect([0, 1]).toContain(await runCli(["update"], { cwd: root, env, ...io }));
     const output = io.out.join("\n");
-    expect(output).toContain("Codex: 설치되지 않아 새로 설치합니다.");
-    expect(output).toContain("OpenCode: 너무 오래된 설치라 사용자 설정을 보존하고 새 방식으로 다시 설치합니다.");
+    expect(output).toContain("예정 작업: 설치되지 않아 새로 설치합니다.");
+    expect(output).toContain("예정 작업: 너무 오래된 설치라 사용자 설정을 보존하고 새 방식으로 다시 설치합니다.");
   });
 });

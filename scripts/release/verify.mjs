@@ -19,11 +19,12 @@ function sha256(content) { return createHash("sha256").update(content).digest("h
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function runInteractiveCli(executablePath, cwd, command) {
   const pseudoTerminalRunner = [
-    "import errno, os, pty, sys",
+    "import errno, os, pty, sys, time",
     "node, executable, command = sys.argv[1:]",
     "process_id, terminal = pty.fork()",
     "if process_id == 0: os.execvp(node, [node, executable, command])",
-    "os.write(terminal, b'0\\n')",
+    "time.sleep(0.2)",
+    "os.write(terminal, b'\\x1b')",
     "output = bytearray()",
     "while True:",
     "  try: chunk = os.read(terminal, 4096)",
@@ -158,12 +159,24 @@ try {
           const smoke = spawnSync(process.execPath, [join(extracted, "bin", "agents"), "--help"], { cwd: extracted, encoding: "utf8" });
           assert(smoke.status === 0, `CLI artifact 독립 실행 확인 실패: ${smoke.stderr || smoke.error?.message || "알 수 없는 오류"}`);
           assert(smoke.stdout.includes("사용법: agents"), "CLI artifact --help가 필수 도움말을 출력하지 않았습니다.");
+          assert(!/\bstatus\b|\bvalidate\b/.test(smoke.stdout) && smoke.stdout.includes("doctor"), "CLI artifact 공개 도움말은 doctor만 진단 명령으로 안내해야 합니다.");
+          const compatibilityEnvironment = { ...process.env, CODEX_HOME: join(extracted, ".verify-codex"), XDG_CONFIG_HOME: join(extracted, ".verify-config"), XDG_STATE_HOME: join(extracted, ".verify-state") };
+          for (const compatibilityCommand of [["status", "--target", "codex", "--json"], ["validate", "--json"]]) {
+            const compatibility = spawnSync(process.execPath, [join(extracted, "bin", "agents"), ...compatibilityCommand], { cwd: extracted, encoding: "utf8", env: compatibilityEnvironment });
+            const compatibilityResult = JSON.parse(compatibility.stdout);
+            const isStatus = compatibilityCommand[0] === "status";
+            assert(
+              (isStatus ? compatibility.status === 0 && Array.isArray(compatibilityResult.targets) : [0, 1, 2].includes(compatibility.status ?? 4) && compatibilityResult.schemaVersion === 1) &&
+                compatibility.stderr === "",
+              `CLI artifact 숨은 호환 명령 확인 실패: ${compatibilityCommand[0]}: ${compatibility.stderr || compatibility.error?.message || "알 수 없는 오류"}`,
+            );
+          }
           const unknownCommand = spawnSync(process.execPath, [join(extracted, "bin", "agents"), "unknown-command"], { cwd: extracted, encoding: "utf8" });
           assert(unknownCommand.status === 3 && unknownCommand.stderr.includes("알 수 없는 명령: unknown-command"), "CLI artifact가 명령 인수 또는 종료 코드를 올바르게 전달하지 않았습니다.");
           for (const command of ["install", "update"]) {
             const interactive = runInteractiveCli(join(extracted, "bin", "agents"), extracted, command);
             const output = `${interactive.stdout}${interactive.stderr}`;
-            assert(interactive.status === 0 && output.includes("처리할 대상을 선택하세요."), `CLI artifact ${command} 대화형 선택 화면 확인 실패: ${interactive.error?.message || output}`);
+            assert(interactive.status === 0 && output.includes("취소됨") && output.includes(String.fromCharCode(27) + "[?25l"), `CLI artifact ${command} Clack 대화형 선택·취소 화면 확인 실패: ${interactive.error?.message || output}`);
           }
         }
         if (name === "opencode") {
