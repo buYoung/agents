@@ -74,6 +74,14 @@ describe("bin 래퍼", () => {
     });
     expect(help.status).toBe(0);
     expect(help.stdout).toContain("사용법: agents");
+
+    const unknownCommand = spawnSync(absPath, ["unknown-command"], {
+      cwd: process.cwd(),
+      encoding: "utf-8",
+      env: cliEnv,
+    });
+    expect(unknownCommand.status).toBe(3);
+    expect(unknownCommand.stderr).toContain("알 수 없는 명령: unknown-command");
   });
 });
 

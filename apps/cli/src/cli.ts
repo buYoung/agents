@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { getBundledCatalogPath } from "opencode/core";
 import {
   EXIT_BLOCKED,
@@ -80,12 +79,6 @@ export async function runCli(argv: string[], io: CliIO = {}): Promise<number> {
     resolvedIO.stderr(`internal-error: ${message}`);
     return EXIT_INTERNAL;
   }
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runCli(process.argv.slice(2)).then((exitCode) => {
-    process.exitCode = exitCode;
-  });
 }
 
 export const CLI_COMMANDS = [

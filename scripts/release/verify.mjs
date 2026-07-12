@@ -17,6 +17,27 @@ let temporaryDirectory = null;
 
 function sha256(content) { return createHash("sha256").update(content).digest("hex"); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
+function runInteractiveCli(executablePath, cwd, command) {
+  const pseudoTerminalRunner = [
+    "import errno, os, pty, sys",
+    "node, executable, command = sys.argv[1:]",
+    "process_id, terminal = pty.fork()",
+    "if process_id == 0: os.execvp(node, [node, executable, command])",
+    "os.write(terminal, b'0\\n')",
+    "output = bytearray()",
+    "while True:",
+    "  try: chunk = os.read(terminal, 4096)",
+    "  except OSError as error:",
+    "    if error.errno == errno.EIO: break",
+    "    raise",
+    "  if not chunk: break",
+    "  output.extend(chunk)",
+    "_, status = os.waitpid(process_id, 0)",
+    "sys.stdout.buffer.write(output)",
+    "sys.exit(os.waitstatus_to_exitcode(status))",
+  ].join("\n");
+  return spawnSync(process.env.PYTHON ?? "python3", ["-c", pseudoTerminalRunner, process.execPath, executablePath, command], { cwd, encoding: "utf8" });
+}
 function isVersion(value) { return typeof value === "string" && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(value); }
 function compareVersions(left, right) {
   const parse = (value) => { const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(value); assert(match, `올바르지 않은 버전: ${value}`); return { core: match.slice(1, 4).map(Number), prerelease: match[4]?.split(".") ?? [] }; };
@@ -136,6 +157,14 @@ try {
           assert(packageJson.name === "cli", "CLI artifact package 이름이 올바르지 않습니다.");
           const smoke = spawnSync(process.execPath, [join(extracted, "bin", "agents"), "--help"], { cwd: extracted, encoding: "utf8" });
           assert(smoke.status === 0, `CLI artifact 독립 실행 확인 실패: ${smoke.stderr || smoke.error?.message || "알 수 없는 오류"}`);
+          assert(smoke.stdout.includes("사용법: agents"), "CLI artifact --help가 필수 도움말을 출력하지 않았습니다.");
+          const unknownCommand = spawnSync(process.execPath, [join(extracted, "bin", "agents"), "unknown-command"], { cwd: extracted, encoding: "utf8" });
+          assert(unknownCommand.status === 3 && unknownCommand.stderr.includes("알 수 없는 명령: unknown-command"), "CLI artifact가 명령 인수 또는 종료 코드를 올바르게 전달하지 않았습니다.");
+          for (const command of ["install", "update"]) {
+            const interactive = runInteractiveCli(join(extracted, "bin", "agents"), extracted, command);
+            const output = `${interactive.stdout}${interactive.stderr}`;
+            assert(interactive.status === 0 && output.includes("처리할 대상을 선택하세요."), `CLI artifact ${command} 대화형 선택 화면 확인 실패: ${interactive.error?.message || output}`);
+          }
         }
         if (name === "opencode") {
           assert(packageJson.name === "opencode", "OpenCode artifact package 이름이 올바르지 않습니다.");

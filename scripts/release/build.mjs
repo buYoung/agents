@@ -106,8 +106,8 @@ const resourceDirectory = join(cliDirectory, "resources");
 mkdirSync(join(cliDirectory, "bin"), { recursive: true });
 mkdirSync(join(cliDirectory, "dist"), { recursive: true });
 
-await build({ entryPoints: [join(repositoryRoot, "apps", "cli", "src", "cli.ts")], bundle: true, platform: "node", format: "esm", target: "node18", outfile: join(cliDirectory, "dist", "cli.mjs") });
-writeFileSync(join(cliDirectory, "bin", "agents"), "#!/usr/bin/env node\nimport '../dist/cli.mjs';\n", "utf8");
+await build({ entryPoints: [join(repositoryRoot, "apps", "cli", "src", "entry.ts")], bundle: true, platform: "node", format: "esm", target: "node18", outfile: join(cliDirectory, "dist", "cli.mjs") });
+writeFileSync(join(cliDirectory, "bin", "agents"), "#!/usr/bin/env node\nimport { runCliFromProcess } from '../dist/cli.mjs';\nrunCliFromProcess();\n", "utf8");
 chmodSync(join(cliDirectory, "bin", "agents"), 0o755);
 writeFileSync(join(cliDirectory, "package.json"), JSON.stringify({ name: "cli", version, type: "module", bin: { agents: "./bin/agents" }, private: true }, null, 2) + "\n");
 writeFileSync(join(cliDirectory, "release-metadata.json"), JSON.stringify({ cliVersion: version, pluginVersion: version }, null, 2) + "\n");

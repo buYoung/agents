@@ -6,7 +6,8 @@ import path from 'node:path';
 
 const binDirectory = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(binDirectory, '..');
-const cliPath = path.join(packageRoot, 'src', 'cli.ts');
+const cliPath = path.join(packageRoot, 'src', 'entry.ts');
+const tsconfigPath = path.join(packageRoot, 'tsconfig.json');
 const requireFromBin = createRequire(import.meta.url);
 const tsxLoaderPath = requireFromBin.resolve('tsx');
 
@@ -15,7 +16,10 @@ const result = spawnSync(
   ['--import', tsxLoaderPath, cliPath, ...process.argv.slice(2)],
   {
     stdio: 'inherit',
-    env: process.env,
+    env: {
+      ...process.env,
+      TSX_TSCONFIG_PATH: tsconfigPath,
+    },
   },
 );
 
