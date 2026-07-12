@@ -130,13 +130,17 @@ cpSync(cliDirectory, npmCliDirectory, { recursive: true });
 writeFileSync(join(npmCliDirectory, "package.json"), JSON.stringify({
   name: "@livteam/agents-cli",
   version,
+  description: "Install and manage Codex agents and the OpenCode agents plugin.",
   type: "module",
   bin: { agents: "bin/agents" },
   engines: { node: ">=18" },
+  keywords: ["codex", "opencode", "agents", "cli", "plugin", "ai-agents"],
   repository: { type: "git", url: "git+https://github.com/buYoung/agents.git" },
+  homepage: "https://github.com/buYoung/agents#readme",
+  bugs: { url: "https://github.com/buYoung/agents/issues" },
   publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
 }, null, 2) + "\n");
-cpSync(join(repositoryRoot, "docs", "guides", "cli-usage.md"), join(npmCliDirectory, "README.md"));
+cpSync(join(repositoryRoot, "README.md"), join(npmCliDirectory, "README.md"));
 tarGz(npmCliDirectory, join(outputDirectory, `livteam-agents-cli-${version}.tar.gz`));
 rmSync(npmCliDirectory, { recursive: true, force: true });
 tarGz(join(resourceDirectory, "opencode"), join(outputDirectory, `agents-opencode-${version}.tar.gz`));

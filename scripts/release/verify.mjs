@@ -254,6 +254,11 @@ try {
     assert(npmPackageJson.publishConfig?.access === "public" && npmPackageJson.publishConfig?.registry === "https://registry.npmjs.org", "npm package 공개 배포 설정이 올바르지 않습니다.");
     assert(npmPackageJson.engines?.node === ">=18", "npm package Node.js 지원 범위가 올바르지 않습니다.");
     assert(npmPackageJson.repository?.type === "git" && npmPackageJson.repository?.url === "git+https://github.com/buYoung/agents.git", "npm package repository 설정이 올바르지 않습니다.");
+    assert(npmPackageJson.description === "Install and manage Codex agents and the OpenCode agents plugin.", "npm package 영문 설명이 올바르지 않습니다.");
+    assert(npmPackageJson.homepage === "https://github.com/buYoung/agents#readme" && npmPackageJson.bugs?.url === "https://github.com/buYoung/agents/issues", "npm package 지원 링크가 올바르지 않습니다.");
+    assert(Array.isArray(npmPackageJson.keywords) && ["codex", "opencode", "agents", "cli", "plugin", "ai-agents"].every((keyword) => npmPackageJson.keywords.includes(keyword)), "npm package 검색어가 올바르지 않습니다.");
+    const npmReadme = readFileSync(join(npmPackageDirectory, "README.md"), "utf8");
+    assert(npmReadme.startsWith("# buyong-agents") && npmReadme.includes("## Quick start") && npmReadme.includes("docs/usage.md") && npmReadme.includes("README.ko.md"), "npm package 영문 README가 올바르지 않습니다.");
     const smoke = spawnSync(process.execPath, [join(npmPackageDirectory, "bin", "agents"), "--help"], { cwd: npmPackageDirectory, encoding: "utf8" });
     assert(smoke.status === 0 && smoke.stdout.includes("사용법: agents"), `npm package 독립 실행 확인 실패: ${smoke.stderr || smoke.error?.message || "알 수 없는 오류"}`);
   } finally { rmSync(npmPackageDirectory, { recursive: true, force: true }); }
