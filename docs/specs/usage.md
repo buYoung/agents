@@ -1,335 +1,104 @@
-# 사용법
+# 사용 흐름
 
-이 문서는 이 저장소를 사용하는 세 가지 표면을 정리한다.
+이 문서는 `@livteam/agents-cli`의 전체 사용 흐름을 짧게 정리합니다. 처음 설치하거나 실제 명령을 찾는 사용자는 [CLI 사용 안내](../guides/cli-usage.md)를 따라 하세요. npm에 처음 등록하거나 새 버전을 공개하는 담당자는 [npm 등록과 배포](../guides/npm-publishing.md)를 사용하세요.
 
-- `agents` CLI로 opencode 플러그인 설정을 설치, 검증, 갱신한다.
-- Codex 사용자 정의 에이전트를 설치하고 `agent_type` 계약으로 사용한다.
-- opencode 플러그인으로 제공되는 에이전트를 opencode 설정에 연결해 사용한다.
+## 가장 빠른 시작
 
-근거 파일은 `apps/cli/src/cli.ts`, `apps/cli/src/commands/install.ts`, `apps/cli/src/commands/update.ts`, `apps/cli/src/paths.ts`, `packages/opencode/agents.example.toml`, `packages/opencode/src/index.ts`, `packages/opencode/src/plugin-hooks.ts`, `packages/opencode/src/core/config/load.ts`, `packages/opencode/src/core/doc-protocol/`, `packages/codex/agents/*.toml`이다.
+Node.js 18 이상이 설치된 터미널에서 다음 명령을 실행합니다.
 
-## 1. CLI 사용
+```sh
+npm install --global @livteam/agents-cli
+agents --help
+agents install
+agents doctor
+```
 
-### 1.1 개발 중 CLI 실행
+설치할 때 화면에서 Codex, OpenCode 또는 둘 다를 선택할 수 있습니다. OpenCode를 고르면 내 컴퓨터 전체에서 쓸지, 현재 프로젝트에서만 쓸지도 선택합니다.
 
-저장소 루트에서 의존성을 설치한다.
+npm에 등록된 이름은 `@livteam/agents-cli`이고, 설치 후 실행하는 명령은 `agents`입니다. OpenCode 플러그인 id는 기존 사용자와의 호환을 위해 `buyong-agents`를 유지합니다.
+
+## 명령별 역할
+
+| 하고 싶은 일 | 명령 | 동작 |
+| --- | --- | --- |
+| 처음 설치 | `agents install` | 화면에서 대상을 선택해 설치합니다. |
+| 설치 내용 갱신 | `agents update` | 이미 설치되어 있으면 갱신하고, 설치되어 있지 않으면 설치 단계로 이어집니다. |
+| 상태와 문제 확인 | `agents doctor` | 설치 상태, 설정 파일과 실행 준비 상태를 한 번에 확인합니다. |
+| 안전 사본 만들기 | `agents backup` | 현재 설치 내용을 나중에 되돌릴 수 있도록 기록합니다. |
+| 안전 사본 복원 | `agents restore` | 화면에서 기록을 고르거나 `--backup <ID>`로 지정해 복원합니다. |
+| 설치 내용 삭제 | `agents uninstall` | CLI가 관리하는 설치 내용을 제거합니다. 사용자 설정은 가능한 한 보존합니다. |
+| GitHub 묶음으로 설치한 CLI 갱신 | `agents upgrade` | GitHub Release 방식의 CLI를 갱신합니다. npm 설치라면 npm 갱신 명령을 안내합니다. |
+
+`status`와 `validate`는 별도 명령으로 제공하지 않습니다. 상태 확인과 설정 검사는 `agents doctor` 하나로 처리합니다.
+
+## 이미 설치되어 있을 때
+
+`install`과 `update`는 현재 상태에 맞게 동작을 바꿉니다.
+
+- `agents install`: CLI가 이미 관리 중이면 갱신 흐름으로 전환합니다.
+- `agents update`: 설치된 대상이 없으면 설치 흐름으로 전환합니다.
+- 설치 파일은 있지만 CLI 관리 기록이 없으면 바로 덮어쓰지 않습니다. 먼저 `agents backup`으로 안전 사본을 만들고 내용을 확인한 뒤 `agents install --adopt`를 사용합니다.
+- 너무 오래되어 바로 갱신할 수 없는 설치는 새로 설치하는 흐름으로 처리합니다.
+
+## 대상을 직접 지정하기
+
+화면 선택 없이 실행하려면 대상을 직접 적습니다.
+
+```sh
+agents install --target codex
+agents install --target opencode --opencode-scope project
+agents install --target all --opencode-scope user
+```
+
+OpenCode의 `project`는 현재 프로젝트에만 적용하고, `user`는 내 컴퓨터의 여러 프로젝트에 공통으로 적용합니다. 다른 프로젝트에 적용하려면 `--project <프로젝트-경로>`를 추가합니다.
+
+## 안전 사본과 복원
+
+삭제하거나 기존 설치를 관리 대상으로 가져오기 전에는 안전 사본을 만드세요.
+
+```sh
+agents backup --target all --opencode-scope project
+agents restore
+```
+
+`agents restore`는 저장된 기록을 목록으로 보여 주고 사용자가 고르게 합니다. 기록 ID를 알고 있으면 다음처럼 바로 지정할 수 있습니다.
+
+```sh
+agents restore --backup <backup-id>
+```
+
+복원 뒤에는 `agents doctor`를 실행해 상태를 확인합니다.
+
+## CLI 버전 확인과 변경
+
+npm으로 설치한 현재 버전과 최신 버전은 다음 명령으로 확인합니다.
+
+```sh
+npm list --global @livteam/agents-cli --depth=0
+npm view @livteam/agents-cli version
+```
+
+최신 버전으로 갱신하거나 원하는 버전으로 되돌리려면 다시 설치합니다.
+
+```sh
+npm install --global @livteam/agents-cli@latest
+npm install --global @livteam/agents-cli@<version>
+```
+
+버전을 바꾼 뒤에는 `agents doctor`로 Codex와 OpenCode 설치 상태를 확인하세요.
+
+## 개발 중 로컬 실행
+
+저장소를 내려받아 배포 전에 확인할 때만 아래 명령을 사용합니다. 일반 사용자는 npm 설치 방법을 사용하면 됩니다.
 
 ```sh
 pnpm install
+pnpm --filter ./apps/cli exec agents --help
+pnpm --filter ./apps/cli exec agents install
 ```
 
-개발 중에는 `apps/cli` 패키지의 `agents` 실행 파일을 `pnpm --filter cli exec ./bin/agents`로 실행한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents --help
-```
-
-공식 명령 표면은 다음 형식이다.
-
-```sh
-agents <install|uninstall|validate|doctor|update|upgrade> [options]
-```
-
-### 1.2 프로젝트 범위 설치
-
-현재 프로젝트에 플러그인 설정을 설치한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents install --scope project
-```
-
-프로젝트 범위 설치는 다음 파일을 대상으로 한다.
-
-| 파일 | 역할 |
-| --- | --- |
-| `.opencode/agents.toml` | 에이전트별 모델, 추론 노력, 추가 프롬프트, 활성화 여부를 설정한다. |
-| `.opencode/agents.install.json` | CLI가 설치 시 추가한 항목을 추적한다. |
-| `opencode.json` | opencode native 설정이며, `plugin` 배열에 `agents`를 추가하고 provider 설정을 병합한다. |
-
-다른 프로젝트 경로에 설치하려면 `--project`를 함께 쓴다.
-
-```sh
-pnpm --filter cli exec ./bin/agents install --scope project --project ../target-project
-```
-
-### 1.3 사용자 범위 설치
-
-사용자 opencode 설정 디렉터리에 설치하려면 다음 명령을 사용한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents install --scope user
-```
-
-사용자 범위 설정 경로는 환경 변수에 따라 달라진다.
-
-| 조건 | 경로 |
-| --- | --- |
-| `OPENCODE_CONFIG_DIR` 지정 | `$OPENCODE_CONFIG_DIR/agents.toml`, `$OPENCODE_CONFIG_DIR/opencode.json` |
-| `XDG_CONFIG_HOME` 지정 | `$XDG_CONFIG_HOME/opencode/agents.toml`, `$XDG_CONFIG_HOME/opencode/opencode.json` |
-| 둘 다 없음 | `~/.config/opencode/agents.toml`, `~/.config/opencode/opencode.json` |
-
-예시:
-
-```sh
-OPENCODE_CONFIG_DIR="$HOME/.config/opencode" pnpm --filter cli exec ./bin/agents install --scope user
-```
-
-### 1.4 설정 검증과 진단
-
-설치 후에는 설정 파일을 검증한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents validate
-pnpm --filter cli exec ./bin/agents doctor
-```
-
-`validate`는 `agents.toml`의 모델, 추론 노력, 보호 에이전트 설정을 확인한다. `doctor`는 catalog, 설정 파일, 환경 변수, 런타임 주입 준비 상태를 진단한다.
-
-### 1.5 갱신과 업그레이드
-
-catalog와 Codex 사용자 정의 에이전트 artifact를 갱신한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents update
-```
-
-`update`는 release manifest의 catalog artifact를 검증한 뒤 `.opencode` 관리 catalog에 쓰고, manifest에 Codex 에이전트 artifact가 있으면 `$CODEX_HOME/agents` 또는 `~/.codex/agents`에 `.toml` 파일을 적용한다.
-
-CLI 자체 artifact를 갱신하려면 `upgrade`를 사용한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents upgrade
-```
-
-release manifest 위치를 바꾸려면 `AGENTS_RELEASE_URL`을 지정한다.
-
-```sh
-AGENTS_RELEASE_URL="https://example.com/latest.json" pnpm --filter cli exec ./bin/agents update
-```
-
-### 1.6 설정 예시
-
-`install --scope project`가 만든 `.opencode/agents.toml`을 열어 필요한 에이전트만 조정한다.
-
-```toml
-preset = "performance"
-
-[agents.orchestrator]
-model = "ollama-cloud/glm-5.2"
-reasoning_effort = "max"
-
-[agents.worker]
-reasoning_effort = "high"
-
-[agents.code-explorer]
-prompt_append = """
-탐색 결과는 파일 경로와 줄 번호를 먼저 보여준다.
-"""
-
-[agents.idea-generator]
-enable = false
-```
-
-설정 규칙은 다음과 같다.
-
-| 항목 | 동작 |
-| --- | --- |
-| 사용자 범위와 프로젝트 범위가 함께 있으면 | 사용자 범위를 먼저 읽고 프로젝트 범위를 나중에 병합하므로 프로젝트 설정이 우선한다. |
-| `AGENTS_PRESET`이 있으면 | `agents.toml`의 `preset` 값을 덮어쓴다. |
-| `preset`과 root `[agents.*]`가 함께 있으면 | preset 값을 먼저 적용하고 root `[agents.*]` 값을 우선 병합한다. |
-| catalog에 없는 모델이면 | `validate` 또는 `doctor`에서 오류로 보고된다. |
-| 모델이 지원하지 않는 `reasoning_effort`이면 | 경고 후 무시된다. |
-
-## 2. Codex 사용자 정의 에이전트 사용
-
-### 2.1 설치 위치
-
-Codex 사용자 정의 에이전트 원본은 이 저장소의 `packages/codex/agents/*.toml`에 있다. CLI가 release manifest에서 Codex 에이전트 artifact를 받으면 다음 위치에 설치한다.
-
-| 환경 | 설치 경로 |
-| --- | --- |
-| `CODEX_HOME` 지정 | `$CODEX_HOME/agents/<agent-name>.toml` |
-| `CODEX_HOME` 없음 | `~/.codex/agents/<agent-name>.toml` |
-
-설치 또는 갱신 예시:
-
-```sh
-pnpm --filter cli exec ./bin/agents update
-```
-
-적용 후 Codex 세션을 새로 시작해 사용자 정의 에이전트 정의를 다시 읽게 한다.
-
-### 2.2 사용 가능한 에이전트
-
-Codex 번들은 다음 사용자 정의 에이전트를 제공한다.
-
-| `agent_type` | 용도 |
-| --- | --- |
-| `orchestrator` | 요청을 분류하고 가장 좁은 하위 에이전트 체인으로 위임한다. |
-| `intent-checker` | 계획과 사용자 의도의 일치 여부를 확인한다. |
-| `worker` | 확정된 구현, 문서 작성, 검증을 수행한다. |
-| `planner` | 구현 전 영향 범위와 순서를 수렴한다. |
-| `research` | 외부 문서와 최신 사실을 조사한다. |
-| `code-explorer` | 저장소 구조와 코드 위치를 읽기 전용으로 정찰한다. |
-| `idea-generator` | 여러 접근 대안과 트레이드오프를 제시한다. |
-| `adversarial-review` | 결함, 반례, 회귀, 보안 위험을 검토한다. |
-| `constructive-feedback` | 가독성, 유지보수성, 일관성 개선점을 제안한다. |
-
-### 2.3 orchestrator 사용 예시
-
-Codex에서 오케스트레이션이 필요한 작업은 `orchestrator`에 보낸다. 메시지는 원문 전체가 아니라 목표, 제약, 관련 경로, 기대 산출물만 담는다.
-
-```text
-agent_type = "orchestrator"
-message = """
-Goal: docs/specs/usage.md 사용법 문서를 갱신한다.
-Constraints: 기존 정찰 산출물 .agents/20260709-usage-docs/explore.md를 기준으로 삼고, 새 문서와 README 링크만 수정한다.
-Deliverables: docs/specs/usage.md, .agents/20260709-usage-docs/work.md
-"""
-```
-
-`orchestrator`는 직접 소스 코드를 읽거나 쓰지 않고, 필요한 경우 `code-explorer`, `planner`, `worker`, `research`, `adversarial-review`, `constructive-feedback`, `idea-generator`, `intent-checker` 중 하나로 위임한다.
-
-### 2.4 leaf agent 사용 예시
-
-범위가 이미 좁으면 leaf agent를 직접 사용할 수 있다.
-
-```text
-agent_type = "code-explorer"
-message = """
-taskId: 20260709-cli-install-flow
-Goal: apps/cli의 install 명령이 어떤 파일을 생성하거나 갱신하는지 읽기 전용으로 정찰한다.
-Scope: apps/cli/src/commands/install.ts, apps/cli/src/paths.ts, apps/cli/src/native-config.ts
-Output: .agents/20260709-cli-install-flow/explore.md
-"""
-```
-
-```text
-agent_type = "worker"
-message = """
-taskId: 20260709-usage-docs
-Goal: docs/specs/usage.md 문서를 작성한다.
-Input artifact: .agents/20260709-usage-docs/explore.md
-Allowed changes: docs/specs/usage.md and .agents/20260709-usage-docs/work.md only.
-Verification: 문서 링크와 명령 예시를 최소 범위로 확인한다.
-"""
-```
-
-문서형 에이전트는 `.agents/<taskId>/<filename>` 규칙을 따른다. 예를 들어 `planner`는 `.agents/<taskId>/plan.md`, `worker`는 `.agents/<taskId>/work.md`, `code-explorer`는 `.agents/<taskId>/explore.md`를 쓴다. `intent-checker`는 상태 없는 확인 역할이므로 파일을 쓰지 않는다.
-
-## 3. opencode 플러그인과 에이전트 사용
-
-### 3.1 플러그인 연결
-
-이 저장소의 opencode 플러그인 패키지는 `packages/opencode`이며 패키지 이름은 `opencode`이다. 프로젝트 범위 설치 명령은 `opencode.json`의 `plugin` 배열에 `agents` 항목을 추가하고, catalog 기반 provider 설정을 병합한다.
-
-```sh
-pnpm --filter cli exec ./bin/agents install --scope project
-pnpm --filter cli exec ./bin/agents validate
-pnpm --filter cli exec ./bin/agents doctor
-```
-
-설치 후 opencode를 재시작해 native 설정과 플러그인 훅을 다시 읽게 한다.
-
-설치 결과로 기대하는 native 설정의 핵심 형태는 다음과 같다.
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["agents"],
-  "provider": {
-    "ollama-cloud": {
-      // catalog에서 생성된 provider 설정
-    }
-  }
-}
-```
-
-기존 `plugin`이나 `provider` 설정이 있으면 CLI는 가능한 범위에서 기존 값을 보존하고 필요한 항목만 추가한다.
-
-### 3.2 플러그인이 제공하는 에이전트
-
-opencode 플러그인은 9개 에이전트를 번들한다.
-
-```text
-orchestrator
-intent-checker
-worker
-planner
-research
-code-explorer
-idea-generator
-adversarial-review
-constructive-feedback
-```
-
-사용자가 `default_agent`를 직접 지정하지 않은 경우 플러그인은 기본 에이전트를 `orchestrator`로 설정한다. 또한 최종 에이전트 레코드를 opencode 설정의 `agent` 맵에 병합한다.
-
-### 3.3 opencode 세션 사용 예시
-
-프로젝트에 설치한 뒤 opencode 세션에서 자연어로 역할을 지정해 사용할 수 있다.
-
-```text
-orchestrator로 처리해줘.
-Goal: README의 CLI 설명과 실제 install 명령 구현이 어긋나는지 확인한다.
-Constraints: 읽기 전용 정찰 후 필요한 경우에만 worker로 넘긴다.
-Expected output: .agents/20260709-cli-readme/explore.md 또는 후속 work.md 경로.
-```
-
-범위가 확정된 구현 작업은 `worker`를 직접 지정할 수 있다.
-
-```text
-worker로 처리해줘.
-taskId: 20260709-readme-link
-Goal: README 문서 섹션에 docs/specs/usage.md 진입 링크만 추가한다.
-Allowed changes: README.md and .agents/20260709-readme-link/work.md only.
-Verification: README의 링크 대상 파일 존재 여부만 확인한다.
-```
-
-읽기 전용 정찰은 `code-explorer`를 지정한다.
-
-```text
-code-explorer로 처리해줘.
-taskId: 20260709-opencode-config
-Goal: opencode 플러그인이 default_agent와 agent 맵을 어디서 병합하는지 찾는다.
-Scope: packages/opencode/src
-Output: .agents/20260709-opencode-config/explore.md
-```
-
-### 3.4 에이전트별 override 예시
-
-프로젝트별로 모델이나 지시를 바꾸려면 `.opencode/agents.toml`을 수정한다.
-
-```toml
-[agents.orchestrator]
-reasoning_effort = "max"
-
-[agents.worker]
-model = "ollama-cloud/deepseek-v4-pro"
-reasoning_effort = "high"
-
-[agents.research]
-prompt_append = """
-공식 문서가 있으면 공식 문서를 먼저 확인하고 출처를 함께 남긴다.
-"""
-```
-
-비보호 에이전트를 끄려면 `enable = false`를 사용한다.
-
-```toml
-[agents.idea-generator]
-enable = false
-```
-
-비활성화된 에이전트가 있으면 플러그인은 `orchestrator` 프롬프트에 해당 에이전트로 위임하지 말라는 내용을 덧붙인다.
-
-### 3.5 로컬 opencode 에이전트 파일과의 관계
-
-opencode 자체의 로컬 에이전트 Markdown 파일은 다음 경로에서 발견될 수 있다.
-
-```text
-.opencode/agent/<agent-name>.md
-.opencode/agents/<agent-name>.md
-```
-
-이 저장소의 `agents` 플러그인은 이 방식 대신 플러그인 훅으로 에이전트 레코드를 제공한다. 프로젝트 전용 단발 에이전트는 Markdown 파일 경로를 사용할 수 있고, 이 저장소가 번들한 공통 에이전트는 `agents.toml` override로 조정하는 것이 자연스럽다.
+## 더 자세한 안내
+
+- 설치·갱신·삭제·진단·백업·복원·문제 해결: [CLI 사용 안내](../guides/cli-usage.md)
+- npm 최초 등록과 이후 안전한 배포: [npm 등록과 배포](../guides/npm-publishing.md)
+- 저장소 첫 화면의 빠른 시작: [README](../../README.md)
