@@ -95,6 +95,8 @@ npm view @livteam/agents-cli version
 
 ## 4. 이후 배포 순서
 
+실제 Release는 GitHub Actions에서만 실행합니다. 로컬 `pnpm release`는 버전 파일을 변경하기 전에 차단됩니다. 로컬에서 배포 산출물만 확인하려면 `pnpm release:build -- --version <버전> --tag v<버전> --output <임시-경로>`를 사용하고, 생성된 서명 없는 결과를 실제 배포에 사용하지 마세요.
+
 1. 버전을 올린 변경을 검토하고 `pnpm test`, `pnpm check-types`, Release 빌드·검증을 통과시킵니다.
 2. 기존 `release.yml`을 실행해 새 GitHub Release를 만들고 서명 검증을 확인합니다.
 3. 기본 브랜치에서 GitHub Actions의 `npm publish` workflow를 수동 실행하고, 방금 만든 정확한 태그(예: `v0.1.2`)를 입력합니다.
