@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -55,10 +55,15 @@ function createInteractiveIo(answers: string[]): ReturnType<typeof createIo> & {
 describe.sequential("명시적 대상 수명주기", () => {
   const temporaryDirectories: string[] = [];
 
+  beforeEach(() => {
+    vi.stubEnv("AGENTS_RELEASE_SOURCE", "bundled");
+  });
+
   afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+    vi.unstubAllEnvs();
   });
 
   test("install/update는 대상별 실제 동작으로 자동 전환하고 Codex skill도 관리한다", async () => {
@@ -90,6 +95,22 @@ describe.sequential("명시적 대상 수명주기", () => {
     );
     expect([0, 1]).toContain(updateExit);
     expect(io.out).toContain("resolvedOperation=verify");
+  });
+
+  test("내장 배포본 모드는 원격 배포 목록 없이 대상별 install/update를 실행한다", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-lifecycle-bundled-"));
+    temporaryDirectories.push(root);
+    const io = createIo();
+    const env = {
+      ...process.env,
+      AGENTS_RELEASE_URL: "http://127.0.0.1:1/latest.json",
+      CODEX_HOME: path.join(root, "codex"),
+      XDG_STATE_HOME: path.join(root, "state"),
+    };
+
+    expect(await runCli(["install", "--target", "codex"], { cwd: root, env, ...io })).toBe(0);
+    expect(await runCli(["update", "--target", "codex"], { cwd: root, env, ...io })).toBe(0);
+    expect(io.err.join("\n")).not.toContain("release-manifest-invalid");
   });
 
   test("backup과 restore는 현재 상태를 보관하고 지정 대상만 복원한다", async () => {
@@ -600,6 +621,7 @@ describe.sequential("명시적 대상 수명주기", () => {
     const io = createInteractiveIo(["1", "n"]);
     const env = {
       ...process.env,
+      AGENTS_RELEASE_SOURCE: "",
       AGENTS_RELEASE_URL: `file://${latestPath}`,
       CODEX_HOME: path.join(root, "codex"),
       XDG_STATE_HOME: path.join(root, "state"),
@@ -704,7 +726,11 @@ describe.sequential("명시적 대상 수명주기", () => {
     const output = createIo();
     let questionCount = 0;
     let externallyChangedState: string | undefined;
-    const interactiveEnv = { ...env, AGENTS_RELEASE_URL: `file://${latestPath}` };
+    const interactiveEnv = {
+      ...env,
+      AGENTS_RELEASE_SOURCE: "",
+      AGENTS_RELEASE_URL: `file://${latestPath}`,
+    };
 
     expect(await runCli(["update"], {
       cwd: root,

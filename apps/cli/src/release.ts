@@ -25,6 +25,11 @@ const cachedVersionNoticeByReleaseUrl = new Map<
   { value: string | null; expiresAt: number }
 >();
 
+/** 명시적으로 내장 배포 자원을 사용할 때 원격 배포 목록 조회를 막는다. */
+export function usesBundledReleaseSource(env: NodeJS.ProcessEnv): boolean {
+  return env.AGENTS_RELEASE_SOURCE === "bundled";
+}
+
 export async function readLocation(
   location: string,
   timeoutMs?: number,
@@ -420,6 +425,7 @@ export function reportReleaseManifestError(
 async function getVersionNotice(
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
+  if (usesBundledReleaseSource(env)) return null;
   const releaseUrl = env.AGENTS_RELEASE_URL ?? DEFAULT_RELEASE_URL;
   const cachedVersionNotice = cachedVersionNoticeByReleaseUrl.get(releaseUrl);
   if (cachedVersionNotice && cachedVersionNotice.expiresAt > Date.now()) {

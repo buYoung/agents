@@ -14,7 +14,7 @@ import {
   getPackageVersion,
   getInstallStatePath,
 } from "@cli/paths";
-import { compareVersions } from "@cli/release";
+import { compareVersions, usesBundledReleaseSource } from "@cli/release";
 import {
   assertArtifactCompatibility,
   readLocation,
@@ -179,8 +179,10 @@ function getCodexSource(env: NodeJS.ProcessEnv): { root: string; version: string
     "skills/codex-orchestrator/SKILL.md",
     "skills/codex-orchestrator/agents/openai.yaml",
   ];
-  const artifactSource = getArtifactSource(env, "AGENTS_CODEX_ARTIFACT_ROOT", "Codex", requiredRelativePaths);
-  if (artifactSource) return artifactSource;
+  if (!usesBundledReleaseSource(env)) {
+    const artifactSource = getArtifactSource(env, "AGENTS_CODEX_ARTIFACT_ROOT", "Codex", requiredRelativePaths);
+    if (artifactSource) return artifactSource;
+  }
   const bundledRoot = getBundledResourceRoot("codex");
   if (bundledRoot) {
     const required = [
@@ -208,8 +210,10 @@ function getCodexSource(env: NodeJS.ProcessEnv): { root: string; version: string
 
 function getOpencodeSource(env: NodeJS.ProcessEnv): { root: string; version: string } {
   const requiredRelativePaths = ["agents.example.toml", "plugin.mjs", "catalog.toml"];
-  const artifactSource = getArtifactSource(env, "AGENTS_OPENCODE_ARTIFACT_ROOT", "OpenCode", requiredRelativePaths);
-  if (artifactSource) return artifactSource;
+  if (!usesBundledReleaseSource(env)) {
+    const artifactSource = getArtifactSource(env, "AGENTS_OPENCODE_ARTIFACT_ROOT", "OpenCode", requiredRelativePaths);
+    if (artifactSource) return artifactSource;
+  }
   const bundledRoot = getBundledResourceRoot("opencode");
   if (bundledRoot) {
     const required = [

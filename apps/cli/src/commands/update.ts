@@ -22,6 +22,7 @@ import {
   readLocation,
   reportReleaseManifestError,
   requireLatestManifestArtifact,
+  usesBundledReleaseSource,
   verifyChecksum,
 } from "@cli/release";
 import type { CliIO, LatestManifest, LatestManifestArtifact } from "@cli/types";
@@ -65,12 +66,14 @@ export async function update(
           return EXIT_BLOCKED;
         }
         let latest: LatestManifest | undefined;
-        try {
-          latest = await readLatestManifest(io.env);
-          assertLatestManifestCompatibility(latest, projectDirectory, "update");
-          sourceEnv = createRemoteTargetPlanEnvironment(latest, targets, io.env);
-        } catch (error) {
-          if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+        if (!usesBundledReleaseSource(io.env)) {
+          try {
+            latest = await readLatestManifest(io.env);
+            assertLatestManifestCompatibility(latest, projectDirectory, "update");
+            sourceEnv = createRemoteTargetPlanEnvironment(latest, targets, io.env);
+          } catch (error) {
+            if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+          }
         }
         const plan = planLifecycle(
           targets,
@@ -129,14 +132,16 @@ export async function update(
           throw error;
         }
       }
-      try {
-        const latest = await readLatestManifest(io.env);
-        assertLatestManifestCompatibility(latest, projectDirectory, "update");
-        const staged = await stageRemoteTargetSources(latest, targets, io.env);
-        stagedSources = staged;
-        sourceEnv = staged.env;
-      } catch (error) {
-        if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+      if (!usesBundledReleaseSource(io.env)) {
+        try {
+          const latest = await readLatestManifest(io.env);
+          assertLatestManifestCompatibility(latest, projectDirectory, "update");
+          const staged = await stageRemoteTargetSources(latest, targets, io.env);
+          stagedSources = staged;
+          sourceEnv = staged.env;
+        } catch (error) {
+          if (io.env.AGENTS_RELEASE_URL || !(error instanceof ReleaseManifestError) || !error.message.startsWith("배포 주소 확인 실패:")) throw error;
+        }
       }
       const results = executeLifecycle(
         targets,
