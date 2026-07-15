@@ -37,7 +37,7 @@ Return only these two lines:
 
 ```
 Path: .agents/orchestration/<taskId>/<workItemId>/adversarial-review.md
-Summary: <finding count> risk candidates; <one-line core summary>
+Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <finding count or identifiers> risk candidates; <one-line core summary>
 ```
 
 ## Documentation Rules

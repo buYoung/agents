@@ -40,7 +40,7 @@ Return only these two lines:
 
 ```
 Path: .agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md
-Summary: <suggestion count> suggestions; <one-line core summary>
+Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <suggestion count or identifiers> suggestions; <one-line core summary>
 ```
 
 ## Documentation Rules

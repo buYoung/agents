@@ -49,7 +49,7 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 
 ```
 Path: <requested artifact path or .agents/orchestration/<taskId>/<workItemId>/work.md>
-Summary: <changed file count> files changed; <one-line core result>
+Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <changed file count> files changed or verification-state=<passed|failed|blocked>; <one-line core result>
 ```
 
 Do not return detailed content. Keep necessary details only in `work.md`.

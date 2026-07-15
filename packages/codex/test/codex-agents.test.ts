@@ -105,6 +105,28 @@ describe("Codex custom agent TOML", () => {
     expect(codexAgentVersions).not.toHaveProperty("orchestrator");
   });
 
+  test("deployment leaf summaries match the orchestrator terminal schema", () => {
+    const summaryContractByAgent = {
+      worker:
+        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <changed file count> files changed or verification-state=<passed|failed|blocked>; <one-line core result>",
+      "adversarial-review":
+        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <finding count or identifiers> risk candidates; <one-line core summary>",
+      "constructive-feedback":
+        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <suggestion count or identifiers> suggestions; <one-line core summary>",
+    };
+    for (const [agentName, summaryContract] of Object.entries(
+      summaryContractByAgent,
+    )) {
+      const agent = parse(
+        fs.readFileSync(
+          path.join(codexAgentsDirectory, `${agentName}.toml`),
+          "utf-8",
+        ),
+      ) as Record<string, unknown>;
+      expect(agent.developer_instructions).toContain(summaryContract);
+    }
+  });
+
   test("intent-checker 계약은 비교 입력과 유한 관문 신호를 고정한다", () => {
     const agent = parse(
       fs.readFileSync(path.join(codexAgentsDirectory, "intent-checker.toml"), "utf-8"),
@@ -138,7 +160,7 @@ describe("Codex custom agent TOML", () => {
   test("codex-orchestrator skill uses main-session direct leaf delegation", () => {
     const instructions = fs.readFileSync(orchestrationSkillPath, "utf-8");
     const allowlistMatch = instructions.match(
-      /main session이 직접 호출할 수 있는 대상은 정확히 8개다\.[\s\S]*?```text\n([\s\S]*?)\n```/,
+      /The main session may directly invoke exactly eight targets\.[\s\S]*?```text\n([\s\S]*?)\n```/,
     );
     expect(allowlistMatch).not.toBeNull();
     const allowedAgentNames = allowlistMatch![1]
@@ -152,47 +174,68 @@ describe("Codex custom agent TOML", () => {
     );
     expect(allowedAgentNames).not.toContain("orchestrator");
     for (const marker of [
-      "`agent_type`과 `message`",
+      "`agent_type` and `message`",
       'fork_turns="none"',
-      "정규화한 목표",
+      "normalized objective",
       "taskId, workItemId",
       "Output:",
       "Input:",
       "prompt-level coordination requirements, not runtime-enforced guarantees",
       "Review only an immutable integrated result",
       "Path:",
-      "Paths-only handoff와 SSOT",
-      "artifact-writing leaf의 `spawn_agent` 직전",
-      "정확한 상대 Output을 모두 검증한 뒤",
-      "정확히 `.agents/orchestration/<taskId>/<workItemId>/`만 일반 권한의 `mkdir -p`",
-      "검증 → 일반 권한 mkdir -p .agents/orchestration/<taskId>/<workItemId>/ → (명시적 권한·sandbox 거부 시에만 동일 명령·동일 경로 권한 상승 재시도 1회) → spawn_agent",
-      "coordinator의 task-wide 할당 기록으로 아직 할당되지 않은 workItemId인지 확인한다.",
-      "명시적인 same-taskId, same-role follow-up만 기존 active Output과 그 부모를 재사용할 수 있다.",
-      "runtime의 명시적 sandbox/permission 거부 상태를 반환하거나 `EACCES`, `EPERM`, `Operation not permitted`, `Permission denied`",
-      "종료 코드나 일반 stderr만으로 원인을 추론하지 않으며",
-      "신호가 없거나 원인이 불확실하면 재시도하지 않고 leaf 호출 전 차단 상태로 보고한다.",
-      "`.agents` 전체 쓰기 권한을 요청하지 않으며",
-      "권한 상승이 거부되거나 그 재시도가 실패하면 leaf를 호출하지 않고 차단 상태로 보고한다.",
-      "권한·sandbox 이외의 `mkdir -p` 실패에는 권한 상승을 요청하지 않으며",
-      "`task.md` 쓰기는 work-item 부모 `mkdir -p` 권한 상승 예외에 포함되지 않으며 shell로 쓰지 않는다.",
-      "`.agents` 전체 권한 확대나 대체 경로 없이 파일 소유를 주장하지 말고 paths-only 결과로 끝낸다.",
-      "다른 경로로 우회하거나 성공을 주장하지 않는다.",
-      "stateless `intent-checker`에는 이 작업을 하지 않는다.",
-      "## 의도 보존 관문",
-      "`intent-checker`가 반드시 최초 leaf다.",
-      "`plan-finalized` revision 관문",
+      "Paths-only Handoff and SSOT",
+      "Immediately before each artifact-writing leaf `spawn_agent`",
+      "validates the received/generated taskId, unique workItemId, the role's mapped filename, and the exact relative Output",
+      "creates only `.agents/orchestration/<taskId>/<workItemId>/` with a non-escalated `mkdir -p`",
+      "validate → non-escalated mkdir -p .agents/orchestration/<taskId>/<workItemId>/ → (retry the same command with escalation once only for an explicit permission or sandbox denial on the same path) → spawn_agent",
+      "confirm that its workItemId has not yet been assigned.",
+      "Only an explicit same-taskId, same-role follow-up may reuse an existing active Output and its parent.",
+      "explicit runtime sandbox/permission denial state or a clear permission-denied signal of `EACCES`, `EPERM`, `Operation not permitted`, or `Permission denied`",
+      "Do not infer the cause from an exit code or ordinary stderr alone",
+      "if there is no signal or the cause is uncertain, do not retry and report blocked before invoking the leaf.",
+      "Do not request write access for all of `.agents`",
+      "if escalation is denied or the retry fails, do not invoke the leaf and report blocked.",
+      "Do not request escalation for a `mkdir -p` failure unrelated to permission or sandboxing",
+      "Writing `task.md` is not included in the work-item-parent `mkdir -p` escalation exception and is not done through the shell.",
+      "do not claim file ownership with broader `.agents` permissions or an alternative path; end with paths-only results.",
+      "do not bypass through another path or claim success.",
+      "Do not perform this work for the stateless `intent-checker`.",
+      "## Intent Preservation Gates",
+      "`intent-checker` must be the first leaf.",
+      "`plan-finalized` revision gate",
       "intent-delta: none",
       "format-only retry",
-      "한 명의 designated `worker`",
-      "lane은 분류 가능하지만 결과를 바꾸는 사용자 선택이 미결정",
+      "One designated `worker` owns implementation.",
+      "the request's lane is classifiable but an outcome-changing user choice remains unresolved",
       "approved-iteration-follow-up",
-      "main session이 실제로 받은 trusted instruction",
-      "새 stateless `intent-checker` 세션을 정확히 한 turn만 사용",
-      "그 id에 `followup_task`를 보내 같은 worker thread",
+      "trusted instruction actually received by the main session",
+      "a new stateless `intent-checker` session created by `spawn_agent` for exactly one turn",
+      "send modifications within the existing objective and scope to that id through `followup_task` so the same worker thread continues.",
+      "do not skip, shorten, or stop them based on the cumulative task-wide count of `intent-checker` calls.",
+      "Initial, `plan-finalized`, semantic revision, and `approved-iteration-follow-up` are independent checkpoints.",
+      "status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <role-specific payload>",
+      "`review-state=<clear|findings|needs-user-decision>`",
+      "`verification-state=<passed|failed|blocked>`",
+      "Neither reviewer may decide acceptance or rejection, scope expansion, remediation execution, user questions, or task termination.",
+      "Only the main session has review-adjudication and termination authority.",
+      "`accepted`, `rejected`, or `needs-user-decision`",
+      "exactly one separate verification-only `worker` session with `spawn_agent`",
+      "Preserve the implementation worker id and verifier id and confirm that they differ.",
+      "explicitly prohibits source, configuration, and documentation edits",
+      "one ordered remediation batch",
+      "all accepted findings and the verifier's failed mandatory commands with their evidence",
+      "at most three automatic remediation rounds",
+      "a fourth automatic remediation batch, and a fourth re-review are prohibited.",
+      "If a same-cause finding or the same verifier failure remains twice consecutively without new evidence",
+      "`gated → implementing → self-verified → independently-verifying → reviewing-immutable-result → adjudicating`",
+      "`remediating-<1..3> → self-reverified → independently-reverifying-<1..3> → rereviewing-<1..3> → readjudicating-<1..3>`",
+      "If any adjudication is clean, end without consuming remaining remediation rounds.",
+      "If verifier failure or an `accepted` finding remains after the third readjudication",
+      "A leaf, reviewer, or verifier cannot declare task completion.",
     ]) {
       expect(instructions).toContain(marker);
     }
-    expect(instructions).toContain('`agent_type="orchestrator"`를 호출하거나');
+    expect(instructions).toContain('invoke `agent_type="orchestrator"`');
     expect(instructions).not.toContain("model =");
     expect(instructions).not.toContain("sandbox_mode");
     expect(instructions).not.toContain("max_depth");

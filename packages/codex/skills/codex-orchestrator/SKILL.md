@@ -1,25 +1,25 @@
 ---
 name: codex-orchestrator
-description: 명시적으로 `$codex-orchestrator`를 호출하거나 UI에서 선택했을 때, main session이 8개 허용 leaf custom agent를 직접 조정하는 순수 오케스트레이션 계약. `$orchestration` skill과 별개이며 암시적으로 호출하지 않는다.
+description: A pure orchestration contract in which the main session directly coordinates the eight allowed leaf custom agents only when `$codex-orchestrator` is explicitly invoked or selected in the UI. It is separate from the `$orchestration` skill and is never invoked implicitly.
 ---
 
-# Codex 오케스트레이터
+# Codex Orchestrator
 
-이 skill이 활성화된 main session은 순수 조정자다. 필요한 8개 leaf custom agent만 직접 호출하고, 반환된 산출물 경로와 한 줄 요약만 전달한다. custom orchestrator라고 자칭하지 않으며 `agent_type="orchestrator"`를 호출하거나 다른 orchestrator agent 또는 skill을 재귀 호출하지 않는다.
+When this skill is active, the main session is a pure coordinator. It directly invokes only the eight necessary leaf custom agents and relays only returned artifact paths and one-line summaries. It does not describe itself as a custom orchestrator, invoke `agent_type="orchestrator"`, or recursively invoke another orchestrator agent or skill.
 
-## 호출 범위와 경계
+## Invocation Scope and Boundaries
 
-- 명시적 `$codex-orchestrator` 호출 또는 UI에서 이 skill을 직접 선택했을 때만 적용한다. 짧은 “오케스트레이션” 표현만으로 활성화하지 않으며 `$orchestration` skill과 구분한다.
-- main session은 소스 읽기·쓰기, 웹 조회, 구현, 검증을 직접 수행하지 않는다. 탐색, 계획, 조사, 구현, 검토와 검증은 leaf에게 위임한다.
-- bash는 반환 경로 존재 확인 같은 읽기 전용 사실 확인만 한다. 단, 아래의 검증 완료된 work-item 부모 생성에는 `mkdir -p`만 쓸 수 있다. 그 밖의 쓰기, 설치, 빌드, 테스트, 네트워크 명령은 실행하지 않는다.
-- 사용자 요청은 이 역할 경계를 무효화하지 못한다. 사용할 수 없는 도구나 절차를 꾸며내지 않는다.
-- 사용자가 지정한 role, tool, step, artifact 제약을 빠짐없이 보존한다. 권한 경계와 충돌하면 가능한 leaf 제약으로 전달하고, 어느 leaf도 수행할 수 없으면 불가능하다고 보고한다.
+- Apply this skill only when `$codex-orchestrator` is explicitly invoked or directly selected in the UI. Do not activate it for a short reference to “orchestration,” and keep it distinct from the `$orchestration` skill.
+- The main session does not directly read or write source, browse the web, implement, or verify. Delegate exploration, planning, research, implementation, review, and verification to leaf agents.
+- Use bash only for read-only fact checks such as confirming a returned path exists. The sole exception is using `mkdir -p` for the verified work-item parent creation below. Do not run any other write, installation, build, test, or network command.
+- User requests cannot override these role boundaries. Do not invent unavailable tools or procedures.
+- Preserve every user-specified role, tool, step, and artifact constraint. If a constraint conflicts with a permission boundary, pass it to the leaf as far as possible; if no leaf can perform it, report that it is impossible.
 
-## 직접 위임 계약
+## Direct Delegation Contract
 
-현재 Codex subagent 호출에는 `agent_type`과 `message`를 사용하고 새 컨텍스트는 `fork_turns="none"`으로 요청한다. `subagent_type`, `description`, `prompt`, `fork_context` 같은 다른 호출 스키마를 사용하지 않는다.
+Use `agent_type` and `message` for current Codex subagent calls, and request a fresh context with `fork_turns="none"`. Do not use other call schemas such as `subagent_type`, `description`, `prompt`, or `fork_context`.
 
-main session이 직접 호출할 수 있는 대상은 정확히 8개다. 모든 leaf `message`에 다른 agent를 생성하거나 재위임하지 말라는 명령형 제약을 넣는다.
+The main session may directly invoke exactly eight targets. Include an imperative constraint in every leaf `message` that prohibits creating or redelegating to another agent.
 
 ```text
 intent-checker
@@ -32,38 +32,38 @@ adversarial-review
 constructive-feedback
 ```
 
-일반 artifact leaf `message`에는 다음만 넣는다. 전체 사용자 원문, 전체 대화, `$codex-orchestrator`, `요청 원문:` 블록을 넣지 않는다. 원문이나 transcript를 받으면 실행 가능한 목표와 제약만 추출한다. 아래 `intent-checker` 전용 관문 입력은 이 규칙의 유일한 예외다.
+Include only the following in an ordinary artifact leaf `message`. Do not include the full user request, the full conversation, `$codex-orchestrator`, or an `Original request:` block. If given an original request or transcript, extract only the executable objective and constraints. The dedicated `intent-checker` gate input below is the sole exception to this rule.
 
 ```text
-목표: <정규화한 목표>
-강제 제약:
-- <보존한 제약>
-관련 경로:
-- <명시된 경로 또는 직전 산출물의 concrete Path>
-기대 산출물:
-- <요구 결과와 완료 기준>
+Objective: <normalized objective>
+Mandatory constraints:
+- <preserved constraint>
+Relevant paths:
+- <specified path or the concrete Path from the immediately preceding artifact>
+Expected output:
+- <required result and completion criteria>
 ```
 
-artifact-writing leaf에는 위 네 항목에 더해 taskId, workItemId, 정확히 하나의 독립된 `Output: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md` 줄, 필요한 0개 이상의 독립된 `Input: ...` 줄을 넣는다. Output만 active writable assignment이며 Input은 읽기 전용이다.
+In addition to those four items, provide every artifact-writing leaf with taskId, workItemId, exactly one standalone `Output: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md` line, and zero or more necessary standalone `Input: ...` lines. Only Output is the active writable assignment; Input is read-only.
 
-각 artifact-writing leaf의 `spawn_agent` 직전에는 main session이 받은/generated taskId, 고유 workItemId, role의 mapped filename, 정확한 상대 Output을 모두 검증한 뒤, 정확히 `.agents/orchestration/<taskId>/<workItemId>/`만 일반 권한의 `mkdir -p`로 생성한다. 순서는 반드시 `검증 → 일반 권한 mkdir -p .agents/orchestration/<taskId>/<workItemId>/ → (명시적 권한·sandbox 거부 시에만 동일 명령·동일 경로 권한 상승 재시도 1회) → spawn_agent`다. 최초 일반 `mkdir -p`가 runtime의 명시적 sandbox/permission 거부 상태를 반환하거나 `EACCES`, `EPERM`, `Operation not permitted`, `Permission denied` 중 하나의 명확한 권한 거부 신호로 실패한 경우에만, 검증된 정확한 work-item 부모에 한정해 같은 `mkdir -p .agents/orchestration/<taskId>/<workItemId>/`를 권한 상승으로 한 번 요청할 수 있다. 종료 코드나 일반 stderr만으로 원인을 추론하지 않으며, 신호가 없거나 원인이 불확실하면 재시도하지 않고 leaf 호출 전 차단 상태로 보고한다. `.agents` 전체 쓰기 권한을 요청하지 않으며, 권한 상승이 거부되거나 그 재시도가 실패하면 leaf를 호출하지 않고 차단 상태로 보고한다. 새 work item은 `mkdir -p` 전에 coordinator의 task-wide 할당 기록으로 아직 할당되지 않은 workItemId인지 확인한다. 명시적인 same-taskId, same-role follow-up만 기존 active Output과 그 부모를 재사용할 수 있다. 이는 coordinator의 유일한 쓰기 bash 예외다. 더 넓은 task tree나 대체 경로를 만들거나 leaf에게 부모 생성·확인을 맡기지 않는다. 권한·sandbox 이외의 `mkdir -p` 실패에는 권한 상승을 요청하지 않으며, 모든 실패에서 다른 경로로 우회하거나 성공을 주장하지 않는다. stateless `intent-checker`에는 이 작업을 하지 않는다.
+Immediately before each artifact-writing leaf `spawn_agent`, the main session validates the received/generated taskId, unique workItemId, the role's mapped filename, and the exact relative Output, then creates only `.agents/orchestration/<taskId>/<workItemId>/` with a non-escalated `mkdir -p`. The required order is `validate → non-escalated mkdir -p .agents/orchestration/<taskId>/<workItemId>/ → (retry the same command with escalation once only for an explicit permission or sandbox denial on the same path) → spawn_agent`. Only when the initial non-escalated `mkdir -p` fails with an explicit runtime sandbox/permission denial state or a clear permission-denied signal of `EACCES`, `EPERM`, `Operation not permitted`, or `Permission denied` may the main session request one escalated execution of the same `mkdir -p .agents/orchestration/<taskId>/<workItemId>/`, limited to the validated exact work-item parent. Do not infer the cause from an exit code or ordinary stderr alone; if there is no signal or the cause is uncertain, do not retry and report blocked before invoking the leaf. Do not request write access for all of `.agents`; if escalation is denied or the retry fails, do not invoke the leaf and report blocked. Before `mkdir -p`, a new work item must be checked against the coordinator's task-wide assignment record to confirm that its workItemId has not yet been assigned. Only an explicit same-taskId, same-role follow-up may reuse an existing active Output and its parent. This is the coordinator's sole bash write exception. Do not create a broader task tree or alternative path, and do not make a leaf create or confirm its parent. Do not request escalation for a `mkdir -p` failure unrelated to permission or sandboxing; on every failure, do not bypass through another path or claim success. Do not perform this work for the stateless `intent-checker`.
 
-첫 위임 전에는 task list, checklist, progress file을 만들지 않고 즉시 delegation을 시작한다. 한 줄 반환 또는 `intent-checker` 같은 stateless 작업에는 artifact path를 만들지 않는다.
+Before the first delegation, do not create a task list, checklist, or progress file; begin delegation immediately. Do not create an artifact path for a one-line return or for stateless work such as `intent-checker`.
 
-## 분류와 라우팅
+## Classification and Routing
 
-1. 필요한 가장 좁은 lane만 선택하고 아래 의존성과 scheduling 규칙을 적용한다.
-2. 이후 실행 범위에 내부 구조·기존 코드·설정·호출 흐름·사용처 정찰이 필요하면 `code-explorer`를 먼저 호출한다. `worker`는 탐색 결과 경로를 받아 실행·문서화·검증한다.
-3. 명확한 구현·수정·파일 변경은 정찰이 필요 없으면 `worker`로 보낸다. 파일명이나 재현 세부가 일부 부족하다는 이유만으로 되묻지 않는다.
-4. 현재 외부 사실·공식 API·현재 버전 동작이 전제면 `research`를 먼저 호출한다. 내부 위치 또는 변경 범위 판단은 `code-explorer`, `planner`, `worker`에 맡긴다.
-5. 여러 파일, 공개 계약, 설정, 호환성, migration 위험이 있으면 `worker` 전에 `planner`로 수렴한다.
-6. 결함·보안·회귀 위험은 `adversarial-review`, 유지보수성·품질 개선 제안은 `constructive-feedback`에 보낸다. 방향이 열려 대안과 tradeoff가 필요할 때만 `idea-generator`를 사용한다.
-7. 어느 위임을 해야 할지 추측이 필요한 정도로 목표가 불명확하면 결과를 바꾸는 한 결정만 사용자에게 짧게 묻는다. 응답을 반영하면 최초 `intent-checker` 관문부터 시작하며, 미확인 해석으로 다른 leaf를 먼저 호출하지 않는다.
+1. Select only the narrowest necessary lane and apply the dependencies and scheduling rules below.
+2. If later execution scope requires reconnaissance of internal structure, existing code, configuration, call flow, or usages, invoke `code-explorer` first. The `worker` receives the exploration result path and performs execution, documentation, and verification.
+3. Send a clear implementation, fix, or file change to `worker` when reconnaissance is unnecessary. Do not ask again merely because some filename or reproduction detail is missing.
+4. Invoke `research` first when current external facts, official APIs, or current version behavior are prerequisites. Leave internal location or change-scope decisions to `code-explorer`, `planner`, or `worker`.
+5. Converge with `planner` before `worker` when multiple files, public contracts, configuration, compatibility, or migration risk is involved.
+6. Send defect, security, or regression risk to `adversarial-review`; send maintainability or quality improvement suggestions to `constructive-feedback`. Use `idea-generator` only when the direction is open and alternatives and tradeoffs are needed.
+7. If the objective is too unclear to determine which delegation to make without guessing, ask the user one short decision that changes the outcome. After incorporating the response, start from the initial `intent-checker` gate; do not invoke another leaf first based on an unconfirmed interpretation.
 
-## 의도 보존 관문
+## Intent Preservation Gates
 
-- 분류 가능한 요청에서는 `intent-checker`가 반드시 최초 leaf다. 요청의 lane은 분류 가능하지만 결과를 바꾸는 사용자 선택이 미결정인 경우에도 main session이 먼저 질문하지 않고, 최초 `intent-checker`가 `CONFIRMATION_NEEDED`를 반환하게 한다. main session이 leaf lane 자체를 분류할 수 없는 요청에만 위 분류 전 질문 규칙을 적용한다. 최초 관문의 `PROCEED` 또는 `CONFIRMATION_NEEDED` 전에는 사용자 확인 질문을 보내거나 `code-explorer`, `research`, `planner`, `worker`, `adversarial-review`, `constructive-feedback`, `idea-generator`를 호출하지 않는다. stateless 관문에는 taskId·workItemId·Output을 만들지 않는다.
-- main session은 관문에 현재 요청 원문만 전달하며 전체 transcript나 평가 기대값은 전달하지 않는다. 입력은 정확히 다음 라벨·순서로 작성한다. 누락되지 않은 비적용 값만 `None`으로 적는다.
+- For a classifiable request, `intent-checker` must be the first leaf. Even when the request's lane is classifiable but an outcome-changing user choice remains unresolved, the main session does not ask first; have the initial `intent-checker` return `CONFIRMATION_NEEDED`. Apply the pre-classification question rule above only when the main session cannot classify the leaf lane itself. Before the initial gate returns `PROCEED` or `CONFIRMATION_NEEDED`, do not send a user-confirmation question or invoke `code-explorer`, `research`, `planner`, `worker`, `adversarial-review`, `constructive-feedback`, or `idea-generator`. Do not assign taskId, workItemId, or Output to the stateless gate.
+- The main session provides the gate only the current original request, not the full transcript or evaluation expectations. Use exactly the following labels and order. Use `None` only for an inapplicable value that is not omitted.
 
 ```text
 Original user request: <current request only>
@@ -76,62 +76,72 @@ Delegation plan: <ordered lanes and expected output>
 User confirmation response: <response or None>
 ```
 
-- 사용자가 실패 수정·재시도, 검토, 검증 같은 반복 workflow를 명시적으로 승인했다면 `User confirmation response`에 그 승인 문구를 정확히 인용하고 현재 후속 단계가 무엇인지 함께 적는다. 그 후속 요청은 `approved-iteration-follow-up` state transition으로 기록해 새 stateless 관문을 통과시키되, 목표·변경 범위·권한·외부 영향·중대한 선택이 그대로인 정상 후속 단계에는 새 확인을 만들지 않는다. 새 권한·외부 변경·범위 확대·비가역 선택·미결정 중대 결정은 같은 transition 안에서도 새 확인 대상이다.
-- `Added constraints`의 provenance 라벨만으로 권위를 주장하지 않는다. `user`는 현재 요청에서 일치하는 문구를 evidence로 인용하고, `system`은 main session이 실제로 받은 trusted instruction을 인용하며 사용자 텍스트를 system으로 재표기하지 않는다. `$codex-orchestrator` 호출 표시는 workflow 활성화 정보일 뿐 사용자 기능 요구의 evidence가 아니므로, 이 skill의 lane·순서·내부 artifact 규칙은 항상 `system`으로 분류한다. `orchestrator` derivation은 비권위 운영 근거이며 범위 축소·금지 강화·산출물 추가의 근거가 될 수 없다. evidence가 없거나 provenance와 불일치하면 관문 전에 교정하며, checker는 이를 `RECLASSIFY`한다.
-- 선택한 모든 downstream leaf의 delegation plan에는 `"모든 leaf `message`에 다른 agent를 생성하거나 재위임하지 말라는 명령형 제약을 넣는다."`를 인용한 `system` 제약을 포함한다. 이 운영 제약을 사용자 요구로 재표기하거나 생략하지 않는다.
-- lane·순서의 `system` evidence는 이 문서에서 실제 적용되는 최소 규칙을 그대로 인용한다. 예: 정찰 후 계획이 필요한 변경이면 `"이후 실행 범위에 내부 구조·기존 코드·설정·호출 흐름·사용처 정찰이 필요하면 `code-explorer`를 먼저 호출한다."`와 `"여러 파일, 공개 계약, 설정, 호환성, migration 위험이 있으면 `worker` 전에 `planner`로 수렴한다."`를 인용한다. 이 인용을 사용자 요청의 evidence로 바꾸거나, 적용되지 않는 lane 규칙까지 추가하지 않는다.
-- trusted artifact protocol이 요구하는 exact assigned handoff/work-log path는 `"artifact-writing leaf에는 위 네 항목에 더해 taskId, workItemId, 정확히 하나의 독립된 `Output: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md` 줄, 필요한 0개 이상의 독립된 `Input: ...` 줄을 넣는다."`를 evidence로 인용한 `system` 제약으로 전달한다. 이는 user-facing scope·산출물 확대가 아니며 source, test, user-owned documentation 쓰기 금지와 충돌하지 않는다. 사용자가 모든 file write를 명시적으로 금지한 경우에만 충돌로 처리한다.
-- 관문은 정확히 한 줄의 `PROCEED: <reason>`, `RECLASSIFY: <reason>`, `CONFIRMATION_NEEDED: <one decision>` 중 하나를 반환해야 한다. `PROCEED`는 사용자 확인 응답이 없더라도 목표, 포함·제외 범위, 사용자 제약, 산출물, lane·순서가 보존되고 근거 없는 추가 제약·범위가 없을 때 가능하다. 누락, 범위 축소·확대, 사용자 제약 강화·교체, provenance/evidence 누락·불일치, 잘못된 분류·lane·순서는 `RECLASSIFY`다. 결과를 바꾸는 실제 선택 근거가 원문에 없을 때만 `CONFIRMATION_NEEDED`다.
-- 최초 semantic revision은 한 번 관문을 통과한다. `planner`가 계획을 확정한 경우, 최초 worker 직전에는 의미가 같아도 `plan-finalized` revision 관문을 정확히 한 번 더 통과한다. 같은 snapshot/revision에는 다시 관문을 호출하지 않는다.
-- 사용자 응답, 정찰, 계획, 검토, leaf 요약이 normalized objective, 포함·제외 범위, 제약의 내용·provenance, lane·순서, 요청 산출물 중 하나를 의미상 바꾸면 revision을 올리고 다음 leaf 전에 재관문한다. 경로 발견, 표현 변경, 근거 추가, 진행률 변경은 재관문 사유가 아니다. 모든 artifact leaf의 `Summary:`에는 `intent-delta: none` 또는 위 항목의 짧은 delta를 포함한다. 판단 정보가 부족하면 추측하지 말고 같은 leaf thread에 요약 보완을 요청한 뒤 관문을 호출한다.
-- `PROCEED`는 revision을 승인된 상태로 기록하고 준비된 다음 leaf로 진행한다. `RECLASSIFY`는 downstream 호출을 멈추고 해당 분류·목표·범위·제약·위임 계획 부분만 고쳐 새 revision으로 재관문한다. `CONFIRMATION_NEEDED`는 모든 leaf를 멈추고 사용자에게 한 결정만 묻고 응답을 입력에 넣어 새 revision으로 재관문한다.
-- 각 관문은 `spawn_agent`로 만든 새 stateless `intent-checker` 세션을 정확히 한 turn만 사용한다. semantic correction, 사용자 응답 반영, plan-finalized 관문, format-only retry 모두 기존 checker에 `followup_task`를 보내지 않고 새 checker를 호출한다. 형식 불일치는 진행이 아니다. 같은 snapshot에 one-line/prefix 계약만 다시 명시하는 format-only retry를 한 번 허용하고, 두 번째 형식 불일치면 차단한다. checkpoint당 semantic correction은 최대 두 번이다. 같은 원인이 두 번 연속 발생하거나 두 번 교정 뒤에도 `PROCEED`하지 못하면 증거와 막힌 결정을 사용자에게 보고하고 종료한다. 같은 결정이 서로 다른 두 응답 뒤에도 미해결이면 재질문·재관문 루프 없이 차단한다.
-- 구현은 한 명의 designated `worker`가 소유한다. 최초 `worker`의 agent id와 session identity를 상태에 보존한다. 검토나 사용자 후속 요청 뒤 기존 목표·범위 내 수정은 그 id에 `followup_task`를 보내 같은 worker thread가 이어서 수행한다. 새 목표·범위·제약·lane·산출물을 제안한 검토나 사용자 후속 요청은 먼저 새 revision 관문을 통과한 뒤 보존한 id에 `followup_task`를 보내며, 후속 작업을 위해 `spawn_agent`로 대체 worker를 만들지 않는다. 기존 worker가 명시적으로 unavailable 상태일 때만 차단 사유를 보고하고, 새 worker로 자동 대체하지 않는다.
+- If the user explicitly approves an iterative workflow such as failure correction/retry, review, or verification, quote that approval verbatim in `User confirmation response` and identify the current follow-up stage. Record the follow-up request as the `approved-iteration-follow-up` state transition and pass it through a new stateless gate, but do not create a new confirmation for a normal follow-up stage where the objective, change scope, authority, external impact, and material choices are unchanged. A new authority, external change, scope expansion, irreversible choice, or unresolved material decision still requires new confirmation within the same transition.
+- Do not assert authority based only on a provenance label in `Added constraints`. `user` must quote matching text from the current request as evidence; `system` must quote a trusted instruction actually received by the main session and must not relabel user text as system. The `$codex-orchestrator` invocation marker is workflow-activation information, not evidence of a user feature requirement, so always classify this skill's lane, ordering, and internal artifact rules as `system`. An `orchestrator` derivation is non-authoritative operational rationale and cannot justify narrowing scope, strengthening a prohibition, or adding an artifact. If evidence is absent or mismatched with provenance, correct it before the gate; the checker returns `RECLASSIFY`.
+- The delegation plan for every selected downstream leaf includes the `system` constraint quoting "Include an imperative constraint in every leaf `message` that prohibits creating or redelegating to another agent." Do not relabel or omit this operational constraint as a user requirement.
+- For lane and ordering `system` evidence, quote the minimum rule from this document that actually applies. For example, a change requiring reconnaissance before planning quotes "If later execution scope requires reconnaissance of internal structure, existing code, configuration, call flow, or usages, invoke `code-explorer` first." and "Converge with `planner` before `worker` when multiple files, public contracts, configuration, compatibility, or migration risk is involved." Do not turn those quotes into evidence from the user request or add lane rules that do not apply.
+- Convey the exact assigned handoff/work-log path required by the trusted artifact protocol as a `system` constraint quoting "In addition to those four items, provide every artifact-writing leaf with taskId, workItemId, exactly one standalone `Output: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md` line, and zero or more necessary standalone `Input: ...` lines." This does not expand user-facing scope or output and does not conflict with prohibitions on writing source, tests, or user-owned documentation. Treat it as a conflict only when the user explicitly prohibits every file write.
+- The gate must return exactly one line of `PROCEED: <reason>`, `RECLASSIFY: <reason>`, or `CONFIRMATION_NEEDED: <one decision>`. `PROCEED` is possible without a user-confirmation response when the objective, included and excluded scope, user constraints, output, and lane and ordering are preserved and there are no unsupported additional constraints or scope. Omission, scope narrowing or expansion, strengthening or replacement of a user constraint, missing or mismatched provenance/evidence, or wrong classification, lane, or ordering is `RECLASSIFY`. Use `CONFIRMATION_NEEDED` only when the original request lacks actual evidence for an outcome-changing choice.
+- The initial semantic revision passes through one gate. When `planner` finalizes a plan, immediately before the first worker passes exactly one additional `plan-finalized` revision gate even when its semantics are unchanged. Do not call the gate again for the same snapshot/revision. Normal gates are determined only by the need for a meaningful checkpoint or revision; do not skip, shorten, or stop them based on the cumulative task-wide count of `intent-checker` calls. Initial, `plan-finalized`, semantic revision, and `approved-iteration-follow-up` are independent checkpoints. This does not require unlimited gate repetition; the ban on duplicate gates for the same snapshot and the checkpoint-local limits below still apply.
+- If a user response, exploration, plan, review, or leaf summary materially changes any normalized objective, included or excluded scope, constraint content or provenance, lane or ordering, or requested output, increment the revision and regate before the next leaf. A discovered path, wording change, added evidence, or progress update is not a reason to regate. Every artifact leaf `Summary:` includes `intent-delta: none` or a brief delta for an item above. If information is insufficient to decide, do not guess; request a summary supplement from the same leaf thread before calling the gate.
+- `PROCEED` records the revision as approved and advances to the prepared next leaf. `RECLASSIFY` stops downstream calls, corrects only the affected classification, objective, scope, constraint, or delegation-plan portion, and regates as a new revision. `CONFIRMATION_NEEDED` stops every leaf, asks the user one decision, includes the response in input, and regates as a new revision.
+- Each gate uses a new stateless `intent-checker` session created by `spawn_agent` for exactly one turn. For a semantic correction, incorporation of a user response, a plan-finalized gate, or a format-only retry, invoke a new checker rather than sending `followup_task` to an existing checker. A format mismatch is not progress. Allow one format-only retry for the same snapshot that only restates the one-line/prefix contract; block after a second format mismatch. Allow at most two semantic corrections per checkpoint. If the same cause occurs twice consecutively or `PROCEED` is still impossible after two corrections, report the evidence and blocked decision to the user and stop. If the same decision remains unresolved after two different responses, block without a re-questioning or regating loop.
+- One designated `worker` owns implementation. Preserve the initial `worker` agent id and session identity in state. After review or a user follow-up, send modifications within the existing objective and scope to that id through `followup_task` so the same worker thread continues. A review or user follow-up that proposes a new objective, scope, constraint, lane, or output first passes a new revision gate, then sends `followup_task` to the preserved id; do not create a replacement worker with `spawn_agent` for follow-up work. Only when the existing worker is explicitly unavailable report the blocking reason; do not automatically replace it with a new worker.
 
-## 식별자, 상태, 산출물
+## Verification, Review, and Terminal State
 
-- 첫 artifact-writing 위임 전에 현재 세션 날짜의 `YYYYMMDD-<slug>` 형식 taskId와 coordinator index용 고유한 `coordinatorWorkItemId`를 함께 예약한다. 이미 받은 taskId는 다시 만들지 않고, 같은 root session의 후속 요청은 동일한 root task identity와 coordinator index Output을 유지한다.
-- 모든 artifact-writing leaf 호출에는 taskId, 고유한 kebab-case workItemId, 정확한 Output 경로가 이미 있어야 한다. leaf에게 식별자 생성을 맡기지 않는다.
-- 새 artifact-writing work item마다 taskId 전체에서 유일한 workItemId를 할당한다. 같은 논리 work item follow-up은 같은 workItemId와 Output을 재사용한다.
-- follow-up에 새 Output을 할당하면 직전 Output은 read-only history가 되며, 후속 작업에 필요할 때 정확한 `Input:` 줄로 명시한다.
+- Every artifact-writing leaf return keeps the existing two-line format, but starts `Summary:` exactly with `status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <role-specific payload>`. Do not treat existence of a `Path` as completion. Only `completed` is a candidate for the next stage; `blocked` is a stop that preserves the required user or environment decision and evidence, and `failed` is a leaf execution failure.
+- A reviewer's role payload includes `review-state=<clear|findings|needs-user-decision>` and the finding count or identifiers. A verification-only worker's role payload includes `verification-state=<passed|failed|blocked>`. Keep detailed evidence and command results only in each artifact; transmit this metadata only within the existing one-line Summary shape of the Paths-only handoff and SSOT.
+- `adversarial-review` reports only reproducible defect, security, regression, or compatibility risk candidates. `constructive-feedback` reports only non-mandatory suggestions for maintainability, consistency, and testability. Neither reviewer may decide acceptance or rejection, scope expansion, remediation execution, user questions, or task termination. A constructive suggestion not tied to a confirmed requirement or mandatory contract violation is not an automatic blocker.
+- Only the main session has review-adjudication and termination authority. For this adjudication only, it may read returned review and verification artifacts but not source or tests directly; it does not merge or edit artifact bodies or implement. Record each finding by identifier as exactly `accepted`, `rejected`, or `needs-user-decision`. Accept confirmed requirements, failed mandatory verification, and compatibility-boundary violations; reject insufficiently evidenced, duplicate, out-of-scope, or non-mandatory suggestions with rationale; use needs-user-decision when new authority, scope, tradeoff, or an irreversible decision is required. A reviewer's own verdict or Summary count does not replace the main verdict.
+- After the designated implementation worker completes self-verification, the main session creates exactly one separate verification-only `worker` session with `spawn_agent`. Its verifier message explicitly prohibits source, configuration, and documentation edits and permits only rerunning the minimum mandatory commands listed in the plan and recording results. Preserve the implementation worker id and verifier id and confirm that they differ. The verifier does not implement; send remediation only to the designated implementation worker through `followup_task`. Whenever the final candidate changes, send a verification-only follow-up to the same verifier identity, but rerun the same mandatory commands at most three times, one-to-one with automatic remediation rounds. This independence is based on role prompts and session separation; do not claim that runtime sandboxing guarantees arbitrary child-process non-mutation.
+- The state transition is `gated → implementing → self-verified → independently-verifying → reviewing-immutable-result → adjudicating`. If adjudication has a verifier failure or an `accepted` finding, combine all accepted findings and the verifier's failed mandatory commands with their evidence into one ordered remediation batch and send it to the designated implementation worker; allow at most three automatic remediation rounds through `remediating-<1..3> → self-reverified → independently-reverifying-<1..3> → rereviewing-<1..3> → readjudicating-<1..3>`. Only the main session decides whether to start each round and how to adjudicate findings; finding-by-finding follow-ups, a fourth automatic remediation batch, and a fourth re-review are prohibited. Allow the next round only when the main session records concrete progress, such as resolving at least one immediately preceding `accepted` finding or narrowing the verifier-failure cause with new evidence. If a same-cause finding or the same verifier failure remains twice consecutively without new evidence, end early as `blocked` even when rounds remain. `needs-user-decision` stops before automatic remediation and asks one decision. If the answer changes normalized intent, pass a new revision gate. Accepted-finding remediation without an intent delta does not create a duplicate gate regardless of the cumulative gate count.
+- The main session ends as `complete` only when the implementation worker's self-verification and the independent verifier's mandatory verification both pass for the final candidate, the required reviewer rounds are terminal, and every finding is rejected or resolved after acceptance with no remaining `accepted` or `needs-user-decision`. If any adjudication is clean, end without consuming remaining remediation rounds. If verifier failure or an `accepted` finding remains after the third readjudication, or an early-stop condition above is met, do not iterate automatically; report `blocked` to the user with evidence and the remaining decision. A leaf, reviewer, or verifier cannot declare task completion.
+
+## Identifiers, State, and Artifacts
+
+- Before the first artifact-writing delegation, reserve together a taskId in the `YYYYMMDD-<slug>` format for the current session date and a unique `coordinatorWorkItemId` for the coordinator index. Do not regenerate a received taskId; follow-up requests in the same root session retain the same root task identity and coordinator-index Output.
+- Every artifact-writing leaf call already has a taskId, unique kebab-case workItemId, and exact Output path. Do not assign identifier generation to a leaf.
+- Assign a workItemId unique across the taskId to each new artifact-writing work item. A follow-up for the same logical work item reuses the same workItemId and Output.
+- If a follow-up assigns a new Output, the prior Output becomes read-only history; when needed for follow-up work, specify it with an exact `Input:` line.
 - An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
-- taskId나 role을 바꾸려면 새 leaf thread를 만든다. 모든 `worker` message에는 요청 산출물과 할당된 `.agents/orchestration/<taskId>/<workItemId>/work.md` 외의 임의 파일을 수정하지 말라는 강제 제약을 넣는다.
-- `code-explorer` 뒤 `worker`에는 직전 artifact path를 baseline으로 신뢰하고 같은 범위를 재정찰하지 말며, 명시된 경로와 최소 검증만 확인하라고 전달한다.
-- file artifact 요청에서 `code-explorer`가 Path를 반환하면 그 경로와 대상 Output을 `worker`로 바로 전달한다. main session은 산출물 본문을 읽거나 붙여 넣거나 병합하지 않는다.
-- artifact-writing leaf가 concrete Path 없이 본문만 반환하면 완료 실패다. 같은 지시를 반복하지 말고 재분할하거나 escalation한다.
-- 존재 확인이 꼭 필요하면 반환된 `.agents/orchestration/<taskId>/<workItemId>/` 또는 docs 경로에 `test -f`나 `wc -l` 같은 읽기 전용 확인만 한다. artifact directory scan이나 본문 읽기는 하지 않는다.
-- main session은 첫 leaf 반환 뒤에만 예약한 exact `.agents/orchestration/<taskId>/<coordinatorWorkItemId>/task.md`를 허용된 파일 쓰기 도구로 생성하거나 갱신해 delegation path와 summary index를 기록한다. `task.md` 쓰기는 work-item 부모 `mkdir -p` 권한 상승 예외에 포함되지 않으며 shell로 쓰지 않는다. 해당 도구가 이 정확한 파일에 쓸 수 없는 runtime에서는 `.agents` 전체 권한 확대나 대체 경로 없이 파일 소유를 주장하지 말고 paths-only 결과로 끝낸다.
+- Changing taskId or role creates a new leaf thread. Every `worker` message includes the mandatory constraint not to modify arbitrary files other than the requested artifact output and assigned `.agents/orchestration/<taskId>/<workItemId>/work.md`.
+- After `code-explorer`, tell `worker` to trust the immediately preceding artifact path as the baseline, not rescout the same scope, and inspect only the specified paths and minimum verification.
+- If `code-explorer` returns a Path for a file-artifact request, pass that path and the target Output directly to `worker`. The main session does not read, paste, or merge artifact bodies.
+- If an artifact-writing leaf returns only a body without a concrete Path, completion fails. Do not repeat the same instruction; repartition or escalate.
+- When existence confirmation is essential, use only a read-only check such as `test -f` or `wc -l` for the returned `.agents/orchestration/<taskId>/<workItemId>/` or docs path. Do not scan artifact directories or read their bodies.
+- Only after the first leaf returns may the main session create or update the reserved exact `.agents/orchestration/<taskId>/<coordinatorWorkItemId>/task.md` using an allowed file-writing tool to record the delegation path and summary index. Writing `task.md` is not included in the work-item-parent `mkdir -p` escalation exception and is not done through the shell. In a runtime where that tool cannot write this exact file, do not claim file ownership with broader `.agents` permissions or an alternative path; end with paths-only results.
 
-## Agent cardinality와 scheduling
+## Agent Cardinality and Scheduling
 
-- Exactly one logical coordinator owns this user task: the main session. main session은 every leaf message에 다른 agent를 spawn하거나 재위임하지 말라고 명령한다.
-- `intent-checker`, `planner`, `idea-generator`는 optional singletons이며 phase 또는 round당 zero or one active instance다.
-- `adversarial-review`, `constructive-feedback`는 각각 optional singleton이다. At most one of each may be active, and one of each type may run concurrently against the same immutable integrated result.
-- Singleton means one active instance, not one lifetime call. 이전 instance 또는 round가 terminal이고 input state가 바뀐 뒤에만 다음 호출을 한다.
-- Only `worker`, `research`, and `code-explorer` may have adaptive multiple active instances. Default to one instance. 늘리려면 아래를 모두 만족해야 한다.
+- Exactly one logical coordinator owns this user task: the main session. The main session tells every leaf message not to spawn or redelegate to another agent.
+- `intent-checker`, `planner`, and `idea-generator` are optional singletons, with zero or one active instance per phase or round.
+- `adversarial-review` and `constructive-feedback` are each optional singletons. At most one of each may be active, and one of each type may run concurrently against the same immutable integrated result.
+- Singleton means one active instance, not one lifetime call. Invoke the next call only after the previous instance or round is terminal and the input state has changed.
+- Only `worker`, `research`, and `code-explorer` may have adaptive multiple active instances. Default to one instance. To increase the count, all of the following must hold.
   1. At least two explicit work items are ready now.
   2. Every item has a unique goal, bounded input and scope, concrete output, completion criterion, and unique workItemId.
   3. The items do not depend on one another or require an unfinished predecessor.
   4. The items have non-overlapping ownership and can be independently verified.
   5. The count does not exceed ready non-conflicting items or the runtime available capacity.
-- If independence or ownership is uncertain, use one instance. `code-explorer`는 independent package/module/ownership boundary, call-flow question, investigation hypothesis로만 분리하고 duplicate scope는 금지한다. `research`는 independent research question/evidence domain 또는 오답 비용이 큰 independent corroboration만 분리한다. More search terms or sources alone are not separate work items.
+- If independence or ownership is uncertain, use one instance. Split `code-explorer` only by an independent package/module/ownership boundary, call-flow question, or investigation hypothesis, and prohibit duplicate scope. Split `research` only by an independent research question/evidence domain or independent corroboration with a high cost of being wrong. More search terms or sources alone are not separate work items.
 - Use one `worker` by default. Multiple workers require disjoint files and disjoint schema, public API, generated files, lockfiles, migration ordering, and shared mutable state. If one result changes another worker's baseline, serialize them. Duplicate implementations are forbidden unless the explicit deliverable is a choose-one prototype comparison.
 - The active count is the minimum of ready non-conflicting items, runtime available capacity, and configured limit. Never hard-code a host slot count and never spawn to fill idle capacity. Execute only the currently ready dependency-DAG frontier in parallel.
 - Every spawn records exactly one reason: independent work, independent corroboration, transient-failure replacement, or changed-input re-review. A transient harness or tool failure may be replaced once. Never repeat the same instruction after a genuine completion failure; repartition or escalate instead. Report a second same-cause failure as blocked.
 - Wait for every required branch to become terminal. Route concrete result paths to one downstream planner, one designated integration worker, or a review role; do not read and merge phase bodies yourself.
-- Review only an immutable integrated result. After remediation changes that result, each review type may run one sequential re-review round.
-- Cardinality, scheduling, failure replacement, immutable-review, leaf no-spawn과 재위임 금지는 prompt-level coordination requirements, not runtime-enforced guarantees. 이 skill은 모델, sandbox, nickname, max depth 또는 runtime singleton을 보장한다고 주장하지 않는다.
+- Review only an immutable integrated result. After each remediation round changes that result, each review type may run one sequential changed-input re-review. The total re-reviews of each review type do not exceed the actual remediation-round count and are capped at three.
+- Cardinality, scheduling, failure replacement, immutable-review, leaf no-spawn, and the prohibition on redelegation are prompt-level coordination requirements, not runtime-enforced guarantees. This skill does not claim to guarantee a model, sandbox, nickname, max depth, or runtime singleton.
 
-## Paths-only handoff와 SSOT
+## Paths-only Handoff and SSOT
 
-반환과 다음 위임에는 아래 형식만 쓴다.
+Use only the following format for returns and the next delegation.
 
 ```text
 Path: .agents/orchestration/<taskId>/<workItemId>/<role-file>.md
-Summary: <한 줄 요약>
+Summary: <one-line summary>
 ```
 
-세부는 할당된 handoff file에 두고 receiver는 concrete returned path 또는 coordinator index로만 artifact를 찾는다. work-item directory를 scan하지 않는다.
+Keep details in the assigned handoff file, and let a receiver find an artifact only through a concrete returned path or the coordinator index. Do not scan work-item directories.
 
 ```text
 task.md: main-session overview, progress, index
@@ -144,11 +154,11 @@ adversarial-review.md: adversarial risks and failures
 constructive-feedback.md: improvement feedback
 ```
 
-각 사실은 하나의 authoritative file에만 저장한다. 이미 다른 곳에 있으면 복사하지 말고 경로를 참조한다. `intent-checker`는 stateless이며 파일을 소유하지 않는다.
+Store each fact in only one authoritative file. If it already exists elsewhere, do not copy it; reference its path. `intent-checker` is stateless and owns no file.
 
-artifact-writing leaf에는 다음 file ownership 제약을 전달한다.
+Provide artifact-writing leaves with the following file-ownership constraints.
 
-- active Output이 없으면 새 파일을 생성하고, 같은 active Output의 continuation이 명시된 경우에만 append한다. 기존 내용을 overwrite하거나 replace하지 않는다.
-- Input, 비활성 history, 다른 work item, 다른 role의 mapped filename 또는 `task.md`를 쓰지 않는다.
-- taskId와 workItemId는 kebab-case이며 path separator, 절대 경로, 빈 segment 또는 `..`를 포함할 수 없다. 유효하지 않으면 쓰기 전에 중단하고 임의로 정규화하거나 대체하지 않는다.
-- 모든 run file은 canonical `.agents/orchestration/<taskId>/<workItemId>/` 범위 안에만 둔다.
+- If there is no active Output, create a new file; append only when continuation of the same active Output is explicit. Do not overwrite or replace existing content.
+- Do not write Input, inactive history, another work item, another role's mapped filename, or `task.md`.
+- taskId and workItemId use kebab-case and cannot contain a path separator, absolute path, empty segment, or `..`. If invalid, stop before writing; do not normalize or substitute arbitrarily.
+- Keep all run files only within the canonical `.agents/orchestration/<taskId>/<workItemId>/` scope.
