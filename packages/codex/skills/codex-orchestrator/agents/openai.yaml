@@ -1,7 +1,7 @@
 interface:
-  display_name: "Codex 오케스트레이터"
-  short_description: "main session이 8개 leaf agent를 직접 조정합니다"
-  default_prompt: "$codex-orchestrator 이 요청을 8개 허용 leaf agent로 조정해 주세요."
+  display_name: "Codex Orchestrator"
+  short_description: "Coordinates eight leaf agents from the main session"
+  default_prompt: "$codex-orchestrator Coordinate this request with the eight allowed leaf agents."
 
 policy:
   allow_implicit_invocation: false
