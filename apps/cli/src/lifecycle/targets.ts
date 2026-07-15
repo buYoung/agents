@@ -169,7 +169,10 @@ function inspectState(
 
 function getArtifactSource(
   env: NodeJS.ProcessEnv,
-  environmentVariable: "AGENTS_CODEX_ARTIFACT_ROOT" | "AGENTS_OPENCODE_ARTIFACT_ROOT",
+  environmentVariable:
+    | "AGENTS_CODEX_ARTIFACT_ROOT"
+    | "AGENTS_CLAUDE_CODE_ARTIFACT_ROOT"
+    | "AGENTS_OPENCODE_ARTIFACT_ROOT",
   targetName: string,
   requiredPaths: string[],
 ): { root: string; version: string } | null {

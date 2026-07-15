@@ -108,7 +108,7 @@ export interface InstallState {
   installedAt: string;
 }
 
-export type ClaudeCodeAgentsArtifactApplyResult {
+export interface ClaudeCodeAgentsArtifactApplyResult {
   targetDirectory: string;
   updatedAgents: string[];
   skippedAgents: string[];
