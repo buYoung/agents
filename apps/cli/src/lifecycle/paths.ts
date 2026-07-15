@@ -16,6 +16,15 @@ export function getCodexLifecycleStatePath(env: NodeJS.ProcessEnv): string {
   return path.join(getCodexHome(env), ".agents-lifecycle", "codex.json");
 }
 
+/** Claude Code 공식 사용자 설정 루트(`CLAUDE_CONFIG_DIR`가 있으면 이를 우선)다. */
+export function getClaudeCodeHome(env: NodeJS.ProcessEnv): string {
+  return env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+}
+
+export function getClaudeCodeLifecycleStatePath(env: NodeJS.ProcessEnv): string {
+  return path.join(getClaudeCodeHome(env), ".agents-lifecycle", "claude-code.json");
+}
+
 export function getOpencodeLifecycleStatePath(
   scope: OpencodeScope,
   projectDirectory: string,

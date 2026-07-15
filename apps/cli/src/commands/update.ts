@@ -160,7 +160,7 @@ export async function update(
     }
   }
   if (!io.env.AGENTS_RELEASE_URL) {
-    io.stderr("update에는 --target codex, opencode 또는 all이 필요합니다. 대화형 터미널에서는 대상 선택 화면이 표시됩니다.");
+    io.stderr("update에는 --target codex, claude-code, opencode 또는 all이 필요합니다. 대화형 터미널에서는 대상 선택 화면이 표시됩니다.");
     return EXIT_BLOCKED;
   }
   const projectDirectory = resolveProjectDirectory(args, io.cwd);

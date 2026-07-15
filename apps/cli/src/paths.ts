@@ -107,7 +107,7 @@ export function getCurrentPluginVersion(): string {
 }
 
 /** 독립 CLI 묶음에 포함된 배포 대상 파일의 루트다. */
-export function getBundledResourceRoot(target: "codex" | "opencode"): string | null {
+export function getBundledResourceRoot(target: "claude-code" | "codex" | "opencode"): string | null {
   const packageRoot = getPackageRoot();
   if (!packageRoot) return null;
   const resourceRoot = path.join(packageRoot, "resources", target);

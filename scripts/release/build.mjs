@@ -123,6 +123,10 @@ writeFileSync(join(resourceDirectory, "opencode", "package.json"), JSON.stringif
 cpSync(join(repositoryRoot, "packages", "codex", "agents"), join(resourceDirectory, "codex", "agents"), { recursive: true });
 cpSync(join(repositoryRoot, "packages", "codex", "skills", "codex-orchestrator"), join(resourceDirectory, "codex", "skills", "codex-orchestrator"), { recursive: true });
 writeFileSync(join(resourceDirectory, "codex", "package.json"), JSON.stringify({ name: "codex", version }, null, 2) + "\n");
+cpSync(join(repositoryRoot, "packages", "claude-code", "agents"), join(resourceDirectory, "claude-code", "agents"), { recursive: true });
+cpSync(join(repositoryRoot, "packages", "claude-code", "skills", "claude-code-orchestrator"), join(resourceDirectory, "claude-code", "skills", "claude-code-orchestrator"), { recursive: true });
+const claudeCodePackage = JSON.parse(readFileSync(join(repositoryRoot, "packages", "claude-code", "package.json"), "utf8"));
+writeFileSync(join(resourceDirectory, "claude-code", "package.json"), JSON.stringify({ name: "claude-code", version: claudeCodePackage.version }, null, 2) + "\n");
 
 tarGz(cliDirectory, join(outputDirectory, `agents-cli-${version}.tar.gz`));
 const npmCliDirectory = join(outputDirectory, "npm-cli");
@@ -130,11 +134,11 @@ cpSync(cliDirectory, npmCliDirectory, { recursive: true });
 writeFileSync(join(npmCliDirectory, "package.json"), JSON.stringify({
   name: "@livteam/agents-cli",
   version,
-  description: "Install and manage Codex agents and the OpenCode agents plugin.",
+  description: "Install and manage Codex and Claude Code agents and the OpenCode agents plugin.",
   type: "module",
   bin: { agents: "bin/agents" },
   engines: { node: ">=18" },
-  keywords: ["codex", "opencode", "agents", "cli", "plugin", "ai-agents"],
+  keywords: ["codex", "claude-code", "opencode", "agents", "cli", "plugin", "ai-agents"],
   repository: { type: "git", url: "git+https://github.com/buYoung/agents.git" },
   homepage: "https://github.com/buYoung/agents#readme",
   bugs: { url: "https://github.com/buYoung/agents/issues" },
@@ -145,13 +149,14 @@ tarGz(npmCliDirectory, join(outputDirectory, `livteam-agents-cli-${version}.tar.
 rmSync(npmCliDirectory, { recursive: true, force: true });
 tarGz(join(resourceDirectory, "opencode"), join(outputDirectory, `agents-opencode-${version}.tar.gz`));
 tarGz(join(resourceDirectory, "codex"), join(outputDirectory, `agents-codex-${version}.tar.gz`));
+tarGz(join(resourceDirectory, "claude-code"), join(outputDirectory, `agents-claude-code-${version}.tar.gz`));
 cpSync(join(resourceDirectory, "opencode", "catalog.toml"), join(outputDirectory, `catalog-${version}.toml`));
 const catalogVersion = /^catalogVersion\s*=\s*"([^"]+)"/m.exec(readFileSync(join(resourceDirectory, "opencode", "catalog.toml"), "utf8"))?.[1];
 if (!catalogVersion) throw new Error("catalogVersion을 찾을 수 없습니다.");
 const npmManifest = {
   formatVersion: 1,
   cliVersion: version,
-  npmCli: artifactRecord(`livteam-agents-cli-${version}.tar.gz`, version, ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json"]),
+  npmCli: artifactRecord(`livteam-agents-cli-${version}.tar.gz`, version, ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json", "resources/claude-code/agents/versions.json"]),
 };
 const manifest = {
   formatVersion: 2,
@@ -161,8 +166,9 @@ const manifest = {
   minimumPluginVersion: "0.1.0",
   publishedAt: new Date().toISOString(),
   catalog: artifactRecord(`catalog-${version}.toml`, catalogVersion, ["catalog.toml"]),
-  cli: artifactRecord(`agents-cli-${version}.tar.gz`, version, ["package.json", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json", "resources/codex/skills/codex-orchestrator/SKILL.md"]),
+  cli: artifactRecord(`agents-cli-${version}.tar.gz`, version, ["package.json", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json", "resources/codex/skills/codex-orchestrator/SKILL.md", "resources/claude-code/agents/versions.json", "resources/claude-code/skills/claude-code-orchestrator/SKILL.md"]),
   opencode: artifactRecord(`agents-opencode-${version}.tar.gz`, JSON.parse(readFileSync(join(resourceDirectory, "opencode", "package.json"), "utf8")).version, ["plugin.mjs", "agents.example.toml", "catalog.toml", "package.json"]),
+  claudeCodeAgents: artifactRecord(`agents-claude-code-${version}.tar.gz`, JSON.parse(readFileSync(join(resourceDirectory, "claude-code", "package.json"), "utf8")).version, ["agents/versions.json", ...["adversarial-review", "code-explorer", "constructive-feedback", "idea-generator", "intent-checker", "planner", "research", "worker"].map((name) => `agents/${name}.md`), "skills/claude-code-orchestrator/SKILL.md"]),
   codexAgents: artifactRecord(`agents-codex-${version}.tar.gz`, JSON.parse(readFileSync(join(resourceDirectory, "codex", "package.json"), "utf8")).version, ["agents/versions.json", "agents/worker.toml", "skills/codex-orchestrator/SKILL.md", "skills/codex-orchestrator/agents/openai.yaml"])
 };
 writeFileSync(join(outputDirectory, "latest.json"), JSON.stringify(signManifest(manifest, publicKey), null, 2) + "\n");

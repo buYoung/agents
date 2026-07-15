@@ -14,15 +14,15 @@ const repositoryRoot = path.resolve(packageRoot, "../..");
 const userCodexHome = process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex");
 const agentsSourceDirectory = path.join(packageRoot, "agents");
 const orchestratorSkillSourceDirectory = path.join(
-  packageRoot,
-  "skills",
-  "codex-orchestrator",
+    packageRoot,
+    "skills",
+    "codex-orchestrator",
 );
 const fixturePath = path.join(
-  packageRoot,
-  "evals",
-  "agent-prompts",
-  "fixtures.md",
+    packageRoot,
+    "evals",
+    "agent-prompts",
+    "fixtures.md",
 );
 const defaultTimeoutSeconds = 240;
 const defaultConcurrency = 3;
@@ -75,21 +75,19 @@ function buildExecutionContract({ agent, caseName, fixture }) {
 
 function readAgentNames() {
   return fs
-    .readdirSync(agentsSourceDirectory)
-    .filter((fileName) => fileName.endsWith(".toml"))
-    .map((fileName) => path.basename(fileName, ".toml"))
-    .sort();
-}
-
+      .readdirSync(agentsSourceDirectory)
+      .filter((fileName) => fileName.endsWith(".toml"))
+      .map((fileName) => path.basename(fileName, ".toml"))
+      .sort();
 }
 
 function splitMarkdownTableRow(line) {
   return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim());
 }
 
 function readFixtureInput(fixtureId) {
@@ -113,12 +111,12 @@ function buildPrompt({
   fixtureInput,
 }) {
   const mcpInstruction =
-    caseName === "mcp"
-      ? "codemap-search MCP is intentionally available in this run. If repository navigation is relevant, the subagent should use codemap-search MCP tools rather than shelling out to a same-named executable."
-      : "codemap-search MCP is intentionally unavailable in this run. The subagent must not try to run a same-named codemap-search executable through shell; it should use the ordinary available tools instead.";
+            caseName === "mcp"
+                ? "codemap-search MCP is intentionally available in this run. If repository navigation is relevant, the subagent should use codemap-search MCP tools rather than shelling out to a same-named executable."
+                : "codemap-search MCP is intentionally unavailable in this run. The subagent must not try to run a same-named codemap-search executable through shell; it should use the ordinary available tools instead.";
 
   const artifactInstructions = executionContract.outputPath
-    ? [
+      ? [
         `Use workItemId: ${executionContract.workItemId}`,
         `Exact required role artifact path: ${executionContract.outputPath}`,
         `The root spawn message must pass taskId ${executionContract.taskId}, workItemId ${executionContract.workItemId}, and that exact output path.`,
@@ -126,7 +124,7 @@ function buildPrompt({
         `Run exactly \`mkdir -p ${executionContract.outputParentPath}\` as the final tool action before spawn_agent, and do not ask the child to create or check its parent directory.`,
         "If that mkdir fails, do not spawn the child or use an alternate path.",
       ]
-    : ["This stateless role has no workItemId or artifact output path."];
+      : ["This stateless role has no workItemId or artifact output path."];
 
   return [
     `Run a Codex custom-agent smoke evaluation for agent "${agent}".`,

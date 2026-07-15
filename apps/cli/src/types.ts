@@ -44,13 +44,14 @@ export interface LatestManifest {
   minimumPluginVersion: string;
   publishedAt: string;
   catalog?: LatestManifestArtifact;
+  claudeCodeAgents?: LatestManifestArtifact;
   codexAgents?: LatestManifestArtifact;
   cli?: LatestManifestArtifact;
   opencode?: LatestManifestArtifact;
   signing?: LatestManifestSigning;
 }
 
-export type LatestManifestArtifactName = "catalog" | "codexAgents" | "cli" | "opencode";
+export type LatestManifestArtifactName = "catalog" | "claudeCodeAgents" | "codexAgents" | "cli" | "opencode";
 
 export interface LatestManifestArtifact {
   url: string;
@@ -107,7 +108,14 @@ export interface InstallState {
   installedAt: string;
 }
 
-export type LifecycleTarget = "codex" | "opencode";
+export type ClaudeCodeAgentsArtifactApplyResult {
+  targetDirectory: string;
+  updatedAgents: string[];
+  skippedAgents: string[];
+  targetSnapshots: FileSnapshot[];
+}
+
+export type LifecycleTarget = "codex" | "claude-code" | "opencode";
 export type OpencodeScope = "user" | "project";
 export type LifecycleStatus =
   | "absent"

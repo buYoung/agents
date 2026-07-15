@@ -25,7 +25,7 @@ function printHelp(stdout: (line: string) => void): void {
   );
   stdout("명령: install, uninstall, update, backup, restore, doctor, upgrade");
   stdout("진단: `agents doctor`로 설정, 설치 상태, 실행 준비를 한 번에 확인합니다.");
-  stdout("대상: install/update/uninstall/backup/restore는 --target codex|opencode|all을 지원합니다.");
+  stdout("대상: install/update/uninstall/backup/restore는 --target codex|claude-code|opencode|all을 지원합니다.");
   stdout("install/update에서 --target을 생략하면 대화형 터미널에서 대상과 OpenCode 설치 위치를 고릅니다.");
 }
 

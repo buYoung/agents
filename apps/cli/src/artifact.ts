@@ -176,6 +176,8 @@ export function applyCliArtifact(artifact: Buffer): CliArtifactApplyResult {
       "resources/opencode/catalog.toml",
       "resources/codex/agents/versions.json",
       "resources/codex/skills/codex-orchestrator/SKILL.md",
+      "resources/claude-code/agents/versions.json",
+      "resources/claude-code/skills/claude-code-orchestrator/SKILL.md",
       "release-metadata.json",
     ];
     const requiredFiles = fs.existsSync(path.join(stagingDirectory, "dist", "cli.mjs"))

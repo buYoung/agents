@@ -11,6 +11,7 @@ export interface InteractiveSelection {
 export async function selectLifecycleTargets(tui: TuiAdapter): Promise<InteractiveSelection | null> {
   const selected = await tui.multiselect("처리할 대상을 선택하세요.", [
     { value: "codex", label: "Codex", hint: "Codex agent와 skill" },
+    { value: "claude-code", label: "Claude Code", hint: "Claude Code subagent와 skill" },
     { value: "opencode", label: "OpenCode", hint: "OpenCode plugin과 설정" },
   ]);
   if (selected === TUI_CANCEL || selected.length === 0) return null;
@@ -46,7 +47,7 @@ export async function confirmLifecyclePlan(
 ): Promise<boolean | null> {
   const details = plan.map((item) => {
     const inspection = item.inspection;
-    const name = inspection.target === "codex" ? "Codex" : `OpenCode (${inspection.scope})`;
+    const name = inspection.target === "codex" ? "Codex" : inspection.target === "claude-code" ? "Claude Code" : `OpenCode (${inspection.scope})`;
     return [
       `${name}`,
       `현재 상태: ${inspection.status}${inspection.reason ? ` — ${inspection.reason}` : ""}`,

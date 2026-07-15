@@ -82,11 +82,12 @@ function assertValidTargets(targets: unknown): asserts targets is BackupTarget[]
   }
   const seen = new Set<string>();
   for (const target of targets) {
-    if (!target || typeof target !== "object" || !["codex", "opencode"].includes((target as BackupTarget).target)) {
+    if (!target || typeof target !== "object" || !["codex", "claude-code", "opencode"].includes((target as BackupTarget).target)) {
       throw new Error("안전 사본 대상이 올바르지 않습니다.");
     }
     const { scope } = target as BackupTarget;
     if (((target as BackupTarget).target === "codex" && scope !== undefined) ||
+      ((target as BackupTarget).target === "claude-code" && scope !== undefined) ||
       ((target as BackupTarget).target === "opencode" && scope !== "user" && scope !== "project")) {
       throw new Error("안전 사본 대상 범위가 올바르지 않습니다.");
     }

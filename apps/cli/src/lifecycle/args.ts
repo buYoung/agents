@@ -7,9 +7,10 @@ export function readTargets(
   if (targetIndex < 0) return null;
   const value = args[targetIndex + 1];
   if (value === "codex") return ["codex"];
+  if (value === "claude-code") return ["claude-code"];
   if (value === "opencode") return ["opencode"];
-  if (value === "all") return ["codex", "opencode"];
-  throw new Error("--target은 codex, opencode 또는 all이어야 합니다.");
+  if (value === "all") return ["codex", "claude-code", "opencode"];
+  throw new Error("--target은 codex, claude-code, opencode 또는 all이어야 합니다.");
 }
 
 export function readOpencodeScope(args: string[]): OpencodeScope | null {

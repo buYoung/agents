@@ -75,7 +75,7 @@ export async function backup(args: string[], io: Required<CliIO>): Promise<numbe
       targets = selection.targets;
       selectedScope = selection.scope;
     }
-    if (!targets) throw new Error("backup에는 --target codex, opencode 또는 all이 필요합니다. 비대화형에서는 프롬프트를 표시하지 않습니다.");
+    if (!targets) throw new Error("backup에는 --target codex, claude-code, opencode 또는 all이 필요합니다. 비대화형에서는 프롬프트를 표시하지 않습니다.");
     const scope = selectedScope ?? readOpencodeScope(args);
     if (targets.includes("opencode") && !scope) throw new Error("OpenCode 안전 사본에는 --opencode-scope가 필요합니다.");
     const projectDirectory = resolveProjectDirectory(args, io.cwd);

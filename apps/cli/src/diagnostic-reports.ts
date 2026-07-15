@@ -51,7 +51,7 @@ export function collectTargetDiagnostics(
   const checks: DiagnosticCheck[] = inspections.map((inspection) => ({
     id: `target.${inspection.target}${inspection.scope ? `.${inspection.scope}` : ""}`,
     status: targetStatus(inspection.status),
-    summary: `${inspection.target === "codex" ? "Codex" : "OpenCode"} 상태: ${inspection.status}`,
+    summary: `${inspection.target === "codex" ? "Codex" : inspection.target === "claude-code" ? "Claude Code" : "OpenCode"} 상태: ${inspection.status}`,
     detail: inspection.reason,
     remediation: targetAction(inspection),
     metadata: {

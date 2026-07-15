@@ -25,6 +25,8 @@ import { unpackTarGz } from "@cli/artifact";
 import {
   getCodexHome,
   getCodexLifecycleStatePath,
+  getClaudeCodeHome,
+  getClaudeCodeLifecycleStatePath,
   getOpencodeConfigPaths,
   getOpencodeLifecycleStatePath,
   getOpencodeManagedCatalogPath,
@@ -50,6 +52,12 @@ const CODEX_AGENT_NAMES = [
   "research",
   "worker",
 ] as const;
+
+const CLAUDE_CODE_AGENT_NAMES = CODEX_AGENT_NAMES;
+
+function getTargetArtifactName(target: LifecycleTarget): "claudeCodeAgents" | "codexAgents" | "opencode" {
+  return target === "codex" ? "codexAgents" : target === "claude-code" ? "claudeCodeAgents" : "opencode";
+}
 
 function digest(content: Buffer): string {
   return crypto.createHash("sha256").update(content).digest("hex");
@@ -112,7 +120,7 @@ function readLifecycleState(statePath: string): LifecycleState | null {
     const state = parsed as Partial<LifecycleState>;
     if (
       state.schemaVersion !== 2 ||
-      (state.target !== "codex" && state.target !== "opencode") ||
+      (state.target !== "codex" && state.target !== "claude-code" && state.target !== "opencode") ||
       typeof state.version !== "string" ||
       !Array.isArray(state.files) ||
       !Array.isArray(state.managedPaths) ||
@@ -208,6 +216,27 @@ function getCodexSource(env: NodeJS.ProcessEnv): { root: string; version: string
   return { root, version: env.AGENTS_CODEX_ARTIFACT_VERSION ?? readPackageVersion(path.join(root, "package.json")) };
 }
 
+function getClaudeCodeSource(env: NodeJS.ProcessEnv): { root: string; version: string } {
+  const requiredRelativePaths = ["agents/versions.json", "skills/claude-code-orchestrator/SKILL.md"];
+  if (!usesBundledReleaseSource(env)) {
+    const artifactSource = getArtifactSource(env, "AGENTS_CLAUDE_CODE_ARTIFACT_ROOT", "Claude Code", requiredRelativePaths);
+    if (artifactSource) return artifactSource;
+  }
+  const bundledRoot = getBundledResourceRoot("claude-code");
+  if (bundledRoot) {
+    if (requiredRelativePaths.every((relativePath) => fs.existsSync(path.join(bundledRoot, relativePath)))) {
+      return { root: bundledRoot, version: env.AGENTS_CLAUDE_CODE_ARTIFACT_VERSION ?? readPackageVersion(path.join(bundledRoot, "package.json")) };
+    }
+    throw new Error("독립 CLI의 Claude Code 배포 묶음이 손상되었습니다.");
+  }
+  const packagesRoot = getWorkspacePackagesRoot();
+  const root = packagesRoot ? path.join(packagesRoot, "claude-code") : "";
+  if (!root || requiredRelativePaths.some((relativePath) => !fs.existsSync(path.join(root, relativePath)))) {
+    throw new Error("Claude Code 배포 파일을 찾을 수 없습니다. 검증된 Claude Code 대상 묶음을 포함한 CLI를 사용하세요.");
+  }
+  return { root, version: env.AGENTS_CLAUDE_CODE_ARTIFACT_VERSION ?? readPackageVersion(path.join(root, "package.json")) };
+}
+
 function getOpencodeSource(env: NodeJS.ProcessEnv): { root: string; version: string } {
   const requiredRelativePaths = ["agents.example.toml", "plugin.mjs", "catalog.toml"];
   if (!usesBundledReleaseSource(env)) {
@@ -262,6 +291,45 @@ function readCodexSourceFiles(sourceRoot: string): string[] {
   return files;
 }
 
+function readClaudeCodeAgentFrontmatter(agentPath: string): { name: string; description: string } {
+  const lines = fs.readFileSync(agentPath, "utf-8").split(/\r?\n/);
+  if (lines[0] !== "---") throw new Error(`${agentPath}에 Claude Code frontmatter 시작 구분자가 없습니다.`);
+  const closingIndex = lines.indexOf("---", 1);
+  if (closingIndex < 2) throw new Error(`${agentPath}에 Claude Code frontmatter 종료 구분자가 없습니다.`);
+  let name: string | undefined;
+  let description: string | undefined;
+  for (const line of lines.slice(1, closingIndex)) {
+    const field = /^([A-Za-z][A-Za-z0-9-]*):\s*(.*?)\s*$/.exec(line);
+    if (!field || (field[1] !== "name" && field[1] !== "description")) continue;
+    if (field[1] === "name") {
+      if (name !== undefined || !/^[a-z0-9-]+$/.test(field[2])) throw new Error(`${agentPath}의 Claude Code frontmatter name이 올바르지 않습니다.`);
+      name = field[2];
+    } else {
+      if (description !== undefined || field[2].length === 0) throw new Error(`${agentPath}의 Claude Code frontmatter description이 올바르지 않습니다.`);
+      description = field[2];
+    }
+  }
+  if (!name || !description) throw new Error(`${agentPath}의 Claude Code frontmatter에 name과 description이 필요합니다.`);
+  return { name, description };
+}
+
+function readClaudeCodeSourceFiles(sourceRoot: string): string[] {
+  const versions = JSON.parse(fs.readFileSync(path.join(sourceRoot, "agents", "versions.json"), "utf-8")) as Record<string, unknown>;
+  if (Object.keys(versions).sort().join(",") !== [...CLAUDE_CODE_AGENT_NAMES].sort().join(",")) {
+    throw new Error("Claude Code agent 버전 목록이 등록된 8개 agent와 일치하지 않습니다.");
+  }
+  const files = [path.join(sourceRoot, "agents", "versions.json")];
+  for (const name of CLAUDE_CODE_AGENT_NAMES) {
+    const agentPath = path.join(sourceRoot, "agents", `${name}.md`);
+    if (readClaudeCodeAgentFrontmatter(agentPath).name !== name || typeof versions[name] !== "string") {
+      throw new Error(`Claude Code agent 묶음이 올바르지 않습니다: ${name}`);
+    }
+    files.push(agentPath);
+  }
+  files.push(path.join(sourceRoot, "skills", "claude-code-orchestrator", "SKILL.md"));
+  return files;
+}
+
 export interface LifecycleTargetHandler {
   target: LifecycleTarget;
   inspect(projectDirectory: string, env: NodeJS.ProcessEnv, scope?: OpencodeScope): LifecycleInspection;
@@ -284,13 +352,14 @@ export function createRemoteTargetPlanEnvironment(
 ): NodeJS.ProcessEnv {
   const plannedEnv = { ...env };
   for (const target of targets) {
-    const artifactName = target === "codex" ? "codexAgents" : "opencode";
+    const artifactName = getTargetArtifactName(target);
     const artifact = requireLatestManifestArtifact(manifest, artifactName);
     assertArtifactCompatibility(artifact, getPackageVersion());
     if (!artifact.version) {
       throw new Error(`원격 ${target} artifact에 계획에 필요한 버전이 없습니다.`);
     }
     if (target === "codex") plannedEnv.AGENTS_CODEX_ARTIFACT_VERSION = artifact.version;
+    else if (target === "claude-code") plannedEnv.AGENTS_CLAUDE_CODE_ARTIFACT_VERSION = artifact.version;
     else plannedEnv.AGENTS_OPENCODE_ARTIFACT_VERSION = artifact.version;
   }
   return plannedEnv;
@@ -314,7 +383,7 @@ export async function stageRemoteTargetSources(
   const stagedEnv = { ...env };
   try {
     for (const target of targets) {
-      const artifactName = target === "codex" ? "codexAgents" : "opencode";
+      const artifactName = getTargetArtifactName(target);
       const artifact = requireLatestManifestArtifact(manifest, artifactName);
       assertArtifactCompatibility(artifact, getPackageVersion());
       if (artifact.size === undefined || !artifact.version || !artifact.requiredFiles) {
@@ -334,6 +403,7 @@ export async function stageRemoteTargetSources(
         throw new Error(`원격 ${target} artifact 실제 버전 ${actualVersion}이(가) 배포 목록 ${artifact.version}과 일치하지 않습니다.`);
       }
       if (target === "codex") stagedEnv.AGENTS_CODEX_ARTIFACT_ROOT = sourceRoot;
+      else if (target === "claude-code") stagedEnv.AGENTS_CLAUDE_CODE_ARTIFACT_ROOT = sourceRoot;
       else stagedEnv.AGENTS_OPENCODE_ARTIFACT_ROOT = sourceRoot;
     }
     return { env: stagedEnv, cleanup: () => fs.rmSync(stageDirectory, { recursive: true, force: true }) };
@@ -410,6 +480,69 @@ export const codexTarget: LifecycleTargetHandler = {
       if (!allowedFiles.has(path.resolve(file.path)) || !isWithinRoot(file.path, home)) {
         throw new Error(`Codex 상태 기록에 허용되지 않은 관리 파일이 있습니다: ${file.path}`);
       }
+      if (fs.existsSync(file.path) && fs.lstatSync(file.path).isFile() && digest(fs.readFileSync(file.path)) === file.sha256) fs.rmSync(file.path, { force: true });
+    }
+    fs.rmSync(statePath, { force: true });
+  },
+  verify(projectDirectory, env) {
+    return this.inspect(projectDirectory, env);
+  },
+};
+
+export const claudeCodeTarget: LifecycleTargetHandler = {
+  target: "claude-code",
+  inspect(_projectDirectory, env) {
+    const source = getClaudeCodeSource(env);
+    const statePath = getClaudeCodeLifecycleStatePath(env);
+    const state = readLifecycleState(statePath);
+    if (state) return inspectState("claude-code", undefined, state, source.version);
+    const home = getClaudeCodeHome(env);
+    const agentsDirectory = path.join(home, "agents");
+    const skillPath = path.join(home, "skills", "claude-code-orchestrator", "SKILL.md");
+    const hasManagedCandidate = fs.existsSync(path.join(agentsDirectory, "versions.json")) ||
+      (fs.existsSync(agentsDirectory) && fs.readdirSync(agentsDirectory).some((fileName) =>
+        CLAUDE_CODE_AGENT_NAMES.some((agentName) => fileName === `${agentName}.md`),
+      )) ||
+      fs.existsSync(skillPath);
+    if (hasManagedCandidate) {
+      return { target: "claude-code", status: "unmanaged", state: null, availableVersion: source.version, userModifiedPaths: [], reason: "관리 기록 없는 Claude Code 파일이 있습니다. --adopt로 가져오세요." };
+    }
+    return inspectState("claude-code", undefined, null, source.version);
+  },
+  getBackupPaths(_projectDirectory, env) {
+    const home = getClaudeCodeHome(env);
+    return [path.join(home, "agents"), path.join(home, "skills", "claude-code-orchestrator"), getClaudeCodeLifecycleStatePath(env)];
+  },
+  apply(_projectDirectory, env) {
+    const source = getClaudeCodeSource(env);
+    const sourceFiles = readClaudeCodeSourceFiles(source.root);
+    const home = getClaudeCodeHome(env);
+    const statePath = getClaudeCodeLifecycleStatePath(env);
+    const previousState = readLifecycleState(statePath);
+    const files: LifecycleFile[] = [];
+    for (const sourcePath of sourceFiles) {
+      const targetPath = path.join(home, path.relative(source.root, sourcePath));
+      copyFile(sourcePath, targetPath);
+      files.push({ path: targetPath, sha256: digest(fs.readFileSync(targetPath)) });
+    }
+    const now = new Date().toISOString();
+    const state: LifecycleState = { schemaVersion: 2, target: "claude-code", version: source.version, installedAt: previousState?.installedAt ?? now, updatedAt: now, files, managedPaths: files.map((file) => file.path), userPaths: [] };
+    writeLifecycleState(statePath, state);
+    return state;
+  },
+  uninstall(_projectDirectory, env) {
+    const statePath = getClaudeCodeLifecycleStatePath(env);
+    const state = readLifecycleState(statePath);
+    if (!state) return;
+    if (state.target !== "claude-code" || state.scope !== undefined) throw new Error("Claude Code 상태 기록의 소유권이 일치하지 않아 삭제하지 않았습니다.");
+    const home = getClaudeCodeHome(env);
+    const allowedFiles = new Set([
+      ...CLAUDE_CODE_AGENT_NAMES.map((name) => path.join(home, "agents", `${name}.md`)),
+      path.join(home, "agents", "versions.json"),
+      path.join(home, "skills", "claude-code-orchestrator", "SKILL.md"),
+    ].map((filePath) => path.resolve(filePath)));
+    for (const file of state.files) {
+      if (!allowedFiles.has(path.resolve(file.path)) || !isWithinRoot(file.path, home)) throw new Error(`Claude Code 상태 기록에 허용되지 않은 관리 파일이 있습니다: ${file.path}`);
       if (fs.existsSync(file.path) && fs.lstatSync(file.path).isFile() && digest(fs.readFileSync(file.path)) === file.sha256) fs.rmSync(file.path, { force: true });
     }
     fs.rmSync(statePath, { force: true });
@@ -645,6 +778,7 @@ export const opencodeTarget: LifecycleTargetHandler = {
 
 export const TARGET_REGISTRY: Record<LifecycleTarget, LifecycleTargetHandler> = {
   codex: codexTarget,
+  "claude-code": claudeCodeTarget,
   opencode: opencodeTarget,
 };
 

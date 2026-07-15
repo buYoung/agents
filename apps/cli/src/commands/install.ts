@@ -193,7 +193,7 @@ export async function install(
   const scopeIndex = args.indexOf("--scope");
   const scope = scopeIndex >= 0 ? args[scopeIndex + 1] : undefined;
   if (scope !== "user" && scope !== "project") {
-    io.stderr("install에는 --target codex, opencode 또는 all이 필요합니다. 대화형 터미널에서는 대상 선택 화면이 표시됩니다.");
+    io.stderr("install에는 --target codex, claude-code, opencode 또는 all이 필요합니다. 대화형 터미널에서는 대상 선택 화면이 표시됩니다.");
     return EXIT_BLOCKED;
   }
 

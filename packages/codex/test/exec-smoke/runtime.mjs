@@ -32,46 +32,31 @@ function copyFileIfExists(sourcePath, targetPath) {
 
 function prepareCodexHome(temporaryCodexHome) {
   fs.mkdirSync(temporaryCodexHome, { recursive: true });
-  copyFileIfExists(
-    path.join(userCodexHome, "auth.json"),
-    path.join(temporaryCodexHome, "auth.json"),
-  );
-  copyFileIfExists(
-    path.join(userCodexHome, "config.toml"),
-    path.join(temporaryCodexHome, "config.toml"),
-  );
-  copyFileIfExists(
-    path.join(userCodexHome, "models_cache.json"),
-    path.join(temporaryCodexHome, "models_cache.json"),
-  );
+  copyFileIfExists(path.join(userCodexHome, "auth.json"), path.join(temporaryCodexHome, "auth.json"),);
+  copyFileIfExists(path.join(userCodexHome, "config.toml"), path.join(temporaryCodexHome, "config.toml"),);
+  copyFileIfExists(path.join(userCodexHome, "models_cache.json"), path.join(temporaryCodexHome, "models_cache.json"),);
   copyDirectory(agentsSourceDirectory, path.join(temporaryCodexHome, "agents"));
-  copyDirectory(
-    orchestratorSkillSourceDirectory,
-    path.join(temporaryCodexHome, "skills", "codex-orchestrator"),
-  );
-  fs.writeFileSync(
-    path.join(temporaryCodexHome, `${smokePermissionProfileName}.config.toml`),
-    smokePermissionProfile,
-    "utf-8",
-  );
+  copyDirectory(orchestratorSkillSourceDirectory, path.join(temporaryCodexHome, "skills", "codex-orchestrator"),);
+  fs.writeFileSync(path.join(temporaryCodexHome, `${ smokePermissionProfileName }.config.toml`), smokePermissionProfile, "utf-8",);
+}
 
 function prepareWorkspace(temporaryWorkspace) {
   fs.copyFileSync(
-    path.join(repositoryRoot, "AGENTS.md"),
-    path.join(temporaryWorkspace, "AGENTS.md"),
+      path.join(repositoryRoot, "AGENTS.md"),
+      path.join(temporaryWorkspace, "AGENTS.md"),
   );
   copyDirectory(
-    agentsSourceDirectory,
-    path.join(temporaryWorkspace, ".codex", "agents"),
+      agentsSourceDirectory,
+      path.join(temporaryWorkspace, ".codex", "agents"),
   );
   fs.copyFileSync(fixturePath, path.join(temporaryWorkspace, "fixtures.md"));
   copyDirectory(
-    path.join(repositoryRoot, "packages", "opencode", "src"),
-    path.join(temporaryWorkspace, "packages", "opencode", "src"),
+      path.join(repositoryRoot, "packages", "opencode", "src"),
+      path.join(temporaryWorkspace, "packages", "opencode", "src"),
   );
   copyDirectory(
-    path.join(repositoryRoot, "packages", "codex", "agents"),
-    path.join(temporaryWorkspace, "packages", "codex", "agents"),
+      path.join(repositoryRoot, "packages", "codex", "agents"),
+      path.join(temporaryWorkspace, "packages", "codex", "agents"),
   );
   fs.mkdirSync(path.join(temporaryWorkspace, ".agents", "orchestration"), {
     recursive: true,
@@ -95,31 +80,31 @@ function codexExecArgs({ caseName, prompt, temporaryWorkspace }) {
 
   if (caseName === "no-mcp") {
     args.push(
-      "-c",
-      'mcp_servers.codemap_search.command="codemap-search"',
-      "-c",
-      'mcp_servers.codemap_search.args=["mcp"]',
-      "-c",
-      "mcp_servers.codemap_search.enabled=false",
-      "-c",
-      'mcp_servers."codemap-search".command="codemap-search"',
-      "-c",
-      'mcp_servers."codemap-search".args=["mcp"]',
-      "-c",
-      'mcp_servers."codemap-search".enabled=false',
+        "-c",
+        'mcp_servers.codemap_search.command="codemap-search"',
+        "-c",
+        'mcp_servers.codemap_search.args=["mcp"]',
+        "-c",
+        "mcp_servers.codemap_search.enabled=false",
+        "-c",
+        'mcp_servers."codemap-search".command="codemap-search"',
+        "-c",
+        'mcp_servers."codemap-search".args=["mcp"]',
+        "-c",
+        'mcp_servers."codemap-search".enabled=false',
     );
   } else if (caseName === "mcp") {
     args.push(
-      "-c",
-      'mcp_servers.codemap_search.command="codemap-search"',
-      "-c",
-      'mcp_servers.codemap_search.args=["mcp"]',
-      "-c",
-      "mcp_servers.codemap_search.startup_timeout_sec=20",
-      "-c",
-      "mcp_servers.codemap_search.tool_timeout_sec=60",
-      "-c",
-      "mcp_servers.codemap_search.required=true",
+        "-c",
+        'mcp_servers.codemap_search.command="codemap-search"',
+        "-c",
+        'mcp_servers.codemap_search.args=["mcp"]',
+        "-c",
+        "mcp_servers.codemap_search.startup_timeout_sec=20",
+        "-c",
+        "mcp_servers.codemap_search.tool_timeout_sec=60",
+        "-c",
+        "mcp_servers.codemap_search.required=true",
     );
   }
 

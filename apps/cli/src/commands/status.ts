@@ -7,7 +7,7 @@ import type { CliIO, LifecycleTarget } from "@cli/types";
 /** 한 버전 동안 유지하는 숨은 호환 명령이다. */
 export async function status(args: string[], io: Required<CliIO>): Promise<number> {
   try {
-    const targets = (readTargets(args) ?? ["codex", "opencode"]) as LifecycleTarget[];
+    const targets = (readTargets(args) ?? ["codex", "claude-code", "opencode"]) as LifecycleTarget[];
     const scope = readOpencodeScope(args) ?? "project";
     const inspections = inspectTargets(targets, resolveProjectDirectory(args, io.cwd), io.env, scope);
     if (args.includes("--json")) io.stdout(JSON.stringify({ targets: inspections }, null, 2));

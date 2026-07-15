@@ -13,13 +13,35 @@ const npmPackageDirectoryArgument = argumentsByName.get("--npm-package-directory
 const maxArtifactBytes = 50 * 1024 * 1024;
 const maxUnpackedArtifactBytes = 200 * 1024 * 1024;
 const codexAgentNames = ["adversarial-review", "code-explorer", "constructive-feedback", "idea-generator", "intent-checker", "planner", "research", "worker"];
+const claudeCodeRequiredFiles = ["agents/versions.json", ...codexAgentNames.map((name) => `agents/${name}.md`), "skills/claude-code-orchestrator/SKILL.md"];
 let directory = resolve(process.cwd(), argumentsByName.get("--directory") ?? "dist/release");
 let temporaryDirectory = null;
 
 function sha256(content) { return createHash("sha256").update(content).digest("hex"); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
+function readClaudeCodeAgentFrontmatter(content, filePath) {
+  const lines = content.split(/\r?\n/);
+  assert(lines[0] === "---", `${filePath}에 Claude Code frontmatter 시작 구분자가 없습니다.`);
+  const closingIndex = lines.indexOf("---", 1);
+  assert(closingIndex >= 2, `${filePath}에 Claude Code frontmatter 종료 구분자가 없습니다.`);
+  let name;
+  let description;
+  for (const line of lines.slice(1, closingIndex)) {
+    const field = /^([A-Za-z][A-Za-z0-9-]*):\s*(.*?)\s*$/.exec(line);
+    if (!field || (field[1] !== "name" && field[1] !== "description")) continue;
+    if (field[1] === "name") {
+      assert(name === undefined && /^[a-z0-9-]+$/.test(field[2]), `${filePath}의 Claude Code frontmatter name이 올바르지 않습니다.`);
+      name = field[2];
+    } else {
+      assert(description === undefined && field[2].length > 0, `${filePath}의 Claude Code frontmatter description이 올바르지 않습니다.`);
+      description = field[2];
+    }
+  }
+  assert(name && description, `${filePath}의 Claude Code frontmatter에 name과 description이 필요합니다.`);
+  return { name, description };
+}
 function releaseArtifacts(manifest) {
-  return { catalog: manifest.catalog, cli: manifest.cli, opencode: manifest.opencode, codexAgents: manifest.codexAgents };
+  return { catalog: manifest.catalog, cli: manifest.cli, opencode: manifest.opencode, claudeCodeAgents: manifest.claudeCodeAgents, codexAgents: manifest.codexAgents };
 }
 function runInteractiveCli(executablePath, cwd, command) {
   const pseudoTerminalRunner = [
@@ -203,6 +225,17 @@ try {
             assert(new RegExp(`^name\\s*=\\s*"${agentName}"`, "m").test(agent) && typeof versions[agentName] === "string", `Codex agent가 올바르지 않습니다: ${agentName}`);
           }
         }
+        if (name === "claudeCodeAgents") {
+          assert(packageJson.name === "claude-code", "Claude Code artifact package 이름이 올바르지 않습니다.");
+          for (const requiredFile of claudeCodeRequiredFiles) assert(artifact.requiredFiles.includes(requiredFile), `Claude Code manifest 필수 파일이 없습니다: ${requiredFile}`);
+          const versions = JSON.parse(readFileSync(join(extracted, "agents", "versions.json"), "utf8"));
+          assert(Object.keys(versions).sort().join(",") === codexAgentNames.join(","), "Claude Code versions.json이 8개 agent와 일치하지 않습니다.");
+          for (const agentName of codexAgentNames) {
+            const agentPath = join(extracted, "agents", `${agentName}.md`);
+            const frontmatter = readClaudeCodeAgentFrontmatter(readFileSync(agentPath, "utf8"), agentPath);
+            assert(frontmatter.name === agentName && typeof versions[agentName] === "string", `Claude Code agent가 올바르지 않습니다: ${agentName}`);
+          }
+        }
       } finally { rmSync(extracted, { recursive: true, force: true }); }
     } else if (name === "catalog") {
       const catalogVersion = /^catalogVersion\s*=\s*"([^"]+)"/m.exec(content.toString("utf8"))?.[1];
@@ -227,7 +260,7 @@ try {
   assert(npmPackageContent.length === npmArtifact.size && statSync(npmPackagePath).size === npmArtifact.size, "npm 배포 묶음 크기가 배포 목록과 일치하지 않습니다.");
   assert(sha256(npmPackageContent) === npmArtifact.sha256, "npm 배포 묶음 SHA-256이 일치하지 않습니다.");
   const npmPackageEntries = tarEntries(npmPackageContent);
-  const npmRequiredFiles = ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json"];
+  const npmRequiredFiles = ["package.json", "README.md", "bin/agents", "dist/cli.mjs", "dist/catalog.toml", "resources/opencode/plugin.mjs", "resources/codex/agents/versions.json", "resources/claude-code/agents/versions.json"];
   for (const requiredFile of npmRequiredFiles) assert(npmPackageEntries.has(requiredFile), `npm 배포 묶음의 필수 파일이 없습니다: ${requiredFile}`);
   for (const entryName of npmPackageEntries.keys()) {
     assert(!entryName.split("/").some((segment) => segment === ".npmrc" || segment === ".env" || segment.startsWith(".env.")), `npm 배포 묶음에 민감한 설정 파일이 포함되었습니다: ${entryName}`);
@@ -254,9 +287,9 @@ try {
     assert(npmPackageJson.publishConfig?.access === "public" && npmPackageJson.publishConfig?.registry === "https://registry.npmjs.org", "npm package 공개 배포 설정이 올바르지 않습니다.");
     assert(npmPackageJson.engines?.node === ">=18", "npm package Node.js 지원 범위가 올바르지 않습니다.");
     assert(npmPackageJson.repository?.type === "git" && npmPackageJson.repository?.url === "git+https://github.com/buYoung/agents.git", "npm package repository 설정이 올바르지 않습니다.");
-    assert(npmPackageJson.description === "Install and manage Codex agents and the OpenCode agents plugin.", "npm package 영문 설명이 올바르지 않습니다.");
+    assert(npmPackageJson.description === "Install and manage Codex and Claude Code agents and the OpenCode agents plugin.", "npm package 영문 설명이 올바르지 않습니다.");
     assert(npmPackageJson.homepage === "https://github.com/buYoung/agents#readme" && npmPackageJson.bugs?.url === "https://github.com/buYoung/agents/issues", "npm package 지원 링크가 올바르지 않습니다.");
-    assert(Array.isArray(npmPackageJson.keywords) && ["codex", "opencode", "agents", "cli", "plugin", "ai-agents"].every((keyword) => npmPackageJson.keywords.includes(keyword)), "npm package 검색어가 올바르지 않습니다.");
+    assert(Array.isArray(npmPackageJson.keywords) && ["codex", "claude-code", "opencode", "agents", "cli", "plugin", "ai-agents"].every((keyword) => npmPackageJson.keywords.includes(keyword)), "npm package 검색어가 올바르지 않습니다.");
     const npmReadme = readFileSync(join(npmPackageDirectory, "README.md"), "utf8");
     assert(npmReadme.startsWith("# buyong-agents") && npmReadme.includes("## Quick start") && npmReadme.includes("docs/usage.md") && npmReadme.includes("README.ko.md"), "npm package 영문 README가 올바르지 않습니다.");
     const smoke = spawnSync(process.execPath, [join(npmPackageDirectory, "bin", "agents"), "--help"], { cwd: npmPackageDirectory, encoding: "utf8" });

@@ -234,6 +234,7 @@ export function parseLatestManifest(content: string): LatestManifest {
     ),
     publishedAt: assertLatestManifestStringField(parsed, "publishedAt"),
     catalog: validateLatestManifestArtifact(parsed, "catalog"),
+    claudeCodeAgents: validateLatestManifestArtifact(parsed, "claudeCodeAgents"),
     codexAgents: validateLatestManifestArtifact(parsed, "codexAgents"),
     cli: validateLatestManifestArtifact(parsed, "cli"),
     opencode: validateLatestManifestArtifact(parsed, "opencode"),
@@ -247,6 +248,15 @@ export function parseLatestManifest(content: string): LatestManifest {
       }
       if (compareVersions(artifact.compatibility.minimumCliVersion, artifact.compatibility.maximumCliVersion) > 0) {
         throw new ReleaseManifestError(`latest.json의 ${artifactName}.compatibility 버전 범위가 올바르지 않습니다.`);
+      }
+    }
+    if (manifest.claudeCodeAgents) {
+      const artifact = manifest.claudeCodeAgents;
+      if (!artifact.version || !artifact.compatibility || !artifact.requiredFiles || artifact.size === undefined) {
+        throw new ReleaseManifestError("latest.json의 claudeCodeAgents artifact는 v2 계약(version, size, compatibility, requiredFiles)을 모두 가져야 합니다.");
+      }
+      if (compareVersions(artifact.compatibility.minimumCliVersion, artifact.compatibility.maximumCliVersion) > 0) {
+        throw new ReleaseManifestError("latest.json의 claudeCodeAgents.compatibility 버전 범위가 올바르지 않습니다.");
       }
     }
   }

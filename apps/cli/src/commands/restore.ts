@@ -40,7 +40,7 @@ async function selectBackup(io: Required<CliIO>, projectDirectory: string): Prom
   if (restorableBackups.length === 0) {
     const reasons = backups.length === 0 ? ["저장된 안전 사본이 없습니다."] : backups.map((backup) => `- ${backup.id}: ${backup.restoreFailureReason ?? "검증 실패"}`);
     const nextAction = backups.length === 0
-      ? "새 안전 사본을 만들려면 `agents backup --target codex` 또는 `agents backup --target opencode --opencode-scope project`를 실행하세요."
+      ? "새 안전 사본을 만들려면 `agents backup --target codex`, `agents backup --target claude-code` 또는 `agents backup --target opencode --opencode-scope project`를 실행하세요."
       : "손상 사유를 해결하거나 복원 가능한 안전 사본을 만든 뒤 다시 시도하세요.";
     io.tui.note(["복원 가능한 안전 사본이 없습니다.", ...reasons, `다음 행동: ${nextAction}`].join("\n"), "복원할 수 없음");
     return { kind: "unavailable" };
