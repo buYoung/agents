@@ -69,6 +69,49 @@ describe("플러그인 로드", () => {
       "## Received Execution Identity",
     );
     const orchestratorPrompt = agentRecord["orchestrator"]?.prompt ?? "";
+    const intentCheckerPrompt = agentRecord["intent-checker"]?.prompt ?? "";
+    expect(agentRecord["intent-checker"]?.description).toContain(
+      "Stateless first gate",
+    );
+    expect(agentRecord["intent-checker"]?.description).toContain(
+      "evidenced constraints",
+    );
+    expect(agentRecord["orchestrator"]?.description).toContain(
+      "first leaf for every classifiable request",
+    );
+    for (const marker of [
+      "Original user request",
+      "Request classification",
+      "Normalized objective",
+      "Included scope",
+      "Excluded scope",
+      "Added constraints",
+      "Delegation plan",
+      "User confirmation response",
+      "`PROCEED: <reason>`",
+      "`RECLASSIFY: <reason>`",
+      "`CONFIRMATION_NEEDED: <one decision>`",
+      "continuing approval for its normal follow-up stages",
+      "new authority grant, external change, scope expansion, irreversible choice",
+      "A provenance label alone is not evidence",
+    ]) {
+      expect(intentCheckerPrompt).toContain(marker);
+    }
+    for (const marker of [
+      "## Intent-Preservation Gate",
+      "call @intent-checker as the first leaf",
+      "`plan-finalized` checkpoint",
+      "semantic revision",
+      "one format-only retry",
+      "one designated worker",
+      "lane is classifiable but a result-changing material decision is unresolved",
+      "approved-iteration-follow-up",
+      "quote only the applicable trusted main-session instruction",
+      "fresh one-turn stateless @intent-checker task at every checkpoint",
+      "continue same-scope remediation through the existing `task_id`",
+    ]) {
+      expect(orchestratorPrompt).toContain(marker);
+    }
     const multiplicityPolicyMarkers = [
       [
         "single orchestrator and leaf no-spawn",

@@ -30,7 +30,7 @@ const expectedModelProfiles: Record<
     promptMarker: string;
   }
 > = {
-  "intent-checker": { model: "gpt-5.6-terra", effort: "high", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator." },
+  "intent-checker": { model: "gpt-5.6-terra", effort: "high", sandbox: "read-only", promptMarker: "Return exactly one line to the orchestrator, with exactly one of these prefixes:" },
   worker: { model: "gpt-5.6-terra", effort: "high", defaultPermissions: "orchestration-artifacts", promptMarker: "You are **worker**" },
   planner: { model: "gpt-5.6-sol", effort: "high", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **planner** subagent." },
   research: { model: "gpt-5.6-terra", effort: "medium", defaultPermissions: "orchestration-artifacts", promptMarker: "You are the **research** subagent." },
@@ -105,6 +105,36 @@ describe("Codex custom agent TOML", () => {
     expect(codexAgentVersions).not.toHaveProperty("orchestrator");
   });
 
+  test("intent-checker 계약은 비교 입력과 유한 관문 신호를 고정한다", () => {
+    const agent = parse(
+      fs.readFileSync(path.join(codexAgentsDirectory, "intent-checker.toml"), "utf-8"),
+    ) as Record<string, string>;
+    const instructions = agent.developer_instructions;
+    for (const marker of [
+      "Original user request",
+      "Request classification",
+      "Normalized objective",
+      "Included scope",
+      "Excluded scope",
+      "Added constraints",
+      "Delegation plan",
+      "User confirmation response",
+      "`PROCEED: <reason>`",
+      "`RECLASSIFY: <reason>`",
+      "`CONFIRMATION_NEEDED: <one decision>`",
+      "Do not use it merely because approval is absent",
+      "continuing approval for its normal follow-up stages",
+      "new authority grant, external change, scope expansion, irreversible choice",
+      "A provenance label alone is not evidence",
+    ]) {
+      expect(instructions).toContain(marker);
+    }
+    expect(agent.description).toContain("Stateless first gate");
+    expect(agent.description).toContain("evidenced constraints");
+    expect(agent.description).toContain("PROCEED, RECLASSIFY, or CONFIRMATION_NEEDED");
+    expect(codexAgentVersions["intent-checker"]).toBe("0.1.5");
+  });
+
   test("codex-orchestrator skill uses main-session direct leaf delegation", () => {
     const instructions = fs.readFileSync(orchestrationSkillPath, "utf-8");
     const allowlistMatch = instructions.match(
@@ -148,6 +178,17 @@ describe("Codex custom agent TOML", () => {
       "`.agents` 전체 권한 확대나 대체 경로 없이 파일 소유를 주장하지 말고 paths-only 결과로 끝낸다.",
       "다른 경로로 우회하거나 성공을 주장하지 않는다.",
       "stateless `intent-checker`에는 이 작업을 하지 않는다.",
+      "## 의도 보존 관문",
+      "`intent-checker`가 반드시 최초 leaf다.",
+      "`plan-finalized` revision 관문",
+      "intent-delta: none",
+      "format-only retry",
+      "한 명의 designated `worker`",
+      "lane은 분류 가능하지만 결과를 바꾸는 사용자 선택이 미결정",
+      "approved-iteration-follow-up",
+      "main session이 실제로 받은 trusted instruction",
+      "새 stateless `intent-checker` 세션을 정확히 한 turn만 사용",
+      "그 id에 `followup_task`를 보내 같은 worker thread",
     ]) {
       expect(instructions).toContain(marker);
     }
