@@ -15,6 +15,7 @@ function parseArgs(argv) {
     flow: "single",
     intentGateDirectOnly: false,
     intentGateFullCase: undefined,
+    intentGateSkipDirect: false,
     keepWorkspace: false,
     model: undefined,
     repeat: 1,
@@ -42,6 +43,8 @@ function parseArgs(argv) {
       options.intentGateFullCase = argv[++index];
     } else if (arg === "--intent-gate-direct-only") {
       options.intentGateDirectOnly = true;
+    } else if (arg === "--intent-gate-skip-direct") {
+      options.intentGateSkipDirect = true;
     } else if (arg === "--all-agents") {
       options.flow = "individual";
     } else if (arg === "--timeout-sec") {
@@ -99,6 +102,14 @@ function parseArgs(argv) {
       "--intent-gate-direct-only cannot be combined with --intent-gate-full-case",
     );
   }
+  if (options.intentGateSkipDirect && options.flow !== "intent-gate") {
+    throw new Error("--intent-gate-skip-direct requires --flow intent-gate");
+  }
+  if (options.intentGateSkipDirect && options.intentGateDirectOnly) {
+    throw new Error(
+      "--intent-gate-skip-direct cannot be combined with --intent-gate-direct-only",
+    );
+  }
   if (options.flow === "intent-gate") {
     if (
       !options.intentGateDirectOnly &&
@@ -141,6 +152,7 @@ Options:
   --workspace-commit <sha>   Commit forced only inside isolated intent-gate clones
   --intent-gate-full-case <id>  Run only one named full-flow case after the direct matrix
   --intent-gate-direct-only  Stop after the direct checker matrix
+  --intent-gate-skip-direct  Run selected full-flow cases without the direct checker matrix
   --keep-workspace     Keep temporary workspaces for inspection
 
 Flows:

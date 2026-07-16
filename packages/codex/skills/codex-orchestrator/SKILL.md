@@ -72,28 +72,26 @@ Use exactly these labels and order, with every field present and explicit `None`
 
 ```text
 Original user request: <current request initially; establishing request for a direct pending-confirmation answer>
-Request classification: <classification>
 Normalized objective: <objective>
 Included scope: <included work>
 Excluded scope: <excluded work>
-Added constraints: <provenance plus evidence>
-Delegation plan: <ordered lanes and semantic output>
+User constraints: <exact user constraints or None>
+Material assumptions and decisions: <outcome-changing interpretations or choices, or None>
 Pending confirmation prompt: <exact immediately preceding one-decision question or None>
 User confirmation response: <direct response or None>
 ```
 
-Evidence rules:
+Intent-input rules:
 
-- On the first submission, every Added constraint includes its exact matching quote from Original user request or the trusted main-session instruction; never paraphrase user or system evidence and rely on a corrective regate. A newly confirmed decision quotes both exact pending prompt and response.
-- Keep skill activation, gating, coordinator boundaries, and no-redelegation mechanics in Delegation plan, not Added constraints; they do not alter the user's semantic result.
-- `system` quotes the minimum applicable trusted instruction actually received by the main session; never relabel user text. Skill activation is workflow information, not user feature evidence.
-- `orchestrator` is non-authoritative rationale and cannot narrow scope, strengthen a prohibition, or add output.
-- Every selected leaf's plan includes system evidence for leaf no-redelegation. Artifact leaves include the trusted exact assignment-path protocol. An internal handoff/work log is not user-facing output expansion unless all writes are explicitly forbidden.
+- User constraints contains only constraints expressed in Original user request. A newly confirmed decision includes the exact pending prompt and response.
+- Material assumptions and decisions contains only main-session interpretations or choices that could change the user-visible outcome, scope, external effect, risk, or required authority. Normal implementation detail and reasonable completeness improvements are not material assumptions.
+- Never pass `AGENTS.md`, other repository instructions, system/developer instructions, tool or MCP availability, permissions, skill activation, gating mechanics, artifact protocols, or coordinator boundaries as intent evidence. The main session remains independently responsible for complying with them.
+- Do not turn an internal inability, unavailable tool, or compliance concern into a user intent constraint. Handle it in the main session after the semantic gate.
 
 The gate returns exactly one line: `PROCEED: <reason>`, `RECLASSIFY: <reason>`, or `CONFIRMATION_NEEDED: <one decision>`.
 
-- `PROCEED` requires preservation of objective, included/excluded scope, constraints, output, lane, and order, without unsupported additions. Confirmation absence alone is not a reason to stop.
-- `RECLASSIFY` covers omission, narrowing/expansion, strengthened/replaced/unsupported constraint, bad evidence/provenance, wrong lane/order, a changed/opposing response, or a prompt that bundles authorized implementation with narrower command permission. Correct only the cited fields and regate.
+- `PROCEED` requires semantic compatibility, not literal equivalence. Reasonable in-scope elaboration may improve completeness, robustness, implementation detail, or verification when it preserves the user's objective, explicit exclusions, public behavior, external effects, material risk, and requested output. Confirmation absence alone is not a reason to stop.
+- `RECLASSIFY` covers material semantic divergence: omission, contradiction, user-visible narrowing/expansion, changed user constraints, an unsupported outcome-changing assumption, materially different authority/external effect/risk, or a changed/opposing response. Request classification, repository rules, tool availability, permissions, internal lane/order, and coordinator mechanics are not intent mismatches.
 - `CONFIRMATION_NEEDED` is only for a genuinely unresolved authority, external change, scope expansion, irreversible choice, or material decision. After the single initial gate returns it, stop all leaves immediately: do not retry, regate, or spawn another agent until the user responds. Ask only its one decision as one concise interrogative sentence ending `?`, never an imperative, options list, or explanation; retain that exact prompt and direct response, then gate one new revision.
 
 Checkpoint rules:

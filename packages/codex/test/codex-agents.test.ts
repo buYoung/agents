@@ -145,12 +145,11 @@ describe("Codex custom agent TOML", () => {
     const instructions = agent.developer_instructions;
     for (const marker of [
       "Original user request",
-      "Request classification",
       "Normalized objective",
       "Included scope",
       "Excluded scope",
-      "Added constraints",
-      "Delegation plan",
+      "User constraints",
+      "Material assumptions and decisions",
       "User confirmation response",
       "`PROCEED: <reason>`",
       "`RECLASSIFY: <reason>`",
@@ -158,14 +157,16 @@ describe("Codex custom agent TOML", () => {
       "Do not use it merely because approval is absent",
       "continuing approval for its normal follow-up stages",
       "new authority grant, external change, scope expansion, irreversible choice",
-      "A provenance label alone is not evidence",
+      "semantic compatibility, not literal equality",
+      "Repository instructions, project documents, tool availability",
     ]) {
       expect(instructions).toContain(marker);
     }
     expect(agent.description).toContain("Stateless first gate");
-    expect(agent.description).toContain("evidenced constraints");
+    expect(agent.description).toContain("semantic proposal");
+    expect(agent.project_doc_max_bytes).toBe(0);
     expect(agent.description).toContain("PROCEED, RECLASSIFY, or CONFIRMATION_NEEDED");
-    expect(codexAgentVersions["intent-checker"]).toBe("0.1.5");
+    expect(codexAgentVersions["intent-checker"]).toBe("0.1.8");
   });
 
   test("codex-orchestrator skill uses main-session direct leaf delegation", () => {
@@ -224,7 +225,7 @@ describe("Codex custom agent TOML", () => {
       "One designated `worker` owns implementation.",
       "the request's lane is classifiable but an outcome-changing user choice remains unresolved",
       "approved-iteration-follow-up",
-      "trusted instruction actually received by the main session",
+      "Never pass `AGENTS.md`, other repository instructions",
       "a new stateless `intent-checker` session created by `spawn_agent` for exactly one turn",
       "send modifications within the existing objective and scope to that id through `followup_task` so the same worker thread continues.",
       "do not skip, shorten, or stop them based on the cumulative task-wide count of `intent-checker` calls.",

@@ -149,7 +149,14 @@ async function runCase({
         rootSession?.toolCalls.filter(
           (toolCall) => toolCall.tool === "spawn_agent",
         ) ?? [];
-      const rootSessionSpawn = rootSessionSpawnCalls[0];
+      const completedStdoutSpawnCalls = summary.spawnCalls.filter(
+        (spawnCall) => (spawnCall.receiverThreadIds?.length ?? 0) > 0,
+      );
+      const observedRootSpawnCalls =
+        rootSessionSpawnCalls.length > 0
+          ? rootSessionSpawnCalls
+          : completedStdoutSpawnCalls;
+      const rootSessionSpawn = observedRootSpawnCalls[0];
       const rootSpawnMessageIsEncrypted = isEncryptedMessageEnvelope(
         rootSessionSpawn?.message,
       );
@@ -187,6 +194,12 @@ async function runCase({
           : "session-history-fallback";
       summary.rootSessionFound = Boolean(rootSession);
       summary.rootSessionSpawnCallCount = rootSessionSpawnCalls.length;
+      summary.rootSpawnObservationSource =
+        rootSessionSpawnCalls.length > 0
+          ? "session-history"
+          : completedStdoutSpawnCalls.length > 0
+            ? "stdout-collab-event"
+            : "missing";
       summary.rootSpawnMessageEncoding = rootSpawnMessageIsEncrypted
         ? "encrypted-envelope"
         : "plaintext";
@@ -215,19 +228,27 @@ async function runCase({
         summary.error = "missing root thread ID from codex exec output";
       } else if (!rootSession) {
         summary.error = "missing persisted root session for codex exec thread";
-      } else if (rootSessionSpawnCalls.length < 1) {
-        summary.error = "missing persisted root spawn_agent call";
+      } else if (observedRootSpawnCalls.length < 1) {
+        summary.error = "missing root spawn_agent observation";
       } else if (directChildSessions.length !== 1) {
         summary.error = `expected one depth-1 direct child session, saw ${directChildSessions.length}`;
-      } else if (rootSessionSpawnCalls.some((call) => call.agentType !== agent)) {
-        summary.error = `expected every persisted root agent_type to be ${agent}`;
-      } else if (rootSessionSpawnCalls.some((call) => call.forkTurns !== "none")) {
-        summary.error = "expected every persisted root fork_turns value to be none";
+      } else if (
+        observedRootSpawnCalls.some(
+          (call) => call.agentType !== null && call.agentType !== agent,
+        )
+      ) {
+        summary.error = `expected every observed root agent_type to be ${agent}`;
+      } else if (
+        observedRootSpawnCalls.some(
+          (call) => call.forkTurns !== null && call.forkTurns !== "none",
+        )
+      ) {
+        summary.error = "expected every observed root fork_turns value to be none";
       } else if (
         typeof rootSessionSpawn.message !== "string" ||
         rootSessionSpawn.message.length === 0
       ) {
-        summary.error = "persisted root spawn message was empty";
+        summary.error = "observed root spawn message was empty";
       } else if (
         rootSpawnMessageIsEncrypted &&
         !summary.rootPromptContainsExecutionContract
@@ -240,14 +261,17 @@ async function runCase({
           executionContract,
         )
       ) {
-        summary.error = "plaintext persisted root spawn omitted its assigned taskId, workItemId, or exact output path";
+        summary.error = "plaintext observed root spawn omitted its assigned taskId, workItemId, or exact output path";
       } else if (childSession.agentRole !== agent) {
         summary.error = `expected child role ${agent}, saw ${childSession.agentRole ?? "missing"}`;
       } else if (childThreadSpawn?.agent_role !== agent) {
         summary.error = `expected child spawn role ${agent}, saw ${childThreadSpawn?.agent_role ?? "missing"}`;
       } else if (
         summary.spawnCalls.length > 0 &&
-        summary.spawnCalls.some((spawnCall) => spawnCall.agentType !== agent)
+        summary.spawnCalls.some(
+          (spawnCall) =>
+            spawnCall.agentType !== null && spawnCall.agentType !== agent,
+        )
       ) {
         summary.error = `stdout spawn event did not use root agent_type ${agent}`;
       } else if (

@@ -547,10 +547,104 @@ function collectFullFlowEvidence(telemetry) {
   const rootSessions = materializedSessions.filter(
       (session) => session.sessionId === telemetry.rootThreadId,
   );
+  const rootChildren = materializedSessions
+      .filter(
+          (session) =>
+              session.parentThreadId === telemetry.rootThreadId &&
+              session.threadSource === "subagent" &&
+              typeof session.agentRole === "string" &&
+              session.agentRole.length > 0,
+      )
+      .sort((left, right) => left.sessionCreatedAtMs - right.sessionCreatedAtMs);
+  const persistedRootToolCalls = rootSessions
+      .flatMap((session) => session.toolCalls)
+      .filter((toolCall) => toolCall.tool !== "exec");
+  const hasPersistedRootSpawn = persistedRootToolCalls.some(
+      (toolCall) => toolCall.tool === "spawn_agent",
+  );
+  const stdoutRootSpawnCalls = hasPersistedRootSpawn
+      ? []
+      : (telemetry.spawnCalls ?? [])
+          .filter((spawnCall) => (spawnCall.receiverThreadIds?.length ?? 0) > 0)
+          .map((spawnCall) => {
+            const childSession = rootChildren.find((session) =>
+              spawnCall.receiverThreadIds.includes(session.sessionId),
+            );
+            const startTimestampMs = Number.isFinite(
+                childSession?.sessionCreatedAtMs,
+            )
+              ? childSession.sessionCreatedAtMs - 1
+              : null;
+            return {
+              eventKey: `stdout-spawn-${spawnCall.line}`,
+              startEventKey: `stdout-spawn-${spawnCall.line}`,
+              line: spawnCall.line,
+              timestampMs: startTimestampMs,
+              startTimestampMs,
+              tool: "spawn_agent",
+              namespace: "agents",
+              agentType: childSession?.agentRole ?? spawnCall.agentType,
+              forkTurns: spawnCall.forkTurns,
+              message: spawnCall.message,
+              receiverThreadIds: spawnCall.receiverThreadIds,
+              targetThreadIds: spawnCall.receiverThreadIds,
+            };
+          });
+  const materializedStdoutSpawns = stdoutRootSpawnCalls
+      .map((spawnCall) => ({
+        ...spawnCall,
+        childSession: rootChildren.find((session) =>
+          spawnCall.targetThreadIds.includes(session.sessionId),
+        ),
+      }))
+      .sort((left, right) => left.line - right.line);
+  const stdoutRootCommandCalls = (telemetry.commandCalls ?? []).map(
+      (commandCall) => {
+        const previousSpawn = materializedStdoutSpawns.findLast(
+            (spawnCall) => spawnCall.line < commandCall.line,
+        );
+        const nextSpawn = materializedStdoutSpawns.find(
+            (spawnCall) => spawnCall.line > commandCall.line,
+        );
+        const lowerBound = previousSpawn?.childSession?.terminalTimestampMs;
+        const upperBound = nextSpawn?.childSession?.sessionCreatedAtMs;
+        let startTimestampMs = null;
+        if (
+          Number.isFinite(lowerBound) &&
+          Number.isFinite(upperBound) &&
+          lowerBound < upperBound
+        ) {
+          startTimestampMs = lowerBound + Math.max(
+              1,
+              Math.floor((upperBound - lowerBound) / 2),
+          );
+        } else if (Number.isFinite(lowerBound)) {
+          startTimestampMs = lowerBound + 1;
+        } else if (Number.isFinite(upperBound)) {
+          startTimestampMs = upperBound - 1;
+        }
+        return {
+          eventKey: `stdout-command-${commandCall.line}`,
+          startEventKey: `stdout-command-${commandCall.line}`,
+          line: commandCall.line,
+          timestampMs: startTimestampMs,
+          startTimestampMs,
+          tool: "exec",
+          namespace: null,
+          agentType: null,
+          command: commandCall.command,
+          receiverThreadIds: [],
+          targetThreadIds: [],
+        };
+      },
+  );
   const rootToolCalls = [
     ...new Map(
-        rootSessions
-            .flatMap((session) => session.toolCalls)
+        [
+          ...persistedRootToolCalls,
+          ...stdoutRootSpawnCalls,
+          ...stdoutRootCommandCalls,
+        ]
             .map((call) => [call.eventKey, call]),
     ).values(),
   ].sort((left, right) => {
@@ -578,15 +672,6 @@ function collectFullFlowEvidence(telemetry) {
         agentType: toolCall.agentType,
         targetThreadIds: toolCall.targetThreadIds,
       }));
-  const rootChildren = materializedSessions
-      .filter(
-          (session) =>
-              session.parentThreadId === telemetry.rootThreadId &&
-              session.threadSource === "subagent" &&
-              typeof session.agentRole === "string" &&
-              session.agentRole.length > 0,
-      )
-      .sort((left, right) => left.sessionCreatedAtMs - right.sessionCreatedAtMs);
   const children = rootChildren.map((session, index) => ({
     index,
     sessionId: session.sessionId,
@@ -640,6 +725,7 @@ function collectFullFlowEvidence(telemetry) {
       namespace: toolCall.namespace,
       agentType: toolCall.agentType,
       targetThreadIds: toolCall.targetThreadIds,
+      command: toolCall.command ?? null,
       isAgentDelivery: isAgentDeliveryToolCall(toolCall),
     })),
     rootCoordinationCalls,
@@ -923,6 +1009,26 @@ function assertCheckpointTransitionEvaluator() {
   }
 }
 
+function isReadOnlySkillLoad(toolCall) {
+  if (toolCall.tool !== "exec" || typeof toolCall.command !== "string") {
+    return false;
+  }
+  if (
+    /^\/bin\/zsh -lc "sed -n '[0-9]+,[0-9]+p' '(?:[^'\r\n]+\/)?skills\/(?:\.system\/)?[^/'\r\n]+\/SKILL\.md'"$/.test(
+        toolCall.command,
+    ) ||
+    /^\/bin\/zsh -lc "sed -n '[0-9]+,[0-9]+p' [^\s"';&|$()<>]+\/skills\/(?:\.system\/)?[^/\s"';&|$()<>]+\/SKILL\.md"$/.test(
+        toolCall.command,
+    )
+  ) {
+    return true;
+  }
+  const countedRead = toolCall.command.match(
+      /^\/bin\/zsh -lc "wc -l ([^\s"';&|$()<>]+\/skills\/(?:\.system\/)?[^/\s"';&|$()<>]+\/SKILL\.md) && sed -n '[0-9]+,[0-9]+p' ([^\s"';&|$()<>]+\/skills\/(?:\.system\/)?[^/\s"';&|$()<>]+\/SKILL\.md)"$/,
+  );
+  return countedRead !== null && countedRead[1] === countedRead[2];
+}
+
 function validateInitialRootBoundary(evidence) {
   const firstGate = evidence.gates[0];
   if (!firstGate || !Number.isFinite(firstGate.startTimestampMs)) {
@@ -957,7 +1063,8 @@ function validateInitialRootBoundary(evidence) {
       preGateToolCalls.some(
           (toolCall) =>
               toolCall.eventKey !== checkerSpawns[0].eventKey &&
-              !allowedPreGateControlTools.has(toolCall.tool),
+              !allowedPreGateControlTools.has(toolCall.tool) &&
+              !isReadOnlySkillLoad(toolCall),
       )
   ) {
     return "root performed a delivery or downstream tool action before the first checker start";
@@ -1549,50 +1656,52 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
 }
 
 async function runIntentGateFlow({ aggregateSummary, outputDirectory, options, runId }) {
-  const directResults = [];
-  for (let repeatIndex = 0; repeatIndex < options.repeat; repeatIndex += 1) {
-    for (const intentCase of directIntentGateCases) {
-      const result = await runCase({
-        agent: "intent-checker",
-        caseName: "no-mcp",
-        expectedIntentSignal: intentCase.expectedSignal,
-        fixture: `intent-gate-${intentCase.id}-${repeatIndex + 1}`,
-        fixtureInputOverride: buildIntentGateInput(intentCase),
-        flowName: "intent-gate-direct",
-        outputDirectory,
-        options,
-        runId,
-      });
-      directResults.push(result);
-      if (!result.success) break;
+  if (!options.intentGateSkipDirect) {
+    const directResults = [];
+    for (let repeatIndex = 0; repeatIndex < options.repeat; repeatIndex += 1) {
+      for (const intentCase of directIntentGateCases) {
+        const result = await runCase({
+          agent: "intent-checker",
+          caseName: "no-mcp",
+          expectedIntentSignal: intentCase.expectedSignal,
+          fixture: `intent-gate-${intentCase.id}-${repeatIndex + 1}`,
+          fixtureInputOverride: buildIntentGateInput(intentCase),
+          flowName: "intent-gate-direct",
+          outputDirectory,
+          options,
+          runId,
+        });
+        directResults.push(result);
+        if (!result.success) break;
+      }
+      if (directResults.at(-1)?.success === false) break;
     }
-    if (directResults.at(-1)?.success === false) break;
+    aggregateSummary.phases.push({
+      name: "intent-gate-direct",
+      status: directResults.length === options.repeat * directIntentGateCases.length && directResults.every((result) => result.success) ? "passed" : "failed",
+      plannedCases: directIntentGateCases.map((intentCase) => intentCase.id),
+      plannedRunCount: options.repeat * directIntentGateCases.length,
+      executedRunCount: directResults.length,
+      unexecutedReason:
+          directResults.length < options.repeat * directIntentGateCases.length
+              ? "stopped at the first contract failure"
+              : null,
+      consecutivePassesByCase: Object.fromEntries(
+          directIntentGateCases.map((intentCase) => [
+            intentCase.id,
+            directResults.filter(
+                (result) =>
+                    result.fixture.startsWith(`intent-gate-${intentCase.id}-`) &&
+                    result.success,
+            ).length,
+          ]),
+      ),
+      results: directResults,
+    });
+    aggregateSummary.cases.push(...directResults);
+    if (aggregateSummary.phases.at(-1).status !== "passed") return;
+    if (options.intentGateDirectOnly) return;
   }
-  aggregateSummary.phases.push({
-    name: "intent-gate-direct",
-    status: directResults.length === options.repeat * directIntentGateCases.length && directResults.every((result) => result.success) ? "passed" : "failed",
-    plannedCases: directIntentGateCases.map((intentCase) => intentCase.id),
-    plannedRunCount: options.repeat * directIntentGateCases.length,
-    executedRunCount: directResults.length,
-    unexecutedReason:
-        directResults.length < options.repeat * directIntentGateCases.length
-            ? "stopped at the first contract failure"
-            : null,
-    consecutivePassesByCase: Object.fromEntries(
-        directIntentGateCases.map((intentCase) => [
-          intentCase.id,
-          directResults.filter(
-              (result) =>
-                  result.fixture.startsWith(`intent-gate-${intentCase.id}-`) &&
-                  result.success,
-          ).length,
-        ]),
-    ),
-    results: directResults,
-  });
-  aggregateSummary.cases.push(...directResults);
-  if (aggregateSummary.phases.at(-1).status !== "passed") return;
-  if (options.intentGateDirectOnly) return;
 
   const selectedFullIntentGateCases = options.intentGateFullCase
       ? fullIntentGateCases.filter(

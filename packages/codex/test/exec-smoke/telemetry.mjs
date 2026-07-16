@@ -145,6 +145,7 @@ function summarizeJsonl(stdout) {
   const parseErrors = [];
   const spawnedAgentThreadIds = new Set();
   const spawnCalls = [];
+  const commandCalls = [];
   const closeAgentCalls = [];
   const waitCalls = [];
   let closeAgentEventCount = 0;
@@ -169,6 +170,13 @@ function summarizeJsonl(stdout) {
       rootThreadId = event.thread_id ?? payload.thread_id ?? rootThreadId;
     }
     const toolName = String(item.tool ?? item.name ?? item.server ?? "");
+    if (
+      event.type === "item.completed" &&
+      item.type === "command_execution" &&
+      typeof item.command === "string"
+    ) {
+      commandCalls.push({ line: lineIndex + 1, command: item.command });
+    }
     if (toolName.includes("codemap")) {
       codemapToolEventCount += 1;
     }
@@ -255,6 +263,7 @@ function summarizeJsonl(stdout) {
     codemapToolEventCount,
     spawnAgentEventCount,
     spawnCalls,
+    commandCalls,
     waitCalls,
     closeAgentCalls,
     spawnedAgentThreadCount: spawnedAgentThreadIds.size,
