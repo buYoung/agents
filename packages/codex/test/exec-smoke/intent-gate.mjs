@@ -23,8 +23,8 @@ const nonDeliveryAgentTools = new Set([
 
 function isAgentDeliveryToolCall(toolCall) {
   return (
-    ["spawn_agent", "followup_task", "send_message"].includes(toolCall.tool) ||
-    (toolCall.namespace === "agents" && !nonDeliveryAgentTools.has(toolCall.tool))
+      ["spawn_agent", "followup_task", "send_message"].includes(toolCall.tool) ||
+      (toolCall.namespace === "agents" && !nonDeliveryAgentTools.has(toolCall.tool))
   );
 }
 
@@ -38,35 +38,35 @@ function mergeToolCallLifecycleRecords(records) {
     recordsByInvocation.set(record.invocationKey, invocationRecords);
   }
   return [...recordsByInvocation.entries()].map(
-    ([invocationKey, invocationRecords]) => {
-      const startEvents = invocationRecords.filter(
-        (record) =>
-          record.lifecyclePhase === "start" &&
-          Number.isFinite(record.timestampMs),
-      );
-      const endEvents = invocationRecords.filter(
-        (record) =>
-          record.lifecyclePhase === "end" &&
-          Number.isFinite(record.timestampMs),
-      );
-      const earliestStart = startEvents.sort(
-        (left, right) => left.timestampMs - right.timestampMs,
-      )[0];
-      const latestEnd = endEvents.sort(
-        (left, right) => right.timestampMs - left.timestampMs,
-      )[0];
-      const representative = earliestStart ?? invocationRecords[0];
-      return {
-        ...representative,
-        eventKey: invocationKey,
-        lifecycleEvents: invocationRecords,
-        startEventKey: earliestStart?.eventKey ?? null,
-        startTimestampMs: earliestStart?.timestampMs ?? null,
-        endEventKey: latestEnd?.eventKey ?? null,
-        endTimestampMs: latestEnd?.timestampMs ?? null,
-        timestampMs: earliestStart?.timestampMs ?? null,
-      };
-    },
+      ([invocationKey, invocationRecords]) => {
+        const startEvents = invocationRecords.filter(
+            (record) =>
+                record.lifecyclePhase === "start" &&
+                Number.isFinite(record.timestampMs),
+        );
+        const endEvents = invocationRecords.filter(
+            (record) =>
+                record.lifecyclePhase === "end" &&
+                Number.isFinite(record.timestampMs),
+        );
+        const earliestStart = startEvents.sort(
+            (left, right) => left.timestampMs - right.timestampMs,
+        )[0];
+        const latestEnd = endEvents.sort(
+            (left, right) => right.timestampMs - left.timestampMs,
+        )[0];
+        const representative = earliestStart ?? invocationRecords[0];
+        return {
+          ...representative,
+          eventKey: invocationKey,
+          lifecycleEvents: invocationRecords,
+          startEventKey: earliestStart?.eventKey ?? null,
+          startTimestampMs: earliestStart?.timestampMs ?? null,
+          endEventKey: latestEnd?.eventKey ?? null,
+          endTimestampMs: latestEnd?.timestampMs ?? null,
+          timestampMs: earliestStart?.timestampMs ?? null,
+        };
+      },
   );
 }
 
@@ -76,8 +76,8 @@ const directIntentGateCases = [
     expectedSignal: "PROCEED",
     originalRequest: "Implement the requested bounded change and verify it with the existing project command. Do not create new public contracts or change unrelated documents.",
     classification: "implementation",
-    normalizedObjective: "Implement the requested bounded change and run the existing verification command.",
-    includedScope: "The requested implementation path and its existing verification.",
+    normalizedObjective: "Implement the requested bounded change, trace it through necessary intermediate consumers, and run the existing verification command.",
+    includedScope: "The requested implementation path, necessary intermediate consumers, and existing verification.",
     excludedScope: "New public contracts and unrelated documents.",
     addedConstraints: "user | evidence: 'Do not create new public contracts or change unrelated documents' | preserve those stated exclusions",
     delegationPlan: "code-explorer, planner, worker, verification",
@@ -271,14 +271,14 @@ const directIntentGateCases = [
     omittedField: "Excluded scope",
   },
   {
-    id: "invalid-provenance-evidence",
-    expectedSignal: "RECLASSIFY",
+    id: "ambient-policy-is-not-user-intent",
+    expectedSignal: "PROCEED",
     originalRequest: "Use the existing workflow to prepare a change report.",
     classification: "analysis",
     normalizedObjective: "Prepare a change report.",
     includedScope: "Existing workflow and report.",
     excludedScope: "None",
-    addedConstraints: "system | evidence: user supplied 'use the existing workflow' | prohibit the existing workflow",
+    addedConstraints: "None",
     delegationPlan: "worker",
     userConfirmationResponse: "None",
   },
@@ -300,7 +300,6 @@ const fullIntentGateCases = [
   {
     id: "bounded-delivery",
     expectedInitialSignal: "PROCEED",
-    requirePlanFinalizedGate: true,
     requireWorker: true,
     userRequest: "Inspect this repository to trace one shared configuration value from its callers through intermediate layers to the final consumer. Produce a bounded implementation-readiness report using one implementation worker after planning. Do not edit source, tests, public contracts, or user-owned documentation; use existing repository evidence and verification only.",
     followUp: {
@@ -317,7 +316,7 @@ const fullIntentGateCases = [
     followUp: {
       kind: "non-semantic",
       expectedGate: false,
-      prompt: "Additional evidence only: the relevant implementation was found under the existing source tree. This location detail changes no objective, scope, constraint, lane, or requested output.",
+      prompt: "Additional evidence only: the relevant implementation was found under the existing source tree. This location detail changes no objective, scope, user constraint, requested output, authority, external effect, or material decision.",
     },
   },
   {
@@ -342,7 +341,7 @@ const fullIntentGateCases = [
     userRequest: "Inspect this repository and produce an initial bounded implementation-readiness report using one worker, then stop after that initial report. For this orchestration evaluation, deliberately omit the final-consumer trace from that initial report so the later required verification and review can identify one bounded, correctable finding. I explicitly approve that later workflow: use the same worker once to remediate only that omission after main-session adjudication, rerun verification through the same separate verification-only worker, run both adversarial and constructive reviewers against each immutable result, and finish when clean. Do not edit source, tests, public contracts, or user-owned documentation, and do not perform external actions.",
     followUp: {
       kind: "approved-iteration-follow-up",
-      expectedGate: true,
+      expectedGate: false,
       requireWorkerContinuation: true,
       prompt: "Begin the explicitly approved iteration: independently verify the deliberately omitted final-consumer trace, review the immutable result with both reviewer types, have the main session adjudicate that bounded finding, send one remediation only to the designated implementation worker, then use the same verifier for one recheck and each reviewer type for one changed-input re-review before clean closure. The objective, scope, authority, external effects, and material decisions are unchanged.",
     },
@@ -352,19 +351,18 @@ const fullIntentGateCases = [
 function buildIntentGateInput(intentCase) {
   const fields = [
     ["Original user request", intentCase.originalRequest],
-    ["Request classification", intentCase.classification],
     ["Normalized objective", intentCase.normalizedObjective],
     ["Included scope", intentCase.includedScope],
     ["Excluded scope", intentCase.excludedScope],
-    ["Added constraints", intentCase.addedConstraints],
-    ["Delegation plan", intentCase.delegationPlan],
+    ["User constraints", intentCase.addedConstraints],
+    ["Material assumptions and decisions", intentCase.materialAssumptions ?? "None"],
     ["Pending confirmation prompt", intentCase.pendingConfirmationPrompt ?? "None"],
     ["User confirmation response", intentCase.userConfirmationResponse],
   ];
   return fields
-    .filter(([label]) => label !== intentCase.omittedField)
-    .map(([label, value]) => `${label}: ${value}`)
-    .join("\n");
+      .filter(([label]) => label !== intentCase.omittedField)
+      .map(([label, value]) => `${label}: ${value}`)
+      .join("\n");
 }
 
 
@@ -372,36 +370,36 @@ async function readGitSnapshot(workspaceSource) {
   const head = await runChildProcess("git", ["rev-parse", "HEAD"], workspaceSource);
   const status = await runChildProcess("git", ["status", "--porcelain=v1"], workspaceSource);
   const trackedDiff = await runChildProcess(
-    "git",
-    ["diff", "--no-ext-diff", "--binary", "HEAD"],
-    workspaceSource,
+      "git",
+      ["diff", "--no-ext-diff", "--binary", "HEAD"],
+      workspaceSource,
   );
   const untracked = await runChildProcess(
-    "git",
-    ["ls-files", "--others", "--exclude-standard"],
-    workspaceSource,
+      "git",
+      ["ls-files", "--others", "--exclude-standard"],
+      workspaceSource,
   );
   const untrackedPaths = untracked.stdout.trim();
   const untrackedHashes = untrackedPaths
-    ? await runChildProcess(
-        "git",
-        ["hash-object", "--stdin-paths"],
-        workspaceSource,
-        `${untrackedPaths}\n`,
+      ? await runChildProcess(
+          "git",
+          ["hash-object", "--stdin-paths"],
+          workspaceSource,
+          `${untrackedPaths}\n`,
       )
-    : { exitCode: 0, stdout: "", stderr: "" };
+      : { exitCode: 0, stdout: "", stderr: "" };
   const commands = [head, status, trackedDiff, untracked, untrackedHashes];
   if (commands.some((command) => command.exitCode !== 0)) {
     throw new Error(
-      `could not read content snapshot: ${commands.map((command) => command.stderr).filter(Boolean).join("\n")}`,
+        `could not read content snapshot: ${commands.map((command) => command.stderr).filter(Boolean).join("\n")}`,
     );
   }
   const contentDigest = createHash("sha256")
-    .update(head.stdout)
-    .update(trackedDiff.stdout)
-    .update(untracked.stdout)
-    .update(untrackedHashes.stdout)
-    .digest("hex");
+      .update(head.stdout)
+      .update(trackedDiff.stdout)
+      .update(untracked.stdout)
+      .update(untrackedHashes.stdout)
+      .digest("hex");
   return {
     head: head.stdout.trim(),
     status: status.stdout,
@@ -409,9 +407,9 @@ async function readGitSnapshot(workspaceSource) {
     untrackedCount: untrackedPaths ? untrackedPaths.split("\n").length : 0,
     untrackedPaths: untrackedPaths ? untrackedPaths.split("\n") : [],
     untrackedDigest: createHash("sha256")
-      .update(untracked.stdout)
-      .update(untrackedHashes.stdout)
-      .digest("hex"),
+        .update(untracked.stdout)
+        .update(untrackedHashes.stdout)
+        .digest("hex"),
     contentDigest,
   };
 }
@@ -425,27 +423,28 @@ function validateTemporaryWorkspaceSnapshot({ before, after }) {
   }
   const baselineUntracked = new Set(before.untrackedPaths);
   const disallowedUntracked = after.untrackedPaths.filter(
-    (filePath) =>
-      !baselineUntracked.has(filePath) &&
-      !filePath.startsWith(".agents/orchestration/"),
+      (filePath) =>
+          !baselineUntracked.has(filePath) &&
+          !filePath.startsWith(".agents/orchestration/") &&
+          !filePath.startsWith(".codemap/index/"),
   );
   return disallowedUntracked.length > 0
-    ? `temporary workspace changed outside allowed artifacts: ${disallowedUntracked.join(", ")}`
-    : null;
+      ? `temporary workspace changed outside allowed artifacts: ${disallowedUntracked.join(", ")}`
+      : null;
 }
 
 async function prepareIntentGateWorkspace({ workspaceSource, workspaceCommit, temporaryParent }) {
   const temporaryWorkspace = path.join(temporaryParent, "workspace");
   const clone = await runChildProcess(
-    "git",
-    ["clone", "--no-checkout", "--no-hardlinks", workspaceSource, temporaryWorkspace],
-    temporaryParent,
+      "git",
+      ["clone", "--no-checkout", "--no-hardlinks", workspaceSource, temporaryWorkspace],
+      temporaryParent,
   );
   if (clone.exitCode !== 0) throw new Error(`isolated clone failed: ${clone.stderr}`);
   const checkout = await runChildProcess(
-    "git",
-    ["checkout", "--detach", "--force", workspaceCommit],
-    temporaryWorkspace,
+      "git",
+      ["checkout", "--detach", "--force", workspaceCommit],
+      temporaryWorkspace,
   );
   if (checkout.exitCode !== 0) throw new Error(`isolated checkout failed: ${checkout.stderr}`);
   const head = await runChildProcess("git", ["rev-parse", "HEAD"], temporaryWorkspace);
@@ -473,18 +472,18 @@ function mergeMaterializedSessions(sessionSummaries) {
       const sessionStartEvents = [...(session.sessionStartEvents ?? [])];
       const validStartTimestamps = [
         ...new Set(
-          sessionStartEvents
-            .map((event) => event.timestampMs)
-            .filter(Number.isFinite),
+            sessionStartEvents
+                .map((event) => event.timestampMs)
+                .filter(Number.isFinite),
         ),
       ];
       mergedBySessionId.set(sessionKey, {
         ...session,
         sessionStartEvents,
         sessionStartEvent:
-          validStartTimestamps.length === 1 ? sessionStartEvents[0] : null,
+            validStartTimestamps.length === 1 ? sessionStartEvents[0] : null,
         sessionCreatedAtMs:
-          validStartTimestamps.length === 1 ? validStartTimestamps[0] : null,
+            validStartTimestamps.length === 1 ? validStartTimestamps[0] : null,
         terminalEvents: [...(session.terminalEvents ?? [])],
         toolCalls: [...session.toolCalls],
       });
@@ -492,49 +491,49 @@ function mergeMaterializedSessions(sessionSummaries) {
     }
     const terminalEvents = [
       ...new Map(
-        [...existing.terminalEvents, ...(session.terminalEvents ?? [])].map(
-          (event) => [event.eventKey, event],
-        ),
+          [...existing.terminalEvents, ...(session.terminalEvents ?? [])].map(
+              (event) => [event.eventKey, event],
+          ),
       ).values(),
     ];
     const sessionStartEvents = [
       ...new Map(
-        [
-          ...(existing.sessionStartEvents ?? []),
-          ...(session.sessionStartEvents ?? []),
-        ].map((event) => [event.eventKey, event]),
+          [
+            ...(existing.sessionStartEvents ?? []),
+            ...(session.sessionStartEvents ?? []),
+          ].map((event) => [event.eventKey, event]),
       ).values(),
     ];
     const toolCalls = mergeToolCallLifecycleRecords(
-      [...existing.toolCalls, ...session.toolCalls].flatMap(
-        (call) => call.lifecycleEvents ?? [],
-      ),
+        [...existing.toolCalls, ...session.toolCalls].flatMap(
+            (call) => call.lifecycleEvents ?? [],
+        ),
     );
     const validStartTimestamps = [
       ...new Set(
-        sessionStartEvents
-          .map((event) => event.timestampMs)
-          .filter(Number.isFinite),
+          sessionStartEvents
+              .map((event) => event.timestampMs)
+              .filter(Number.isFinite),
       ),
     ];
     const shouldUseCandidateMessage =
-      (session.terminalEvents?.length ?? 0) >
-        (existing.terminalEvents?.length ?? 0) ||
-      (session.finalMessage && !existing.finalMessage);
+              (session.terminalEvents?.length ?? 0) >
+              (existing.terminalEvents?.length ?? 0) ||
+              (session.finalMessage && !existing.finalMessage);
     mergedBySessionId.set(sessionKey, {
       ...existing,
       sessionStartEvents,
       sessionStartEvent:
-        validStartTimestamps.length === 1 ? sessionStartEvents[0] : null,
+          validStartTimestamps.length === 1 ? sessionStartEvents[0] : null,
       sessionCreatedAtMs:
-        validStartTimestamps.length === 1 ? validStartTimestamps[0] : null,
+          validStartTimestamps.length === 1 ? validStartTimestamps[0] : null,
       finalMessage: shouldUseCandidateMessage
-        ? session.finalMessage
-        : existing.finalMessage,
+          ? session.finalMessage
+          : existing.finalMessage,
       terminalEvents,
       terminalEventCount: terminalEvents.length,
       terminalTimestampMs:
-        terminalEvents.length === 1 ? terminalEvents[0].timestampMs : null,
+          terminalEvents.length === 1 ? terminalEvents[0].timestampMs : null,
       toolCalls,
     });
   }
@@ -543,51 +542,51 @@ function mergeMaterializedSessions(sessionSummaries) {
 
 function collectFullFlowEvidence(telemetry) {
   const materializedSessions = mergeMaterializedSessions(
-    telemetry.sessionSummaries,
+      telemetry.sessionSummaries,
   );
   const rootSessions = materializedSessions.filter(
-    (session) => session.sessionId === telemetry.rootThreadId,
+      (session) => session.sessionId === telemetry.rootThreadId,
   );
   const rootToolCalls = [
     ...new Map(
-      rootSessions
-        .flatMap((session) => session.toolCalls)
-        .map((call) => [call.eventKey, call]),
+        rootSessions
+            .flatMap((session) => session.toolCalls)
+            .map((call) => [call.eventKey, call]),
     ).values(),
   ].sort((left, right) => {
     if (
-      Number.isFinite(left.timestampMs) &&
-      Number.isFinite(right.timestampMs)
+        Number.isFinite(left.timestampMs) &&
+        Number.isFinite(right.timestampMs)
     ) {
       return left.timestampMs - right.timestampMs;
     }
     return 0;
   });
   const rootSpawnCalls = rootToolCalls.filter(
-    (toolCall) => toolCall.tool === "spawn_agent",
+      (toolCall) => toolCall.tool === "spawn_agent",
   );
   const rootCoordinationCalls = rootToolCalls
-    .filter(isAgentDeliveryToolCall)
-    .map((toolCall, index) => ({
-      index,
-      eventKey: toolCall.eventKey,
-      startEventKey: toolCall.startEventKey,
-      line: toolCall.line,
-      timestampMs: toolCall.startTimestampMs,
-      tool: toolCall.tool,
-      namespace: toolCall.namespace,
-      agentType: toolCall.agentType,
-      targetThreadIds: toolCall.targetThreadIds,
-    }));
+      .filter(isAgentDeliveryToolCall)
+      .map((toolCall, index) => ({
+        index,
+        eventKey: toolCall.eventKey,
+        startEventKey: toolCall.startEventKey,
+        line: toolCall.line,
+        timestampMs: toolCall.startTimestampMs,
+        tool: toolCall.tool,
+        namespace: toolCall.namespace,
+        agentType: toolCall.agentType,
+        targetThreadIds: toolCall.targetThreadIds,
+      }));
   const rootChildren = materializedSessions
-    .filter(
-      (session) =>
-        session.parentThreadId === telemetry.rootThreadId &&
-        session.threadSource === "subagent" &&
-        typeof session.agentRole === "string" &&
-        session.agentRole.length > 0,
-    )
-    .sort((left, right) => left.sessionCreatedAtMs - right.sessionCreatedAtMs);
+      .filter(
+          (session) =>
+              session.parentThreadId === telemetry.rootThreadId &&
+              session.threadSource === "subagent" &&
+              typeof session.agentRole === "string" &&
+              session.agentRole.length > 0,
+      )
+      .sort((left, right) => left.sessionCreatedAtMs - right.sessionCreatedAtMs);
   const children = rootChildren.map((session, index) => ({
     index,
     sessionId: session.sessionId,
@@ -597,27 +596,27 @@ function collectFullFlowEvidence(telemetry) {
     role: session.agentRole,
     terminalEventCount: session.terminalEventCount,
     terminalTimestamps: (session.terminalEvents ?? []).map(
-      (event) => event.timestampMs,
+        (event) => event.timestampMs,
     ),
     toolCallCount: session.toolCalls.length,
     delegatedSpawnCount: session.toolCalls.filter(
-      (toolCall) => toolCall.tool === "spawn_agent",
+        (toolCall) => toolCall.tool === "spawn_agent",
     ).length,
     delegatedTransferCount: session.toolCalls.filter(isAgentDeliveryToolCall)
-      .length,
+        .length,
     delegatedTransfers: session.toolCalls
-      .filter(isAgentDeliveryToolCall)
-      .map((toolCall) => ({
-        eventKey: toolCall.eventKey,
-        timestampMs: toolCall.timestampMs,
-        tool: toolCall.tool,
-        targetThreadIds: toolCall.targetThreadIds,
-      })),
+                               .filter(isAgentDeliveryToolCall)
+                               .map((toolCall) => ({
+                                 eventKey: toolCall.eventKey,
+                                 timestampMs: toolCall.timestampMs,
+                                 tool: toolCall.tool,
+                                 targetThreadIds: toolCall.targetThreadIds,
+                               })),
     finalMessage: session.finalMessage.trim(),
     gateSignal:
-      session.agentRole === "intent-checker"
-        ? parseExactGateSignal(session.finalMessage)
-        : null,
+        session.agentRole === "intent-checker"
+            ? parseExactGateSignal(session.finalMessage)
+            : null,
   }));
   return {
     children,
@@ -625,13 +624,13 @@ function collectFullFlowEvidence(telemetry) {
     gates: children.filter((child) => child.role === "intent-checker"),
     workerSessionIds: [
       ...new Set(
-        children
-          .filter((child) => child.role === "worker")
-          .map((child) => child.sessionId),
+          children
+              .filter((child) => child.role === "worker")
+              .map((child) => child.sessionId),
       ),
     ],
     rootIntentCheckerSpawnCount: rootSpawnCalls.filter(
-      (toolCall) => toolCall.agentType === "intent-checker",
+        (toolCall) => toolCall.agentType === "intent-checker",
     ).length,
     rootToolCalls: rootToolCalls.map((toolCall) => ({
       eventKey: toolCall.eventKey,
@@ -645,12 +644,12 @@ function collectFullFlowEvidence(telemetry) {
     })),
     rootCoordinationCalls,
     workerTerminalEventCounts: Object.fromEntries(
-      children
-        .filter((child) => child.role === "worker")
-        .map((child) => [child.sessionId, child.terminalEventCount]),
+        children
+            .filter((child) => child.role === "worker")
+            .map((child) => [child.sessionId, child.terminalEventCount]),
     ),
     rootTerminalTimestamps: rootSessions.flatMap((session) =>
-      (session.terminalEvents ?? []).map((event) => event.timestampMs),
+        (session.terminalEvents ?? []).map((event) => event.timestampMs),
     ),
     rootFinalMessage: rootSessions.at(-1)?.finalMessage?.trim() ?? "",
   };
@@ -665,15 +664,15 @@ function evaluateCheckpointTransition({
   provenance,
 }) {
   const firstDownstreamIndex = children.findIndex(
-    (child) => child.role !== "intent-checker",
+      (child) => child.role !== "intent-checker",
   );
   const gates = children.slice(
-    0,
-    firstDownstreamIndex < 0 ? children.length : firstDownstreamIndex,
+      0,
+      firstDownstreamIndex < 0 ? children.length : firstDownstreamIndex,
   );
   const downstream =
-    downstreamOverride ??
-    (firstDownstreamIndex < 0 ? null : children[firstDownstreamIndex]);
+            downstreamOverride ??
+            (firstDownstreamIndex < 0 ? null : children[firstDownstreamIndex]);
   const finalGate = gates.at(-1) ?? null;
   const transition = {
     checkpoint,
@@ -682,20 +681,20 @@ function evaluateCheckpointTransition({
     gateSignals: gates.map((gate) => gate.gateSignal),
     finalSignal: finalGate?.gateSignal ?? null,
     finalState:
-      finalGate?.gateSignal === "PROCEED" ? "advanced" : "blocked",
+        finalGate?.gateSignal === "PROCEED" ? "advanced" : "blocked",
     downstream: downstream
-      ? {
+        ? {
           role: downstream.role,
           sessionId: downstream.sessionId,
           startTimestampMs: downstream.startTimestampMs,
         }
-      : null,
+        : null,
     timeline: gates.map((gate, index) => ({
       gateSessionId: gate.sessionId,
       gateStartTimestampMs: gate.startTimestampMs,
       gateTerminalTimestampMs: gate.terminalTimestampMs,
       nextStartTimestampMs:
-        gates[index + 1]?.startTimestampMs ?? downstream?.startTimestampMs ?? null,
+          gates[index + 1]?.startTimestampMs ?? downstream?.startTimestampMs ?? null,
     })),
   };
   if (children[0]?.role !== "intent-checker" || gates.length === 0) {
@@ -711,13 +710,13 @@ function evaluateCheckpointTransition({
     };
   }
   if (
-    gates.some(
-      (gate) =>
-        gate.terminalEventCount !== 1 ||
-        gate.toolCallCount !== 0 ||
-        gate.delegatedSpawnCount !== 0 ||
-        gate.gateSignal === null,
-    )
+      gates.some(
+          (gate) =>
+              gate.terminalEventCount !== 1 ||
+              gate.toolCallCount !== 0 ||
+              gate.delegatedSpawnCount !== 0 ||
+              gate.gateSignal === null,
+      )
   ) {
     return {
       transition,
@@ -726,14 +725,14 @@ function evaluateCheckpointTransition({
   }
   for (const [timelineIndex, timelineEvent] of transition.timeline.entries()) {
     const isTerminalBlockingEvent =
-      timelineIndex === transition.timeline.length - 1 &&
-      !downstream &&
-      expectedFinalSignal !== "PROCEED";
+              timelineIndex === transition.timeline.length - 1 &&
+              !downstream &&
+              expectedFinalSignal !== "PROCEED";
     if (
-      !Number.isFinite(timelineEvent.gateStartTimestampMs) ||
-      !Number.isFinite(timelineEvent.gateTerminalTimestampMs) ||
-      (!isTerminalBlockingEvent &&
-        !Number.isFinite(timelineEvent.nextStartTimestampMs))
+        !Number.isFinite(timelineEvent.gateStartTimestampMs) ||
+        !Number.isFinite(timelineEvent.gateTerminalTimestampMs) ||
+        (!isTerminalBlockingEvent &&
+            !Number.isFinite(timelineEvent.nextStartTimestampMs))
     ) {
       return {
         transition,
@@ -741,10 +740,10 @@ function evaluateCheckpointTransition({
       };
     }
     if (
-      timelineEvent.gateStartTimestampMs >=
+        timelineEvent.gateStartTimestampMs >=
         timelineEvent.gateTerminalTimestampMs ||
-      (!isTerminalBlockingEvent &&
-        timelineEvent.gateTerminalTimestampMs >= timelineEvent.nextStartTimestampMs)
+        (!isTerminalBlockingEvent &&
+            timelineEvent.gateTerminalTimestampMs >= timelineEvent.nextStartTimestampMs)
     ) {
       return {
         transition,
@@ -829,12 +828,12 @@ function assertCheckpointTransitionEvaluator() {
     ],
   });
   const deliveryClassificationIsComplete =
-    isAgentDeliveryToolCall({ tool: "spawn_agent", namespace: "agents" }) &&
-    isAgentDeliveryToolCall({ tool: "followup_task", namespace: "agents" }) &&
-    isAgentDeliveryToolCall({ tool: "send_message", namespace: "agents" }) &&
-    isAgentDeliveryToolCall({ tool: "future_delivery", namespace: "agents" }) &&
-    !isAgentDeliveryToolCall({ tool: "wait_agent", namespace: "agents" }) &&
-    !isAgentDeliveryToolCall({ tool: "read_file", namespace: "filesystem" });
+            isAgentDeliveryToolCall({ tool: "spawn_agent", namespace: "agents" }) &&
+            isAgentDeliveryToolCall({ tool: "followup_task", namespace: "agents" }) &&
+            isAgentDeliveryToolCall({ tool: "send_message", namespace: "agents" }) &&
+            isAgentDeliveryToolCall({ tool: "future_delivery", namespace: "agents" }) &&
+            !isAgentDeliveryToolCall({ tool: "wait_agent", namespace: "agents" }) &&
+            !isAgentDeliveryToolCall({ tool: "read_file", namespace: "filesystem" });
   const duplicateSession = {
     sessionId: "duplicate-session",
     sessionPath: "duplicate.jsonl",
@@ -907,18 +906,18 @@ function assertCheckpointTransitionEvaluator() {
     ],
   });
   if (
-    converged.error ||
-    !staleProceed.error ||
-    !excessRetries.error ||
-    !ambiguousTimeline.error ||
-    !concurrentDownstream.error ||
-    !deliveryClassificationIsComplete ||
-    mergedDuplicate.terminalEventCount !== 1 ||
-    mergedDuplicate.toolCalls.length !== 1 ||
-    lifecycleStartPreserved.startEventKey !== "resume-start" ||
-    lifecycleStartPreserved.startTimestampMs !== 10 ||
-    missingSessionStart.sessionCreatedAtMs !== null ||
-    !preGateDeliveryError
+      converged.error ||
+      !staleProceed.error ||
+      !excessRetries.error ||
+      !ambiguousTimeline.error ||
+      !concurrentDownstream.error ||
+      !deliveryClassificationIsComplete ||
+      mergedDuplicate.terminalEventCount !== 1 ||
+      mergedDuplicate.toolCalls.length !== 1 ||
+      lifecycleStartPreserved.startEventKey !== "resume-start" ||
+      lifecycleStartPreserved.startTimestampMs !== 10 ||
+      missingSessionStart.sessionCreatedAtMs !== null ||
+      !preGateDeliveryError
   ) {
     throw new Error("checkpoint transition evaluator self-test failed");
   }
@@ -930,36 +929,36 @@ function validateInitialRootBoundary(evidence) {
     return "initial checkpoint lacked a session_meta start event";
   }
   if (
-    evidence.rootToolCalls.some(
-      (toolCall) => !Number.isFinite(toolCall.startTimestampMs),
-    )
+      evidence.rootToolCalls.some(
+          (toolCall) => !Number.isFinite(toolCall.startTimestampMs),
+      )
   ) {
     return "root tool lifecycle lacked an explicit start event for pre-gate ordering";
   }
   const preGateToolCalls = evidence.rootToolCalls.filter(
-    (toolCall) => toolCall.startTimestampMs < firstGate.startTimestampMs,
+      (toolCall) => toolCall.startTimestampMs < firstGate.startTimestampMs,
   );
   const simultaneousToolCalls = evidence.rootToolCalls.filter(
-    (toolCall) => toolCall.startTimestampMs === firstGate.startTimestampMs,
+      (toolCall) => toolCall.startTimestampMs === firstGate.startTimestampMs,
   );
   if (simultaneousToolCalls.length > 0) {
     return "root tool start was simultaneous with the first checker session start";
   }
   const checkerSpawns = preGateToolCalls.filter(
-    (toolCall) =>
-      toolCall.tool === "spawn_agent" &&
-      toolCall.agentType === "intent-checker",
+      (toolCall) =>
+          toolCall.tool === "spawn_agent" &&
+          toolCall.agentType === "intent-checker",
   );
   if (checkerSpawns.length !== 1) {
     return "initial boundary did not contain exactly one checker spawn before its session start";
   }
   const allowedPreGateControlTools = new Set(["wait", "wait_agent"]);
   if (
-    preGateToolCalls.some(
-      (toolCall) =>
-        toolCall.eventKey !== checkerSpawns[0].eventKey &&
-        !allowedPreGateControlTools.has(toolCall.tool),
-    )
+      preGateToolCalls.some(
+          (toolCall) =>
+              toolCall.eventKey !== checkerSpawns[0].eventKey &&
+              !allowedPreGateControlTools.has(toolCall.tool),
+      )
   ) {
     return "root performed a delivery or downstream tool action before the first checker start";
   }
@@ -974,12 +973,12 @@ function validateCheckerSpawnTimeline({ checkerSpawnCalls, gates, checkpoint }) 
     const spawnCall = checkerSpawnCalls[index];
     const priorGate = gates[index - 1];
     if (
-      !Number.isFinite(spawnCall?.timestampMs) ||
-      !Number.isFinite(gate.startTimestampMs) ||
-      spawnCall.timestampMs >= gate.startTimestampMs ||
-      (priorGate &&
-        (!Number.isFinite(priorGate.terminalTimestampMs) ||
-          spawnCall.timestampMs <= priorGate.terminalTimestampMs))
+        !Number.isFinite(spawnCall?.timestampMs) ||
+        !Number.isFinite(gate.startTimestampMs) ||
+        spawnCall.timestampMs >= gate.startTimestampMs ||
+        (priorGate &&
+            (!Number.isFinite(priorGate.terminalTimestampMs) ||
+                spawnCall.timestampMs <= priorGate.terminalTimestampMs))
     ) {
       return `${checkpoint} checkpoint checker spawn/start lifecycle ordering was missing or ambiguous`;
     }
@@ -1003,8 +1002,8 @@ function validateFullFlowEvidence({ evidence, intentCase }) {
   }
   const checkerSpawnTimelineError = validateCheckerSpawnTimeline({
     checkerSpawnCalls: evidence.rootCoordinationCalls.filter(
-      (call) =>
-        call.tool === "spawn_agent" && call.agentType === "intent-checker",
+        (call) =>
+            call.tool === "spawn_agent" && call.agentType === "intent-checker",
     ),
     gates: evidence.gates,
     checkpoint: "initial/full-flow",
@@ -1014,11 +1013,11 @@ function validateFullFlowEvidence({ evidence, intentCase }) {
   }
   const transitions = [];
   const firstDownstreamIndex = evidence.children.findIndex(
-    (child) => child.role !== "intent-checker",
+      (child) => child.role !== "intent-checker",
   );
   const initialChildren = evidence.children.slice(
-    0,
-    firstDownstreamIndex < 0 ? evidence.children.length : firstDownstreamIndex + 1,
+      0,
+      firstDownstreamIndex < 0 ? evidence.children.length : firstDownstreamIndex + 1,
   );
   const initial = evaluateCheckpointTransition({
     checkpoint: "initial",
@@ -1030,10 +1029,10 @@ function validateFullFlowEvidence({ evidence, intentCase }) {
   transitions.push(initial.transition);
   if (initial.error) return { error: initial.error, transitions };
   if (
-    evidence.children.some(
-      (child) =>
-        child.role !== "intent-checker" && child.delegatedTransferCount > 0,
-    )
+      evidence.children.some(
+          (child) =>
+              child.role !== "intent-checker" && child.delegatedTransferCount > 0,
+      )
   ) {
     return {
       error: "leaf custom agent attempted an agent delivery or redelegation call",
@@ -1071,124 +1070,124 @@ function validateApprovedIterationWorkflow({
   designatedWorkerSessionId,
 }) {
   const implementationWorker = allEvidence.children.find(
-    (child) => child.sessionId === designatedWorkerSessionId,
+      (child) => child.sessionId === designatedWorkerSessionId,
   );
   const workerChildren = allEvidence.children.filter(
-    (child) => child.role === "worker",
+      (child) => child.role === "worker",
   );
   const verifierChildren = workerChildren.filter(
-    (child) => child.sessionId !== designatedWorkerSessionId,
+      (child) => child.sessionId !== designatedWorkerSessionId,
   );
   if (!implementationWorker || verifierChildren.length !== 1) {
     return "approved iteration did not preserve one implementation worker and one separate verification-only worker";
   }
   const verifier = verifierChildren[0];
   const implementationTerminals = [...implementationWorker.terminalTimestamps].sort(
-    (left, right) => left - right,
+      (left, right) => left - right,
   );
   const verifierTerminals = [...verifier.terminalTimestamps].sort(
-    (left, right) => left - right,
+      (left, right) => left - right,
   );
   if (
-    implementationWorker.terminalEventCount !== 2 ||
-    verifier.terminalEventCount !== 2 ||
-    implementationTerminals.some((timestamp) => !Number.isFinite(timestamp)) ||
-    !Number.isFinite(verifier.startTimestampMs) ||
-    verifierTerminals.some((timestamp) => !Number.isFinite(timestamp))
+      implementationWorker.terminalEventCount !== 2 ||
+      verifier.terminalEventCount !== 2 ||
+      implementationTerminals.some((timestamp) => !Number.isFinite(timestamp)) ||
+      !Number.isFinite(verifier.startTimestampMs) ||
+      verifierTerminals.some((timestamp) => !Number.isFinite(timestamp))
   ) {
     return "approved iteration did not produce exactly one remediation and one same-verifier recheck";
   }
   const verifierSpawns = followUp.rootCoordinationCalls.filter(
-    (call) =>
-      call.tool === "spawn_agent" &&
-      call.agentType === "worker" &&
-      Number.isFinite(call.timestampMs) &&
-      call.timestampMs < verifier.startTimestampMs,
+      (call) =>
+          call.tool === "spawn_agent" &&
+          call.agentType === "worker" &&
+          Number.isFinite(call.timestampMs) &&
+          call.timestampMs < verifier.startTimestampMs,
   );
   if (verifierSpawns.length !== 1) {
     return "approved iteration did not prove one separate verifier spawn";
   }
   const reviewerRoles = ["adversarial-review", "constructive-feedback"];
   const reviewers = reviewerRoles.map((role) =>
-    allEvidence.children.filter((child) => child.role === role),
+      allEvidence.children.filter((child) => child.role === role),
   );
   if (
-    reviewers.some((reviewerChildren) => reviewerChildren.length !== 2) ||
-    reviewers.flat().some(
-      (reviewer) =>
-        reviewer.terminalEventCount !== 1 ||
-        !Number.isFinite(reviewer.startTimestampMs),
-    )
+      reviewers.some((reviewerChildren) => reviewerChildren.length !== 2) ||
+      reviewers.flat().some(
+          (reviewer) =>
+              reviewer.terminalEventCount !== 1 ||
+              !Number.isFinite(reviewer.startTimestampMs),
+      )
   ) {
     return "each reviewer type did not perform exactly one initial review and one changed-input re-review";
   }
   const reviewerSpawns = followUp.rootCoordinationCalls.filter(
-    (call) =>
-      call.tool === "spawn_agent" && reviewerRoles.includes(call.agentType),
+      (call) =>
+          call.tool === "spawn_agent" && reviewerRoles.includes(call.agentType),
   );
   if (reviewerSpawns.length !== reviewerRoles.length * 2) {
     return "approved iteration had a missing, duplicate, or second re-review spawn";
   }
   const continuationCalls = followUp.rootCoordinationCalls.filter(
-    (call) => call.tool === "followup_task",
+      (call) => call.tool === "followup_task",
   );
   const implementationTargets = new Set(
-    [designatedWorkerSessionId, implementationWorker.agentPath].filter(Boolean),
+      [designatedWorkerSessionId, implementationWorker.agentPath].filter(Boolean),
   );
   const verifierTargets = new Set(
-    [verifier.sessionId, verifier.agentPath].filter(Boolean),
+      [verifier.sessionId, verifier.agentPath].filter(Boolean),
   );
   const implementationContinuations = continuationCalls.filter(
-    (call) =>
-      call.targetThreadIds.length > 0 &&
-      call.targetThreadIds.every((target) => implementationTargets.has(target)),
+      (call) =>
+          call.targetThreadIds.length > 0 &&
+          call.targetThreadIds.every((target) => implementationTargets.has(target)),
   );
   const verifierContinuations = continuationCalls.filter(
-    (call) =>
-      call.targetThreadIds.length > 0 &&
-      call.targetThreadIds.every((target) => verifierTargets.has(target)),
+      (call) =>
+          call.targetThreadIds.length > 0 &&
+          call.targetThreadIds.every((target) => verifierTargets.has(target)),
   );
   if (
-    continuationCalls.length !== 2 ||
-    implementationContinuations.length !== 1 ||
-    verifierContinuations.length !== 1
+      continuationCalls.length !== 2 ||
+      implementationContinuations.length !== 1 ||
+      verifierContinuations.length !== 1
   ) {
     return "approved iteration did not target exactly one remediation and one same-verifier recheck";
   }
   const initialReviews = reviewers.map((reviewerChildren) =>
-    [...reviewerChildren].sort(
-      (left, right) => left.startTimestampMs - right.startTimestampMs,
-    )[0],
+      [...reviewerChildren].sort(
+          (left, right) => left.startTimestampMs - right.startTimestampMs,
+      )[0],
   );
   const reReviews = reviewers.map((reviewerChildren) =>
-    [...reviewerChildren].sort(
-      (left, right) => left.startTimestampMs - right.startTimestampMs,
-    )[1],
+      [...reviewerChildren].sort(
+          (left, right) => left.startTimestampMs - right.startTimestampMs,
+      )[1],
   );
   const initialReviewTerminal = Math.max(
-    ...initialReviews.map((reviewer) => reviewer.terminalTimestamps.at(-1)),
+      ...initialReviews.map((reviewer) => reviewer.terminalTimestamps.at(-1)),
   );
   const remediationTimestamp = implementationContinuations[0].timestampMs;
   const verifierRecheckTimestamp = verifierContinuations[0].timestampMs;
   if (
-    implementationTerminals[0] >= verifier.startTimestampMs ||
-    verifierTerminals[0] >= Math.min(...initialReviews.map((reviewer) => reviewer.startTimestampMs)) ||
-    initialReviewTerminal >= remediationTimestamp ||
-    remediationTimestamp >= implementationTerminals[1] ||
-    implementationTerminals[1] >= verifierRecheckTimestamp ||
-    verifierRecheckTimestamp >= verifierTerminals[1] ||
-    verifierTerminals[1] >= Math.min(...reReviews.map((reviewer) => reviewer.startTimestampMs))
+      implementationTerminals[0] >= verifier.startTimestampMs ||
+      verifierTerminals[0] >= Math.min(...initialReviews.map((reviewer) => reviewer.startTimestampMs)) ||
+      initialReviewTerminal >= remediationTimestamp ||
+      remediationTimestamp >= implementationTerminals[1] ||
+      implementationTerminals[1] >= verifierRecheckTimestamp ||
+      verifierRecheckTimestamp >= verifierTerminals[1] ||
+      verifierTerminals[1] >= Math.min(...reReviews.map((reviewer) => reviewer.startTimestampMs))
   ) {
     return "approved iteration remediation, recheck, and re-review ordering was missing or ambiguous";
   }
   const rootTerminalTimestamp = allEvidence.rootTerminalTimestamps.at(-1);
   const latestReviewerTerminalTimestamp = Math.max(
-    ...reReviews.map((reviewer) => reviewer.terminalTimestamps.at(-1)),
+      ...reReviews.map((reviewer) => reviewer.terminalTimestamps.at(-1)),
   );
   if (
-    !Number.isFinite(rootTerminalTimestamp) ||
-    !Number.isFinite(latestReviewerTerminalTimestamp) ||
-    rootTerminalTimestamp <= latestReviewerTerminalTimestamp
+      !Number.isFinite(rootTerminalTimestamp) ||
+      !Number.isFinite(latestReviewerTerminalTimestamp) ||
+      rootTerminalTimestamp <= latestReviewerTerminalTimestamp
   ) {
     return "main session did not reach terminal closure after independent verification and review";
   }
@@ -1244,15 +1243,15 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
     let followUp = null;
     let followUpResult = null;
     if (
-      !result.spawnError &&
-      !result.timedOut &&
-      !result.signal &&
-      result.exitCode === 0 &&
-      intentCase.followUp &&
-      telemetry.rootThreadId
+        !result.spawnError &&
+        !result.timedOut &&
+        !result.signal &&
+        result.exitCode === 0 &&
+        intentCase.followUp &&
+        telemetry.rootThreadId
     ) {
       const initialChildIds = new Set(
-        initialEvidence.children.map((child) => child.sessionId),
+          initialEvidence.children.map((child) => child.sessionId),
       );
       followUpResult = await runCodexExec({
         args: codexExecResumeArgs({
@@ -1264,14 +1263,14 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
         timeoutSeconds: options.timeoutSeconds,
       });
       fs.writeFileSync(
-        path.join(runOutputDirectory, "follow-up-output.jsonl"),
-        followUpResult.stdout,
-        "utf-8",
+          path.join(runOutputDirectory, "follow-up-output.jsonl"),
+          followUpResult.stdout,
+          "utf-8",
       );
       fs.writeFileSync(
-        path.join(runOutputDirectory, "follow-up-stderr.log"),
-        followUpResult.stderr,
-        "utf-8",
+          path.join(runOutputDirectory, "follow-up-stderr.log"),
+          followUpResult.stderr,
+          "utf-8",
       );
       telemetry = {
         ...summarizeJsonl(followUpResult.stdout),
@@ -1282,23 +1281,23 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
         rootThreadId,
       });
       const newChildren = allEvidence.children.filter(
-        (child) => !initialChildIds.has(child.sessionId),
+          (child) => !initialChildIds.has(child.sessionId),
       );
       const initialCoordinationEventKeys = new Set(
-        initialEvidence.rootCoordinationCalls.map((call) => call.eventKey),
+          initialEvidence.rootCoordinationCalls.map((call) => call.eventKey),
       );
       followUp = {
         kind: intentCase.followUp.kind,
         expectedGate: intentCase.followUp.expectedGate,
         requireWorkerContinuation:
-          intentCase.followUp.requireWorkerContinuation ?? false,
+            intentCase.followUp.requireWorkerContinuation ?? false,
         children: newChildren,
         roles: newChildren.map((child) => child.role),
         gates: newChildren.filter((child) => child.role === "intent-checker"),
         workerSessionIds: allEvidence.workerSessionIds,
         rootIntentCheckerSpawnCount: allEvidence.rootIntentCheckerSpawnCount,
         rootCoordinationCalls: allEvidence.rootCoordinationCalls.filter(
-          (call) => !initialCoordinationEventKeys.has(call.eventKey),
+            (call) => !initialCoordinationEventKeys.has(call.eventKey),
         ),
         workerTerminalEventCounts: allEvidence.workerTerminalEventCounts,
         transitions: [],
@@ -1341,8 +1340,8 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
     } else if (sourceBefore.contentDigest !== sourceAfter.contentDigest) {
       summary.error = "workspace source content changed during read-only evaluation boundary; actor is external or unattributed";
     } else if (
-      harnessRepositoryBefore.contentDigest !==
-      harnessRepositoryAfter.contentDigest
+        harnessRepositoryBefore.contentDigest !==
+        harnessRepositoryAfter.contentDigest
     ) {
       summary.error = "harness repository content changed outside expected ignored run outputs";
     } else if (result.spawnError || result.timedOut || result.signal || result.exitCode !== 0) {
@@ -1357,52 +1356,52 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
     }
     if (!summary.error && intentCase.followUp) {
       if (
-        followUpResult?.spawnError ||
-        followUpResult?.timedOut ||
-        followUpResult?.signal ||
-        followUpResult?.exitCode !== 0
+          followUpResult?.spawnError ||
+          followUpResult?.timedOut ||
+          followUpResult?.signal ||
+          followUpResult?.exitCode !== 0
       ) {
         summary.error = "follow-up orchestrator execution did not complete";
       } else if (intentCase.followUp.expectedGate) {
         const designatedWorkerSessionId = initialEvidence.workerSessionIds[0];
         const designatedWorker = initialEvidence.children.find(
-          (child) => child.sessionId === designatedWorkerSessionId,
+            (child) => child.sessionId === designatedWorkerSessionId,
         );
         const checkerSpawnCalls = followUp.rootCoordinationCalls.filter(
-          (call) =>
-            call.tool === "spawn_agent" && call.agentType === "intent-checker",
+            (call) =>
+                call.tool === "spawn_agent" && call.agentType === "intent-checker",
         );
         const continuationCalls = followUp.rootCoordinationCalls.filter(
-          (call) => call.tool === "followup_task",
+            (call) => call.tool === "followup_task",
         );
         const allowedWorkerTargets = new Set(
-          [designatedWorkerSessionId, designatedWorker?.agentPath].filter(Boolean),
+            [designatedWorkerSessionId, designatedWorker?.agentPath].filter(Boolean),
         );
         const matchingContinuationCalls = continuationCalls.filter(
-          (call) =>
-            call.targetThreadIds.length > 0 &&
-            call.targetThreadIds.every((target) =>
-              allowedWorkerTargets.has(target),
-            ),
+            (call) =>
+                call.targetThreadIds.length > 0 &&
+                call.targetThreadIds.every((target) =>
+                    allowedWorkerTargets.has(target),
+                ),
         );
         const lastGateTerminalTimestampMs = followUp.gates.at(-1)?.terminalTimestampMs;
         const firstGateStartTimestampMs = followUp.gates[0]?.startTimestampMs;
         const firstContinuationCall = matchingContinuationCalls[0];
         const hasAmbiguousCoordinationTimestamp = followUp.rootCoordinationCalls.some(
-          (call) => !Number.isFinite(call.timestampMs),
+            (call) => !Number.isFinite(call.timestampMs),
         );
         const preGateDeliveryCalls = followUp.rootCoordinationCalls.filter(
-          (call) => call.timestampMs < firstGateStartTimestampMs,
+            (call) => call.timestampMs < firstGateStartTimestampMs,
         );
         const preGateCheckerSpawns = preGateDeliveryCalls.filter(
-          (call) =>
-            call.tool === "spawn_agent" && call.agentType === "intent-checker",
+            (call) =>
+                call.tool === "spawn_agent" && call.agentType === "intent-checker",
         );
         const deliveryCallsBeforeTerminal = followUp.rootCoordinationCalls.filter(
-          (call) => call.timestampMs <= lastGateTerminalTimestampMs,
+            (call) => call.timestampMs <= lastGateTerminalTimestampMs,
         );
         const firstPostGateDeliveryCall = followUp.rootCoordinationCalls.find(
-          (call) => call.timestampMs > lastGateTerminalTimestampMs,
+            (call) => call.timestampMs > lastGateTerminalTimestampMs,
         );
         const checkerSpawnTimelineError = validateCheckerSpawnTimeline({
           checkerSpawnCalls,
@@ -1410,70 +1409,70 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
           checkpoint: intentCase.followUp.kind,
         });
         if (
-          followUp.children.some(
-            (child) =>
-              ![
-                "intent-checker",
-                "worker",
-                "adversarial-review",
-                "constructive-feedback",
-              ].includes(child.role),
-          )
+            followUp.children.some(
+                (child) =>
+                    ![
+                      "intent-checker",
+                      "worker",
+                      "adversarial-review",
+                      "constructive-feedback",
+                    ].includes(child.role),
+            )
         ) {
           summary.error = "follow-up materialized an unexpected downstream child";
         } else if (checkerSpawnTimelineError) {
           summary.error = checkerSpawnTimelineError;
         } else if (
-          hasAmbiguousCoordinationTimestamp ||
-          !Number.isFinite(firstGateStartTimestampMs) ||
-          !Number.isFinite(lastGateTerminalTimestampMs)
+            hasAmbiguousCoordinationTimestamp ||
+            !Number.isFinite(firstGateStartTimestampMs) ||
+            !Number.isFinite(lastGateTerminalTimestampMs)
         ) {
           summary.error = "follow-up delivery timeline lacked explicit lifecycle event timestamps";
         } else if (
-          preGateCheckerSpawns.length !== 1 ||
-          preGateDeliveryCalls.some(
-            (call) => call.eventKey !== preGateCheckerSpawns[0]?.eventKey,
-          )
+            preGateCheckerSpawns.length !== 1 ||
+            preGateDeliveryCalls.some(
+                (call) => call.eventKey !== preGateCheckerSpawns[0]?.eventKey,
+            )
         ) {
           summary.error = "follow-up delivered agent work before the first checker session start";
         } else if (
-          deliveryCallsBeforeTerminal.some(
-            (call) =>
-              call.tool !== "spawn_agent" ||
-              call.agentType !== "intent-checker",
-          )
+            deliveryCallsBeforeTerminal.some(
+                (call) =>
+                    call.tool !== "spawn_agent" ||
+                    call.agentType !== "intent-checker",
+            )
         ) {
           summary.error = "follow-up delivered downstream work before the last checker terminal event";
         } else if (
-          followUp.requireWorkerContinuation &&
-          intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-          (!designatedWorkerSessionId || matchingContinuationCalls.length !== 1)
+            followUp.requireWorkerContinuation &&
+            intentCase.followUp.kind !== "approved-iteration-follow-up" &&
+            (!designatedWorkerSessionId || matchingContinuationCalls.length !== 1)
         ) {
           summary.error = "follow-up lacked one continuation targeted to the designated worker identity";
         } else if (
-          followUp.requireWorkerContinuation &&
-          intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-          continuationCalls.length !== 1
+            followUp.requireWorkerContinuation &&
+            intentCase.followUp.kind !== "approved-iteration-follow-up" &&
+            continuationCalls.length !== 1
         ) {
           summary.error = "follow-up used an additional or alternate continuation delivery path";
         } else if (
-          followUp.requireWorkerContinuation &&
-          intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-          firstPostGateDeliveryCall?.eventKey !== firstContinuationCall?.eventKey
+            followUp.requireWorkerContinuation &&
+            intentCase.followUp.kind !== "approved-iteration-follow-up" &&
+            firstPostGateDeliveryCall?.eventKey !== firstContinuationCall?.eventKey
         ) {
           summary.error = "the first downstream delivery after the checker was not the designated worker continuation";
         } else if (
-          followUp.requireWorkerContinuation &&
-          intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-          (!Number.isFinite(lastGateTerminalTimestampMs) ||
-            !Number.isFinite(firstContinuationCall?.timestampMs) ||
-            lastGateTerminalTimestampMs >= firstContinuationCall.timestampMs)
+            followUp.requireWorkerContinuation &&
+            intentCase.followUp.kind !== "approved-iteration-follow-up" &&
+            (!Number.isFinite(lastGateTerminalTimestampMs) ||
+                !Number.isFinite(firstContinuationCall?.timestampMs) ||
+                lastGateTerminalTimestampMs >= firstContinuationCall.timestampMs)
         ) {
           summary.error = "designated worker continuation was not proven to start after the last checker terminal event";
         } else if (
-          followUp.requireWorkerContinuation &&
-          intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-          (followUp.workerTerminalEventCounts[designatedWorkerSessionId] ?? 0) <=
+            followUp.requireWorkerContinuation &&
+            intentCase.followUp.kind !== "approved-iteration-follow-up" &&
+            (followUp.workerTerminalEventCounts[designatedWorkerSessionId] ?? 0) <=
             (initialEvidence.workerTerminalEventCounts[designatedWorkerSessionId] ?? 0)
         ) {
           summary.error = "designated worker did not complete a new terminal continuation turn";
@@ -1483,18 +1482,18 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
             children: followUp.children,
             expectedFinalSignal: "PROCEED",
             downstreamOverride:
-              followUp.requireWorkerContinuation &&
-              intentCase.followUp.kind !== "approved-iteration-follow-up"
-              ? {
-                  role: "worker-continuation",
-                  sessionId: designatedWorkerSessionId,
-                  startTimestampMs: firstContinuationCall.timestampMs,
-                }
-              : null,
+                followUp.requireWorkerContinuation &&
+                intentCase.followUp.kind !== "approved-iteration-follow-up"
+                    ? {
+                      role: "worker-continuation",
+                      sessionId: designatedWorkerSessionId,
+                      startTimestampMs: firstContinuationCall.timestampMs,
+                    }
+                    : null,
             provenance:
-              intentCase.followUp.kind === "approved-iteration-follow-up"
-                ? "explicit workflow approval evidence plus the current normal follow-up stage"
-                : "material change to normalized intent fields in the resumed root request",
+                intentCase.followUp.kind === "approved-iteration-follow-up"
+                    ? "explicit workflow approval evidence plus the current normal follow-up stage"
+                    : "material change to normalized intent fields in the resumed root request",
           });
           followUp.transitions.push(checkpoint.transition);
           summary.stateTransitions.push(checkpoint.transition);
@@ -1516,8 +1515,8 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
         summary.stateTransitions.push(transition);
       }
       if (
-        !summary.error &&
-        intentCase.followUp.kind === "approved-iteration-follow-up"
+          !summary.error &&
+          intentCase.followUp.kind === "approved-iteration-follow-up"
       ) {
         summary.error = validateApprovedIterationWorkflow({
           initialEvidence,
@@ -1534,8 +1533,8 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
     return summary;
   } catch (error) {
     temporaryWorkspaceAfter = temporaryWorkspace
-      ? await readGitSnapshot(temporaryWorkspace).catch(() => null)
-      : null;
+        ? await readGitSnapshot(temporaryWorkspace).catch(() => null)
+        : null;
     const sourceAfter = await readGitSnapshot(options.workspaceSource).catch(() => null);
     const harnessRepositoryAfter = await readGitSnapshot(repositoryRoot).catch(() => null);
     const summary = { runId, flowName: "intent-gate", caseId: intentCase.id, repeat: repeatIndex + 1, sourceBefore, sourceAfter, temporaryWorkspaceBefore, temporaryWorkspaceAfter, harnessRepositoryBefore, harnessRepositoryAfter, success: false, error: error.stack ?? error.message };
@@ -1576,18 +1575,18 @@ async function runIntentGateFlow({ aggregateSummary, outputDirectory, options, r
     plannedRunCount: options.repeat * directIntentGateCases.length,
     executedRunCount: directResults.length,
     unexecutedReason:
-      directResults.length < options.repeat * directIntentGateCases.length
-        ? "stopped at the first contract failure"
-        : null,
+        directResults.length < options.repeat * directIntentGateCases.length
+            ? "stopped at the first contract failure"
+            : null,
     consecutivePassesByCase: Object.fromEntries(
-      directIntentGateCases.map((intentCase) => [
-        intentCase.id,
-        directResults.filter(
-          (result) =>
-            result.fixture.startsWith(`intent-gate-${intentCase.id}-`) &&
-            result.success,
-        ).length,
-      ]),
+        directIntentGateCases.map((intentCase) => [
+          intentCase.id,
+          directResults.filter(
+              (result) =>
+                  result.fixture.startsWith(`intent-gate-${intentCase.id}-`) &&
+                  result.success,
+          ).length,
+        ]),
     ),
     results: directResults,
   });
@@ -1596,13 +1595,13 @@ async function runIntentGateFlow({ aggregateSummary, outputDirectory, options, r
   if (options.intentGateDirectOnly) return;
 
   const selectedFullIntentGateCases = options.intentGateFullCase
-    ? fullIntentGateCases.filter(
-        (intentCase) => intentCase.id === options.intentGateFullCase,
+      ? fullIntentGateCases.filter(
+          (intentCase) => intentCase.id === options.intentGateFullCase,
       )
-    : fullIntentGateCases;
+      : fullIntentGateCases;
   if (selectedFullIntentGateCases.length === 0) {
     throw new Error(
-      `Unknown intent-gate full-flow case: ${options.intentGateFullCase}`,
+        `Unknown intent-gate full-flow case: ${options.intentGateFullCase}`,
     );
   }
   const fullResults = [];
@@ -1621,16 +1620,16 @@ async function runIntentGateFlow({ aggregateSummary, outputDirectory, options, r
     plannedRunCount: options.repeat * selectedFullIntentGateCases.length,
     executedRunCount: fullResults.length,
     unexecutedReason:
-      fullResults.length < options.repeat * selectedFullIntentGateCases.length
-        ? "stopped at the first contract or source-integrity failure"
-        : null,
+        fullResults.length < options.repeat * selectedFullIntentGateCases.length
+            ? "stopped at the first contract or source-integrity failure"
+            : null,
     consecutivePassesByCase: Object.fromEntries(
-      selectedFullIntentGateCases.map((intentCase) => [
-        intentCase.id,
-        fullResults.filter(
-          (result) => result.caseId === intentCase.id && result.success,
-        ).length,
-      ]),
+        selectedFullIntentGateCases.map((intentCase) => [
+          intentCase.id,
+          fullResults.filter(
+              (result) => result.caseId === intentCase.id && result.success,
+          ).length,
+        ]),
     ),
     results: fullResults,
   });
