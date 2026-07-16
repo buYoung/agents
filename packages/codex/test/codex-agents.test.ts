@@ -92,6 +92,17 @@ describe("Codex custom agent TOML", () => {
         expect(parsed.developer_instructions as string).toContain(
           "## Received Execution Identity",
         );
+        for (const marker of [
+          "Code is authoritative for current implementation facts.",
+          "Explicit user-approved Inputs are authoritative for intended outcomes",
+          "Map every mandatory constraint and expected outcome",
+          "[verified] path - stable symbol/heading/token",
+          "## Completion Contract",
+          "Minimum verification:",
+          "decision-needed=<one concise decision>",
+        ]) {
+          expect(parsed.developer_instructions as string).toContain(marker);
+        }
       }
       expect(Array.isArray(parsed.nickname_candidates)).toBe(true);
       expect((parsed.nickname_candidates as unknown[]).length).toBeGreaterThan(0);
@@ -203,6 +214,11 @@ describe("Codex custom agent TOML", () => {
       "## Intent Preservation Gates",
       "`intent-checker` must be the first leaf.",
       "`plan-finalized` revision gate",
+      "Route every source, configuration, or documentation mutation through `planner` before the designated implementation `worker`.",
+      "After planner returns `status=completed`",
+      "Never invoke a worker for a blocked or failed plan.",
+      "Pass the completed planner Output as an explicit read-only Input to the designated implementation worker.",
+      "passing the same plan Input and the implementation result Input",
       "intent-delta: none",
       "format-only retry",
       "One designated `worker` owns implementation.",

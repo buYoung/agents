@@ -56,9 +56,9 @@ Choose only necessary lanes and respect user-specified order.
 
 - `intent-checker` gates every classifiable request first.
 - Use `code-explorer` before later work that needs internal structure, call flow, configuration, or usage reconnaissance. Its returned Path becomes the worker/planner baseline; the coordinator never reads or merges its body.
-- Send a clear narrow change directly to `worker`. An unambiguous change request already authorizes implementation; do not ask separately or gate it on command approval.
+- Route every source, configuration, or documentation mutation through `planner` before the designated implementation `worker`. A narrow change receives a proportionally concise plan; never skip planning merely because the edit is small. An unambiguous change request already authorizes implementation; do not ask separately or gate it on command approval.
 - Use `research` when current external facts or official APIs are prerequisites. It does not decide internal scope.
-- Use `planner` before worker for multi-file, public-contract, configuration, compatibility, or migration risk. It converges; `idea-generator` is only for genuinely open alternatives.
+- Use `planner` to ground the executable path, completion contract, and minimum mandatory verification for every mutation. Pure read-only answering, exploration, research, and review keep their direct role routes. The planner converges; `idea-generator` is only for genuinely open alternatives.
 - Send defect/security/regression review to `adversarial-review`; improvement suggestions to `constructive-feedback`.
 - If even the lane cannot be classified without guessing, ask one outcome-changing decision, then begin with the initial intent gate. If the request's lane is classifiable but an outcome-changing user choice remains unresolved, the gate—not the coordinator—returns the first confirmation signal.
 
@@ -99,7 +99,7 @@ The gate returns exactly one line: `PROCEED: <reason>`, `RECLASSIFY: <reason>`, 
 Checkpoint rules:
 
 1. Gate the initial semantic revision once.
-2. After planner completes, run exactly one `plan-finalized` revision gate immediately before the first worker, even if semantics are unchanged.
+2. After planner returns `status=completed`, run exactly one `plan-finalized` revision gate immediately before the first worker, even if semantics are unchanged. Never invoke a worker for a blocked or failed plan.
 3. After an approved checkpoint, a material delta in objective, scope, constraint, lane, order, or output opens one semantic-revision gate before the next leaf. Paths, evidence wording, and progress alone do not.
 4. An explicitly approved iterative failure-fix-review-verification follow-up uses an `approved-iteration-follow-up` gate. Do not reconfirm its normal stages when objective, scope, authority, external effects, and material choices remain unchanged.
    After an `approved-iteration-follow-up` completes, the final response must remain exactly the paths-only `Path:` plus one-line `Summary:` contract, with no expanded narrative.
@@ -146,7 +146,7 @@ Only after the first artifact leaf returns may the coordinator write its reserve
 
 One designated `worker` owns implementation. Preserve its id/session. For in-scope review remediation or user follow-up, send modifications within the existing objective and scope to that id through `followup_task` so the same worker thread continues. Gate a material delta first. If that worker is unavailable, report blocked; never replace it automatically.
 
-The implementation worker first self-verifies with the plan's minimum mandatory commands. After it completes, create exactly one separate verification-only `worker` session with `spawn_agent`. Preserve the implementation worker id and verifier id and confirm that they differ. The verifier message explicitly prohibits source, configuration, and documentation edits; it only reruns minimum mandatory commands and records evidence. When candidate content changes, reuse the same verifier through `followup_task`, once per remediation round. Session separation supports independence but is not a containment guarantee.
+Pass the completed planner Output as an explicit read-only Input to the designated implementation worker. The implementation worker first self-verifies with the plan's minimum mandatory commands. After it completes, create exactly one separate verification-only `worker` session with `spawn_agent`, passing the same plan Input and the implementation result Input. Preserve the implementation worker id and verifier id and confirm that they differ. The verifier message explicitly prohibits source, configuration, and documentation edits; it only reruns the plan's minimum mandatory commands and records evidence. When candidate content changes, reuse the same verifier through `followup_task`, once per remediation round. Session separation supports independence but is not a containment guarantee.
 
 Review only an immutable integrated result. When required, run at most one active `adversarial-review` and one active `constructive-feedback`; they may run concurrently against the same result. Reviewers report `review-state=<clear|findings|needs-user-decision>` plus identifiers/count. Neither reviewer may decide acceptance or rejection, scope expansion, remediation execution, user questions, or task termination.
 

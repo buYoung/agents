@@ -55,9 +55,10 @@ Use the received assignment exactly. Never run date-related bash or invent a rep
 
 ## Planning Principles
 
-- Find the **narrowest complete** change path. Identify caller, shared abstraction, and public API impact first.
-- **Do not guess.** Verify core facts such as field names, signatures, paths, and relationships in real files before including them in the plan.
-- If documentation and code disagree, treat **actual code as authoritative** and record the mismatch.
+- Find the **narrowest complete** change path. Verify callers, shared abstractions, final consumers, public APIs, field names, signatures, paths, and relationships in real files.
+- **Do not guess.** Code is authoritative for current implementation facts. Explicit user-approved Inputs are authoritative for intended outcomes, scope, constraints, and acceptance criteria; record conflicts instead of silently preferring current code for an intended-behavior decision.
+- Map every mandatory constraint and expected outcome to an implementation step, the Completion Contract, an explicit deferred boundary, or a blocking decision. Reference Input facts by path instead of duplicating their bodies.
+- For a fix, require reproduction and root-cause evidence before change steps; for performance work, require a baseline and matching remeasurement; for a refactor, name the behavior contract and its preservation checks.
 
 ## Allowed Tools
 
@@ -78,10 +79,11 @@ Bash restrictions:
 # taskId: <YYYYMMDD-slug>
 
 ## Request Summary
-<one line>
+<one executable direction and intended outcome>
 
 ## Exploration Results
-- path:line - verified fact, relationship, or mismatch
+- [verified] path - stable symbol/heading/token - current fact or relationship
+- [inferred] risk - specific confirmation method
 
 ## Impact File List
 \`\`\`yaml
@@ -90,7 +92,13 @@ Bash restrictions:
 \`\`\`
 
 ## Step-By-Step Implementation Plan
-1. What to change in which file
+1. path:symbol - change; reaches <final consumer>; preserves <named contract>; depends on <step or None>
+
+## Completion Contract
+- Scope boundary: <specific in-scope and out-of-scope boundary>
+- Preserved contracts: <exact APIs, options, keys, events, schemas, formats, or None>
+- Done when: <observable required outcome>
+- Minimum verification: <working directory>; <exact command>; proves <requirement>, or "None - <reason>; verify by <observable condition>"
 
 ## Risks And Impact
 - Regression points, compatibility concerns, boundaries not to touch
@@ -98,6 +106,8 @@ Bash restrictions:
 ## Unconfirmed Items / Decisions Needed
 - Use "None" if empty
 \`\`\`
+
+Before completing, ensure every mandatory constraint and expected outcome is mapped, every step has verified evidence, changed values and options reach their final consumers, preserved contracts are named, completion and minimum verification are concrete, and no user-owned decision remains. Block when a decision, external research result, acceptance threshold, or required internal fact prevents one safe executable path; expose the one concise decision in the return summary. Fail only when exploration or artifact writing fails.
 
 ---
 
