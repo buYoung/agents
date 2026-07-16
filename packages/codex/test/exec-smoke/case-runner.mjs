@@ -71,7 +71,12 @@ async function runCase({
     const startedAt = new Date().toISOString();
     const startedAtHrtime = process.hrtime.bigint();
     const result = await runCodexExec({
-      args: codexExecArgs({ caseName, prompt, temporaryWorkspace }),
+      args: codexExecArgs({
+        caseName,
+        model: options.model,
+        prompt,
+        temporaryWorkspace,
+      }),
       cwd: temporaryWorkspace,
       env: {
         ...process.env,
@@ -420,4 +425,3 @@ export {
   runWithConcurrency,
   writeAggregateSummary,
 };
-

@@ -63,7 +63,7 @@ function prepareWorkspace(temporaryWorkspace) {
   });
 }
 
-function codexExecArgs({ caseName, prompt, temporaryWorkspace }) {
+function codexExecArgs({ caseName, model, prompt, temporaryWorkspace }) {
   const args = [
     "exec",
     "--json",
@@ -74,6 +74,8 @@ function codexExecArgs({ caseName, prompt, temporaryWorkspace }) {
     "--skip-git-repo-check",
     "--cd",
     temporaryWorkspace,
+    "--model",
+    model,
     "-c",
     "suppress_unstable_features_warning=true",
   ];

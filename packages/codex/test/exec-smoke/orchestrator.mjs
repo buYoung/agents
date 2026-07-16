@@ -48,6 +48,7 @@ export async function runExecSmoke(argv) {
     flowName: options.flow,
     startedAt: new Date().toISOString(),
     finishedAt: null,
+    model: options.model,
     timeoutSeconds: options.timeoutSeconds,
     concurrency: options.concurrency,
     outputDirectory,

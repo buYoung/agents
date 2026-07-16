@@ -13,6 +13,63 @@ import {
 } from "./runtime.mjs";
 import { summarizeJsonl, summarizeSessionHistory } from "./telemetry.mjs";
 
+const nonDeliveryAgentTools = new Set([
+  "wait",
+  "wait_agent",
+  "list_agents",
+  "interrupt_agent",
+  "close_agent",
+]);
+
+function isAgentDeliveryToolCall(toolCall) {
+  return (
+    ["spawn_agent", "followup_task", "send_message"].includes(toolCall.tool) ||
+    (toolCall.namespace === "agents" && !nonDeliveryAgentTools.has(toolCall.tool))
+  );
+}
+
+function mergeToolCallLifecycleRecords(records) {
+  const recordsByInvocation = new Map();
+  for (const record of records) {
+    const invocationRecords = recordsByInvocation.get(record.invocationKey) ?? [];
+    if (!invocationRecords.some((item) => item.eventKey === record.eventKey)) {
+      invocationRecords.push(record);
+    }
+    recordsByInvocation.set(record.invocationKey, invocationRecords);
+  }
+  return [...recordsByInvocation.entries()].map(
+    ([invocationKey, invocationRecords]) => {
+      const startEvents = invocationRecords.filter(
+        (record) =>
+          record.lifecyclePhase === "start" &&
+          Number.isFinite(record.timestampMs),
+      );
+      const endEvents = invocationRecords.filter(
+        (record) =>
+          record.lifecyclePhase === "end" &&
+          Number.isFinite(record.timestampMs),
+      );
+      const earliestStart = startEvents.sort(
+        (left, right) => left.timestampMs - right.timestampMs,
+      )[0];
+      const latestEnd = endEvents.sort(
+        (left, right) => right.timestampMs - left.timestampMs,
+      )[0];
+      const representative = earliestStart ?? invocationRecords[0];
+      return {
+        ...representative,
+        eventKey: invocationKey,
+        lifecycleEvents: invocationRecords,
+        startEventKey: earliestStart?.eventKey ?? null,
+        startTimestampMs: earliestStart?.timestampMs ?? null,
+        endEventKey: latestEnd?.eventKey ?? null,
+        endTimestampMs: latestEnd?.timestampMs ?? null,
+        timestampMs: earliestStart?.timestampMs ?? null,
+      };
+    },
+  );
+}
+
 const directIntentGateCases = [
   {
     id: "aligned-bounded-change",
@@ -1165,7 +1222,12 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
     const prompt = buildIntentGatePrompt(intentCase);
     fs.writeFileSync(path.join(runOutputDirectory, "prompt.txt"), prompt, "utf-8");
     const result = await runCodexExec({
-      args: codexExecArgs({ caseName: "no-mcp", prompt, temporaryWorkspace }),
+      args: codexExecArgs({
+        caseName: "no-mcp",
+        model: options.model,
+        prompt,
+        temporaryWorkspace,
+      }),
       cwd: temporaryWorkspace,
       env: { ...process.env, CODEX_HOME: temporaryCodexHome },
       timeoutSeconds: options.timeoutSeconds,

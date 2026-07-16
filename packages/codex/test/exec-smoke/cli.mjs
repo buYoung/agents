@@ -16,6 +16,7 @@ function parseArgs(argv) {
     intentGateDirectOnly: false,
     intentGateFullCase: undefined,
     keepWorkspace: false,
+    model: undefined,
     repeat: 1,
     timeoutSeconds: defaultTimeoutSeconds,
     workspaceCommit: undefined,
@@ -47,6 +48,8 @@ function parseArgs(argv) {
       options.timeoutSeconds = Number(argv[++index]);
     } else if (arg === "--keep-workspace") {
       options.keepWorkspace = true;
+    } else if (arg === "--model") {
+      options.model = argv[++index];
     } else if (arg === "--repeat") {
       options.repeat = Number(argv[++index]);
     } else if (arg === "--workspace-source") {
@@ -75,6 +78,9 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(options.repeat) || options.repeat <= 0) {
     throw new Error(`Invalid repeat: ${options.repeat}`);
+  }
+  if (!options.model?.trim()) {
+    throw new Error("--model <id> is required");
   }
   if (options.agent && options.flow !== "single") {
     throw new Error("--agent can only be used with --flow single");
@@ -130,6 +136,7 @@ Options:
   --timeout-sec <n>    Per-case timeout in seconds. Default: 240
   --concurrency <n>    Individual-agent concurrency. Default: 3
   --repeat <n>         Sequential repetitions for intent-gate. Default: 1
+  --model <id>         Required root codex exec model
   --workspace-source <path>  Generic git source for isolated intent-gate runs
   --workspace-commit <sha>   Commit forced only inside isolated intent-gate clones
   --intent-gate-full-case <id>  Run only one named full-flow case after the direct matrix

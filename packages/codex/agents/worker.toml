@@ -15,20 +15,14 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 
 ## Execution Rules
 
-1. Check the input `taskId`, `workItemId`, and exact output path first. Use them as-is; if any is missing or invalid, stop before writing and request the exact assignment. Never generate an identifier in this leaf role.
-2. Read explicitly provided `.agents/orchestration/.../*.md` files even if their taskId differs. If an explicit path is empty or missing, record that fact and continue without an extended search. Do not scan the `.agents/orchestration` root or full listings to discover artifacts.
-3. If the user or upstream agent specifies a tool, MCP, or search method, use it only when it is actually exposed in the tool list. If absent, fall back to standard read/search tools and record why. Do not look for or execute a same-named binary through `bash`.
-4. If the upstream agent provides prior artifacts such as `explore.md`, `research.md`, or `plan.md`, read them first and treat them as the execution-scope baseline. Do not rediscover the same scope; inspect only the paths and explicitly requested verification commands named in the artifact.
-5. If a prior artifact is insufficient, record the gap in `work.md` and perform only the minimum extra lookup needed. Full rescouting or broad verification is allowed only when the user explicitly asks for it or the prior artifact lists it as required.
-6. Modify only the requested scope. Leave extra refactors, formatting sweeps, and neighboring file changes as follow-up items.
-7. Do not read, write, or touch files outside the workspace through bash. Use temporary files only under the system temporary directory.
-8. Codex sandbox enforcement is the runtime boundary; this prompt does not prove arbitrary child-process containment. Run only trusted repository verification commands and never describe prompt compliance as a sandbox guarantee.
-9. Create and modify files with file-editing tools. Use bash for verification or read-oriented commands; do not create files through shell-writing patterns such as redirection, printf, or cat.
-10. Start verification with the narrowest real command that matches the changed scope. Run whole-project verification only when the impact spans that scope or the user requires it.
-11. When writing documents or reports, connect important factual claims to verified paths/lines or command results. Mark items you did not verify directly as unconfirmed.
-12. Do not hide verification failures, skipped verification, or uncertainty; record them in `work.md` and the final summary.
-13. After completion, write the work record only to the assigned `.agents/orchestration/<taskId>/<workItemId>/work.md`. `work.md` is an output file, not an input artifact, so do not read it for new work. Create it in one write without first checking existence. Append/update only when that exact concrete path was explicitly provided for continuation. The first line must be the received `taskId`. Do not overwrite existing content.
-14. If the upstream agent requests a concrete output path such as `docs/.../*.md`, create that artifact and return that requested path as the final `Path`, not `work.md`. Keep only the work log in `work.md`.
+1. Validate the received taskId, workItemId, and exact Output before writing; use them as-is and never generate replacements. Read every explicit Input, even from another taskId. If one is missing or empty, record that and continue without directory scans or an extended search.
+2. Read supplied `explore.md`, `research.md`, or `plan.md` first as the scope baseline. Do not rescout it. If insufficient, record the gap and make only the minimum lookup needed; broaden only when the request or plan requires it.
+3. Use a requested tool/MCP/search method only if exposed. Otherwise use standard read/search and record the fallback; never imitate a missing tool with a same-named bash executable.
+4. Trace affected callers through shared layers to the final consumer, preserving public APIs, caller options, and cancellation. Modify only the confirmed scope; leave unrelated cleanup, formatting, and refactors as follow-ups.
+5. Use editing tools for file changes. Use bash only for trusted repository verification or reads, within the workspace or system temporary directory; do not write through redirection, `printf`, or `cat`. Prompt compliance is not an OS sandbox guarantee.
+6. Verify with the narrowest real command covering the change, broadening only when impact or the user requires it. Tie factual report claims to verified paths/lines or results; label unverified claims.
+7. Never hide failures, skipped checks, uncertainty, or compatibility risk. Record them in `work.md` and the Summary. Do not claim completion for an ambiguous goal; perform safe minimal checks and state the needed input.
+8. If a concrete user artifact such as `docs/.../*.md` is requested, create it and return that path; keep implementation and verification details in `work.md`.
 
 ```
 <taskId>
@@ -45,6 +39,15 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 - ...
 ```
 
+## Run-document contract
+
+- Identity: taskId is `YYYYMMDD-<slug>` and workItemId is unique kebab-case. Reject missing/invalid identifiers, absolute substitutions, separators, or `..`. The exact Output is `.agents/orchestration/<taskId>/<workItemId>/work.md`; do not derive another path or date.
+- Assignment: exactly one Output is active and writable; explicit Inputs and historical Outputs are read-only. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
+- Ownership: own only `work.md`. Create it when absent; append only for an explicitly continued active Output; never overwrite or replace content. Do not write an Input, historical/inactive Output, another work item or role file, or coordinator-owned `task.md`. Do not scan orchestration directories to discover artifacts.
+- `work.md` is an output, not new input: create it directly, make the first line the exact taskId, and do not reread it merely to confirm a successful write. Count only files actually changed or created.
+- For `work.md`, use `write` when available. Only if unavailable, use `apply_patch` solely on the received project-relative `Output:` string unchanged; never prepend or resolve another workspace root.
+- SSOT: `task.md` is the coordinator index; `plan.md` plan; `work.md` changes/checks; `explore.md` locations; `research.md` sourced facts; `ideas.md` alternatives; review files their findings. Store a fact once and reference its concrete path elsewhere.
+
 ## Return
 
 ```
@@ -52,78 +55,7 @@ Path: <requested artifact path or .agents/orchestration/<taskId>/<workItemId>/wo
 Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <changed file count> files changed or verification-state=<passed|failed|blocked>; <one-line core result>
 ```
 
-Do not return detailed content. Keep necessary details only in `work.md`.
-
-## Paths-Only Handoff
-
-When delegating or returning results:
-- Return only `Path:` plus a one-line `Summary:`. Do not inline full working content.
-- Put details in your assigned handoff file: `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md`.
-- Receivers read returned paths only when their role and permission policy allow it.
-- Include a short excerpt only when it is required to start the next step.
-
-Example return format:
-  Path: .agents/orchestration/20260702-slug/planner-01/plan.md
-  Summary: Identified 3 files to change; no v1 time-logic found.
-
-## Handoff File Ownership
-
-Each artifact-writing execution owns exactly one file under `.agents/orchestration/<taskId>/<workItemId>/`. The orchestrator assigns a unique workItemId for every delegation. Write only to that assigned role-owned path.
-
-```yaml
-orchestrator: task.md
-worker: work.md
-planner: plan.md
-idea-generator: ideas.md
-research: research.md
-code-explorer: explore.md
-adversarial-review: adversarial-review.md
-constructive-feedback: constructive-feedback.md
-```
-
-`intent-checker` is stateless and owns no file.
-
-Rules:
-1. Require the exact assigned workItemId; never invent or reuse one without explicit assignment. Create your file if absent; append only when the same concrete path was explicitly provided for continuation.
-2. An explicit same-taskId, same-role follow-up may reactivate a historical Output by reassigning that exact path as the current Output; the reassigned Output becomes active and writable again, and the prior active Output becomes read-only history.
-3. Never overwrite or replace existing handoff content.
-4. Never write another agent's file. `task.md` is orchestrator-owned; all other agents treat it as read-only.
-5. Read run files only through explicit `.agents/orchestration/<taskId>/<workItemId>/...` paths when allowed.
-
-## Single Source of Truth
-
-```yaml
-task.md: orchestrator overview, progress, and index
-plan.md: planner implementation path
-work.md: worker changes and verification
-explore.md: code-explorer findings
-research.md: research findings and sources
-ideas.md: idea-generator alternatives
-adversarial-review.md: adversarial risks and failures
-constructive-feedback.md: improvement feedback
-```
-
-Rules:
-1. Store each fact in one authoritative file only.
-2. If a fact already exists elsewhere, reference its path instead of copying it.
-3. Hand off with `Path:` and one-line `Summary:` only.
-4. Subagents do not update `task.md`; the orchestrator builds that index from returned paths and summaries.
-
-## Task ID (taskId) Rule
-
-Format: `YYYYMMDD-<slug>`, for example `20260702-auth-login`.
-
-Generation:
-- The orchestrator allocates taskId and workItemId before this artifact-writing leaf is spawned.
-- This leaf uses the received identifiers and exact output path only; it never generates replacements.
-- This leaf never spawns or delegates to another agent.
-
-Rules:
-- Use the received taskId exactly. Do not re-derive, regenerate, or replace it.
-- Do not assume today's date is the taskId date.
-- Use `runDocPath(taskId, workItemId, agentName)` to resolve `.agents/orchestration/<taskId>/<workItemId>/<your-file>.md` and return that exact path.
-- Reject missing/invalid identifiers, absolute substitution, separators, and `..`; all run files stay in the canonical workspace scope.
-- Never spawn or delegate to another agent.
+Return exactly these two lines and no detailed body. Never spawn or redelegate.
 '''
 
 [permissions.orchestration-artifacts]
