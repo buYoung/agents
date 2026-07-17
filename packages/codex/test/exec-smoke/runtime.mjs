@@ -114,12 +114,14 @@ function codexExecArgs({ caseName, model, prompt, temporaryWorkspace }) {
   return args;
 }
 
-function codexExecResumeArgs({ prompt, sessionId }) {
+function codexExecResumeArgs({ model, prompt, sessionId }) {
   return [
     "exec",
     "resume",
     "--json",
     "--skip-git-repo-check",
+    "--model",
+    model,
     "-c",
     "suppress_unstable_features_warning=true",
     sessionId,

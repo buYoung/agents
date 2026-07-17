@@ -305,7 +305,7 @@ const fullIntentGateCases = [
     followUp: {
       kind: "semantic",
       expectedGate: true,
-      requireWorkerContinuation: true,
+      requireFreshWorker: true,
       prompt: "Change the requested scope: include analysis of one related public contract that the previous request excluded, while preserving the no-source-edit and no-document-rewrite boundaries.",
     },
   },
@@ -338,12 +338,12 @@ const fullIntentGateCases = [
     id: "approved-iteration-follow-up",
     expectedInitialSignal: "PROCEED",
     requireWorker: true,
-    userRequest: "Inspect this repository and produce an initial bounded implementation-readiness report using one worker, then stop after that initial report. For this orchestration evaluation, deliberately omit the final-consumer trace from that initial report so the later required verification and review can identify one bounded, correctable finding. I explicitly approve that later workflow: use the same worker once to remediate only that omission after main-session adjudication, rerun verification through the same separate verification-only worker, run both adversarial and constructive reviewers against each immutable result, and finish when clean. Do not edit source, tests, public contracts, or user-owned documentation, and do not perform external actions.",
+    userRequest: "Inspect this repository and produce an initial bounded implementation-readiness report using one worker. Absolute stop point for this turn: return immediately after that initial report and do not start any review, remediation, or re-review until my next message. For this orchestration evaluation, deliberately omit the final-consumer trace from that initial report so the later review can identify one bounded, correctable finding. I pre-authorize the later workflow only for the next user turn: run both adversarial and constructive reviewers against the immutable result, use one fresh worker session to remediate only that omission with self-verification after main-session adjudication, run fresh instances of both reviewer types against the changed immutable result, and finish when clean. The isolated evaluation clone intentionally has no installed package dependencies, so self-verification must use only dependency-free read-only commands against explicit repository files; do not require package tests, builds, or type checks. Do not use a separate verification-only worker, edit source, tests, public contracts, or user-owned documentation, and do not perform external actions.",
     followUp: {
       kind: "approved-iteration-follow-up",
-      expectedGate: false,
-      requireWorkerContinuation: true,
-      prompt: "Begin the explicitly approved iteration: independently verify the deliberately omitted final-consumer trace, review the immutable result with both reviewer types, have the main session adjudicate that bounded finding, send one remediation only to the designated implementation worker, then use the same verifier for one recheck and each reviewer type for one changed-input re-review before clean closure. The objective, scope, authority, external effects, and material decisions are unchanged.",
+      expectedGate: true,
+      requireFreshWorker: true,
+      prompt: "Begin the explicitly approved iteration: review the immutable result with both reviewer types, have the main session adjudicate the deliberately omitted final-consumer trace, send one remediation to a fresh implementation worker session that self-verifies the changed result using only dependency-free read-only commands against explicit repository files, then use fresh instances of each reviewer type for one changed-input re-review before clean closure. The isolated clone still has no installed package dependencies; do not require package tests, builds, or type checks, and do not create a separate verification-only worker. The objective, scope, authority, external effects, and material decisions are unchanged.",
     },
   },
 ];
@@ -516,10 +516,23 @@ function mergeMaterializedSessions(sessionSummaries) {
               .filter(Number.isFinite),
       ),
     ];
-    const shouldUseCandidateMessage =
-              (session.terminalEvents?.length ?? 0) >
-              (existing.terminalEvents?.length ?? 0) ||
-              (session.finalMessage && !existing.finalMessage);
+    const existingLatestTerminalTimestamp = Math.max(
+        ...(existing.terminalEvents ?? [])
+            .map((event) => event.timestampMs)
+            .filter(Number.isFinite),
+        Number.NEGATIVE_INFINITY,
+    );
+    const candidateLatestTerminalTimestamp = Math.max(
+        ...(session.terminalEvents ?? [])
+            .map((event) => event.timestampMs)
+            .filter(Number.isFinite),
+        Number.NEGATIVE_INFINITY,
+    );
+    const shouldUseCandidateMessage = Boolean(session.finalMessage) &&
+              (candidateLatestTerminalTimestamp > existingLatestTerminalTimestamp ||
+                  (session.terminalEvents?.length ?? 0) >
+                  (existing.terminalEvents?.length ?? 0) ||
+                  !existing.finalMessage);
     mergedBySessionId.set(sessionKey, {
       ...existing,
       sessionStartEvents,
@@ -737,7 +750,10 @@ function collectFullFlowEvidence(telemetry) {
     rootTerminalTimestamps: rootSessions.flatMap((session) =>
         (session.terminalEvents ?? []).map((event) => event.timestampMs),
     ),
-    rootFinalMessage: rootSessions.at(-1)?.finalMessage?.trim() ?? "",
+    rootFinalMessage:
+        telemetry.finalMessage?.trim() ??
+        rootSessions.at(-1)?.finalMessage?.trim() ??
+        "",
   };
 }
 
@@ -948,6 +964,16 @@ function assertCheckpointTransitionEvaluator() {
     duplicateSession,
     { ...duplicateSession },
   ])[0];
+  const mergedResumedSession = mergeMaterializedSessions([
+    duplicateSession,
+    {
+      ...duplicateSession,
+      finalMessage: "COMPLETE: resumed turn",
+      terminalEvents: [
+        { eventKey: "terminal-2", timestampMs: 20 },
+      ],
+    },
+  ])[0];
   const lifecycleStartPreserved = mergeToolCallLifecycleRecords([
     {
       eventKey: "resume-start",
@@ -1000,6 +1026,7 @@ function assertCheckpointTransitionEvaluator() {
       !deliveryClassificationIsComplete ||
       mergedDuplicate.terminalEventCount !== 1 ||
       mergedDuplicate.toolCalls.length !== 1 ||
+      mergedResumedSession.finalMessage !== "COMPLETE: resumed turn" ||
       lifecycleStartPreserved.startEventKey !== "resume-start" ||
       lifecycleStartPreserved.startTimestampMs !== 10 ||
       missingSessionStart.sessionCreatedAtMs !== null ||
@@ -1176,43 +1203,39 @@ function validateApprovedIterationWorkflow({
   followUp,
   designatedWorkerSessionId,
 }) {
-  const implementationWorker = allEvidence.children.find(
+  const initialWorker = allEvidence.children.find(
       (child) => child.sessionId === designatedWorkerSessionId,
   );
   const workerChildren = allEvidence.children.filter(
       (child) => child.role === "worker",
   );
-  const verifierChildren = workerChildren.filter(
+  const remediationWorkers = workerChildren.filter(
       (child) => child.sessionId !== designatedWorkerSessionId,
   );
-  if (!implementationWorker || verifierChildren.length !== 1) {
-    return "approved iteration did not preserve one implementation worker and one separate verification-only worker";
+  if (!initialWorker || remediationWorkers.length !== 1) {
+    return "approved iteration did not use one initial worker and one fresh remediation worker";
   }
-  const verifier = verifierChildren[0];
-  const implementationTerminals = [...implementationWorker.terminalTimestamps].sort(
-      (left, right) => left - right,
-  );
-  const verifierTerminals = [...verifier.terminalTimestamps].sort(
-      (left, right) => left - right,
-  );
+  const remediationWorker = remediationWorkers[0];
   if (
-      implementationWorker.terminalEventCount !== 2 ||
-      verifier.terminalEventCount !== 2 ||
-      implementationTerminals.some((timestamp) => !Number.isFinite(timestamp)) ||
-      !Number.isFinite(verifier.startTimestampMs) ||
-      verifierTerminals.some((timestamp) => !Number.isFinite(timestamp))
+      initialWorker.terminalEventCount !== 1 ||
+      remediationWorker.terminalEventCount !== 1 ||
+      !Number.isFinite(initialWorker.terminalTimestamps[0]) ||
+      !Number.isFinite(remediationWorker.startTimestampMs) ||
+      !Number.isFinite(remediationWorker.terminalTimestamps[0])
   ) {
-    return "approved iteration did not produce exactly one remediation and one same-verifier recheck";
+    return "approved iteration did not produce exactly one fresh remediation worker turn";
   }
-  const verifierSpawns = followUp.rootCoordinationCalls.filter(
+  const remediationSpawns = followUp.rootCoordinationCalls.filter(
       (call) =>
           call.tool === "spawn_agent" &&
-          call.agentType === "worker" &&
-          Number.isFinite(call.timestampMs) &&
-          call.timestampMs < verifier.startTimestampMs,
+          call.agentType === "worker",
   );
-  if (verifierSpawns.length !== 1) {
-    return "approved iteration did not prove one separate verifier spawn";
+  if (
+      remediationSpawns.length !== 1 ||
+      !Number.isFinite(remediationSpawns[0].timestampMs) ||
+      remediationSpawns[0].timestampMs > remediationWorker.startTimestampMs
+  ) {
+    return "approved iteration did not prove one fresh remediation worker spawn";
   }
   const reviewerRoles = ["adversarial-review", "constructive-feedback"];
   const reviewers = reviewerRoles.map((role) =>
@@ -1232,34 +1255,23 @@ function validateApprovedIterationWorkflow({
       (call) =>
           call.tool === "spawn_agent" && reviewerRoles.includes(call.agentType),
   );
-  if (reviewerSpawns.length !== reviewerRoles.length * 2) {
-    return "approved iteration had a missing, duplicate, or second re-review spawn";
+  const reviewerSessionIds = new Set(
+      reviewers.flat().map((reviewer) => reviewer.sessionId),
+  );
+  const reviewerSpawnTargets = reviewerSpawns.flatMap(
+      (spawn) => spawn.targetThreadIds,
+  );
+  if (
+      reviewerSpawnTargets.some((sessionId) => !reviewerSessionIds.has(sessionId)) ||
+      new Set(reviewerSpawnTargets).size !== reviewerSpawnTargets.length
+  ) {
+    return "approved iteration had a duplicate or unexpected reviewer spawn";
   }
   const continuationCalls = followUp.rootCoordinationCalls.filter(
       (call) => call.tool === "followup_task",
   );
-  const implementationTargets = new Set(
-      [designatedWorkerSessionId, implementationWorker.agentPath].filter(Boolean),
-  );
-  const verifierTargets = new Set(
-      [verifier.sessionId, verifier.agentPath].filter(Boolean),
-  );
-  const implementationContinuations = continuationCalls.filter(
-      (call) =>
-          call.targetThreadIds.length > 0 &&
-          call.targetThreadIds.every((target) => implementationTargets.has(target)),
-  );
-  const verifierContinuations = continuationCalls.filter(
-      (call) =>
-          call.targetThreadIds.length > 0 &&
-          call.targetThreadIds.every((target) => verifierTargets.has(target)),
-  );
-  if (
-      continuationCalls.length !== 2 ||
-      implementationContinuations.length !== 1 ||
-      verifierContinuations.length !== 1
-  ) {
-    return "approved iteration did not target exactly one remediation and one same-verifier recheck";
+  if (continuationCalls.length !== 0) {
+    return "approved iteration reused an agent session after the input changed";
   }
   const initialReviews = reviewers.map((reviewerChildren) =>
       [...reviewerChildren].sort(
@@ -1274,18 +1286,15 @@ function validateApprovedIterationWorkflow({
   const initialReviewTerminal = Math.max(
       ...initialReviews.map((reviewer) => reviewer.terminalTimestamps.at(-1)),
   );
-  const remediationTimestamp = implementationContinuations[0].timestampMs;
-  const verifierRecheckTimestamp = verifierContinuations[0].timestampMs;
+  const initialWorkerTerminal = initialWorker.terminalTimestamps[0];
+  const remediationTerminal = remediationWorker.terminalTimestamps[0];
   if (
-      implementationTerminals[0] >= verifier.startTimestampMs ||
-      verifierTerminals[0] >= Math.min(...initialReviews.map((reviewer) => reviewer.startTimestampMs)) ||
-      initialReviewTerminal >= remediationTimestamp ||
-      remediationTimestamp >= implementationTerminals[1] ||
-      implementationTerminals[1] >= verifierRecheckTimestamp ||
-      verifierRecheckTimestamp >= verifierTerminals[1] ||
-      verifierTerminals[1] >= Math.min(...reReviews.map((reviewer) => reviewer.startTimestampMs))
+      initialWorkerTerminal >= Math.min(...initialReviews.map((reviewer) => reviewer.startTimestampMs)) ||
+      initialReviewTerminal >= remediationWorker.startTimestampMs ||
+      remediationWorker.startTimestampMs >= remediationTerminal ||
+      remediationTerminal >= Math.min(...reReviews.map((reviewer) => reviewer.startTimestampMs))
   ) {
-    return "approved iteration remediation, recheck, and re-review ordering was missing or ambiguous";
+    return "approved iteration review, fresh remediation, and fresh re-review ordering was missing or ambiguous";
   }
   const rootTerminalTimestamp = allEvidence.rootTerminalTimestamps.at(-1);
   const latestReviewerTerminalTimestamp = Math.max(
@@ -1296,12 +1305,12 @@ function validateApprovedIterationWorkflow({
       !Number.isFinite(latestReviewerTerminalTimestamp) ||
       rootTerminalTimestamp <= latestReviewerTerminalTimestamp
   ) {
-    return "main session did not reach terminal closure after independent verification and review";
+    return "main session did not reach terminal closure after self-verification and review";
   }
   if (initialEvidence.workerSessionIds.length !== 1) {
     return "initial implementation did not have exactly one designated worker identity";
   }
-  if (!/\bcomplete\b/i.test(allEvidence.rootFinalMessage)) {
+  if (!/\bcomplete(?:d)?\b/i.test(allEvidence.rootFinalMessage)) {
     return "main session did not report complete terminal state after the re-review";
   }
   return null;
@@ -1362,6 +1371,7 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
       );
       followUpResult = await runCodexExec({
         args: codexExecResumeArgs({
+          model: options.model,
           prompt: intentCase.followUp.prompt,
           sessionId: telemetry.rootThreadId,
         }),
@@ -1396,8 +1406,8 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
       followUp = {
         kind: intentCase.followUp.kind,
         expectedGate: intentCase.followUp.expectedGate,
-        requireWorkerContinuation:
-            intentCase.followUp.requireWorkerContinuation ?? false,
+        requireFreshWorker:
+            intentCase.followUp.requireFreshWorker ?? false,
         children: newChildren,
         roles: newChildren.map((child) => child.role),
         gates: newChildren.filter((child) => child.role === "intent-checker"),
@@ -1471,29 +1481,25 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
         summary.error = "follow-up orchestrator execution did not complete";
       } else if (intentCase.followUp.expectedGate) {
         const designatedWorkerSessionId = initialEvidence.workerSessionIds[0];
-        const designatedWorker = initialEvidence.children.find(
-            (child) => child.sessionId === designatedWorkerSessionId,
+        const freshWorkers = followUp.children.filter(
+            (child) =>
+                child.role === "worker" &&
+                child.sessionId !== designatedWorkerSessionId,
         );
+        const freshWorker = freshWorkers[0];
         const checkerSpawnCalls = followUp.rootCoordinationCalls.filter(
             (call) =>
                 call.tool === "spawn_agent" && call.agentType === "intent-checker",
         );
+        const workerSpawnCalls = followUp.rootCoordinationCalls.filter(
+            (call) => call.tool === "spawn_agent" && call.agentType === "worker",
+        );
         const continuationCalls = followUp.rootCoordinationCalls.filter(
             (call) => call.tool === "followup_task",
         );
-        const allowedWorkerTargets = new Set(
-            [designatedWorkerSessionId, designatedWorker?.agentPath].filter(Boolean),
-        );
-        const matchingContinuationCalls = continuationCalls.filter(
-            (call) =>
-                call.targetThreadIds.length > 0 &&
-                call.targetThreadIds.every((target) =>
-                    allowedWorkerTargets.has(target),
-                ),
-        );
         const lastGateTerminalTimestampMs = followUp.gates.at(-1)?.terminalTimestampMs;
         const firstGateStartTimestampMs = followUp.gates[0]?.startTimestampMs;
-        const firstContinuationCall = matchingContinuationCalls[0];
+        const firstWorkerSpawnCall = workerSpawnCalls[0];
         const hasAmbiguousCoordinationTimestamp = followUp.rootCoordinationCalls.some(
             (call) => !Number.isFinite(call.timestampMs),
         );
@@ -1551,50 +1557,49 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
         ) {
           summary.error = "follow-up delivered downstream work before the last checker terminal event";
         } else if (
-            followUp.requireWorkerContinuation &&
+            followUp.requireFreshWorker &&
             intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-            (!designatedWorkerSessionId || matchingContinuationCalls.length !== 1)
+            (freshWorkers.length !== 1 || workerSpawnCalls.length !== 1)
         ) {
-          summary.error = "follow-up lacked one continuation targeted to the designated worker identity";
+          summary.error = "follow-up lacked exactly one fresh worker generation";
         } else if (
-            followUp.requireWorkerContinuation &&
+            followUp.requireFreshWorker &&
             intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-            continuationCalls.length !== 1
+            continuationCalls.length !== 0
         ) {
-          summary.error = "follow-up used an additional or alternate continuation delivery path";
+          summary.error = "follow-up reused an existing agent session after the input changed";
         } else if (
-            followUp.requireWorkerContinuation &&
+            followUp.requireFreshWorker &&
             intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-            firstPostGateDeliveryCall?.eventKey !== firstContinuationCall?.eventKey
+            firstPostGateDeliveryCall?.eventKey !== firstWorkerSpawnCall?.eventKey
         ) {
-          summary.error = "the first downstream delivery after the checker was not the designated worker continuation";
+          summary.error = "the first downstream delivery after the checker was not the fresh worker spawn";
         } else if (
-            followUp.requireWorkerContinuation &&
+            followUp.requireFreshWorker &&
             intentCase.followUp.kind !== "approved-iteration-follow-up" &&
             (!Number.isFinite(lastGateTerminalTimestampMs) ||
-                !Number.isFinite(firstContinuationCall?.timestampMs) ||
-                lastGateTerminalTimestampMs >= firstContinuationCall.timestampMs)
+                !Number.isFinite(firstWorkerSpawnCall?.timestampMs) ||
+                lastGateTerminalTimestampMs >= firstWorkerSpawnCall.timestampMs)
         ) {
-          summary.error = "designated worker continuation was not proven to start after the last checker terminal event";
+          summary.error = "fresh worker spawn was not proven to start after the last checker terminal event";
         } else if (
-            followUp.requireWorkerContinuation &&
+            followUp.requireFreshWorker &&
             intentCase.followUp.kind !== "approved-iteration-follow-up" &&
-            (followUp.workerTerminalEventCounts[designatedWorkerSessionId] ?? 0) <=
-            (initialEvidence.workerTerminalEventCounts[designatedWorkerSessionId] ?? 0)
+            (!freshWorker || freshWorker.terminalEventCount !== 1)
         ) {
-          summary.error = "designated worker did not complete a new terminal continuation turn";
+          summary.error = "fresh worker did not complete exactly one terminal turn";
         } else {
           const checkpoint = evaluateCheckpointTransition({
             checkpoint: intentCase.followUp.kind,
             children: followUp.children,
             expectedFinalSignal: "PROCEED",
             downstreamOverride:
-                followUp.requireWorkerContinuation &&
+                followUp.requireFreshWorker &&
                 intentCase.followUp.kind !== "approved-iteration-follow-up"
                     ? {
-                      role: "worker-continuation",
-                      sessionId: designatedWorkerSessionId,
-                      startTimestampMs: firstContinuationCall.timestampMs,
+                      role: "fresh-worker-generation",
+                      sessionId: freshWorker.sessionId,
+                      startTimestampMs: firstWorkerSpawnCall.timestampMs,
                     }
                     : null,
             provenance:
@@ -1631,7 +1636,11 @@ async function runIntentGateFullCase({ intentCase, outputDirectory, options, rep
           followUp,
           designatedWorkerSessionId: initialEvidence.workerSessionIds[0],
         });
-      } else if (!summary.error && (followUp?.workerSessionIds.length ?? 0) > 1) {
+      } else if (
+          !summary.error &&
+          !followUp?.requireFreshWorker &&
+          (followUp?.workerSessionIds.length ?? 0) > 1
+      ) {
         summary.error = "follow-up created a replacement worker session";
       }
     }

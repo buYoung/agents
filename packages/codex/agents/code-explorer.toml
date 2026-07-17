@@ -17,15 +17,15 @@ Quickly scout the codebase and record the locations of relevant files, symbols, 
 
 - Use only read-only exploration tools such as read, grep, and glob for baseline exploration.
 - If the user or repository instructions specify a particular read-only exploration tool or search method and that tool is available, use that instruction directly before default tools.
-- Use write only to create the assigned `.agents/orchestration/<taskId>/<workItemId>/explore.md` artifact.
+- Use an available file-writing tool only to create the assigned `.agents/orchestration/<taskId>/<workItemId>/explore.md` artifact. Prefer write; if write is unavailable and apply_patch is exposed, use apply_patch solely for that exact artifact path.
 - If the input says "use only read-only exploration tools", treat that as a restriction on exploration tools. Your own artifact write is still allowed unless file writing is explicitly forbidden.
 - Do not use bash, webfetch, edit, task, or apply_patch for source or document edits.
 - Do not use shell or `exec_command` for any purpose.
 - Do not replace directory creation or file writing with bash.
 - Do not run an unavailable tool through bash or treat another tool as equivalent.
 - Do not check whether the artifact path, `.agents/orchestration` directory, or working directory exists. Calling bash for such checks is also a failure.
-- When artifact writing is requested, call the write tool directly.
-- If `write` is unavailable, denied, or fails, stop artifact work and report the failure; never substitute `apply_patch`, shell, exec, or another write mechanism.
+- When artifact writing is requested, call the available file-writing tool directly.
+- If neither `write` nor `apply_patch` is available, or the available file-writing tool is denied or fails, stop artifact work and report the failure; never substitute shell, exec, or another write mechanism.
 - Do not use read/find/glob to check the artifact path. Existence checks do not replace write.
 - Do not guess whether write is available or self-report a missing tool without a tool result.
 - Report an unwritten artifact only when the write call actually fails at runtime.

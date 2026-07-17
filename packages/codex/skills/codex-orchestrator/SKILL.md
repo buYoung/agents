@@ -103,7 +103,7 @@ Checkpoint rules:
    After an `approved-iteration-follow-up` completes, the final response must remain exactly the paths-only `Path:` plus one-line `Summary:` contract, with no expanded narrative.
 5. Initial, `plan-finalized`, semantic revision, and `approved-iteration-follow-up` are independent checkpoints. Accordingly, do not skip, shorten, or stop them based on the cumulative task-wide count of `intent-checker` calls. Never duplicate a gate for one snapshot/revision.
 
-Each artifact Summary reports `intent-delta: none` or a brief material delta. If unclear, request a supplement from the same leaf before deciding whether to gate.
+Each artifact Summary reports `intent-delta: none` or a brief material delta. If unclear, one `followup_task` may request only the missing evidence from the same leaf against the unchanged input snapshot. Any changed objective, plan revision, implementation candidate, review target, or remediation round requires a fresh leaf through `spawn_agent` with `fork_turns="none"`.
 
 Each checkpoint permits one initial evaluation, then at most three progress-producing semantic corrections. A correction must materially change the cited field and add evidence; wording-only/duplicate submissions are not progress. Do not reset the counter when the cause changes. Stop early if the same cause repeats twice consecutively without new evidence or correction needs user authority. After the third corrected resubmission, proceed only on `PROCEED`; otherwise block with cause/evidence history.
 
@@ -115,7 +115,7 @@ Keep exactly one pending confirmation prompt: the exact immediately preceding on
 
 Only after initial `PROCEED`, reserve together one taskId (`YYYYMMDD-<slug>` using the session date) and a unique coordinatorWorkItemId. A received taskId is never regenerated; root follow-ups retain it and the coordinator index.
 
-Assign each new artifact work item a task-wide unique kebab-case workItemId and mapped filename. A continuation reuses its identity and Output; a new Output makes prior Output read-only history. Changing taskId or role requires a new leaf.
+Assign each new artifact work item a task-wide unique kebab-case workItemId and mapped filename. Each distinct input snapshot, plan revision, implementation candidate, review target, and remediation round receives a fresh leaf, identity, and Output; the prior Output becomes read-only history. A same-leaf continuation may reuse its identity and Output only for one missing-evidence supplement against the unchanged input snapshot. Changing taskId or role always requires a new leaf.
 
 Immediately before each artifact-writing leaf `spawn_agent`, the main session validates the received/generated taskId, unique workItemId, the role's mapped filename, and the exact relative Output, and must confirm that its workItemId has not yet been assigned. It then creates only `.agents/orchestration/<taskId>/<workItemId>/` with a non-escalated `mkdir -p`.
 
@@ -123,7 +123,7 @@ Required order: `validate → non-escalated mkdir -p .agents/orchestration/<task
 
 Escalation is allowed once only after an explicit runtime sandbox/permission denial state or a clear permission-denied signal of `EACCES`, `EPERM`, `Operation not permitted`, or `Permission denied`. Do not infer the cause from an exit code or ordinary stderr alone; if there is no signal or the cause is uncertain, do not retry and report blocked before invoking the leaf. Do not request write access for all of `.agents`; if escalation is denied or the retry fails, do not invoke the leaf and report blocked. Do not request escalation for a `mkdir -p` failure unrelated to permission or sandboxing; do not bypass through another path or claim success. Do not perform this work for the stateless `intent-checker`.
 
-Only an explicit same-taskId, same-role follow-up may reuse an existing active Output and its parent. The coordinator's assignment record, not directory scanning, establishes reuse. Never ask a leaf to create/check its parent.
+Only an explicit same-taskId, same-role missing-evidence supplement against the unchanged input snapshot may reuse an existing active Output and its parent. The coordinator's assignment record, not directory scanning, establishes reuse. Never ask a leaf to create/check its parent.
 
 Role files are fixed:
 
@@ -140,11 +140,11 @@ constructive-feedback: constructive-feedback.md
 
 Only after the first artifact leaf returns may the coordinator write its reserved `task.md` index with a file-writing tool. Writing `task.md` is not included in the work-item-parent `mkdir -p` escalation exception and is not done through the shell. If that exact write is unavailable, do not claim file ownership with broader `.agents` permissions or an alternative path; end with paths-only results.
 
-## Implementation, independent verification, and review
+## Implementation, self-verification, and review
 
-One designated `worker` owns implementation. Preserve its id/session. For in-scope review remediation or user follow-up, send modifications within the existing objective and scope to that id through `followup_task` so the same worker thread continues. Gate a material delta first. If that worker is unavailable, report blocked; never replace it automatically.
+One logical implementation lane owns source changes, but no worker session owns the task across changed inputs. Spawn a fresh implementation `worker` with `fork_turns="none"` for the initial candidate, every in-scope review remediation, every plan revision, and every user follow-up that requires implementation. Give each generation a unique workItemId and Output, and pass only the completed plan plus the latest implementation/review artifacts needed for its current input snapshot. Gate a material delta first.
 
-Pass the completed planner Output as an explicit read-only Input to the designated implementation worker. The implementation worker first self-verifies with the plan's minimum mandatory commands. After it completes, create exactly one separate verification-only `worker` session with `spawn_agent`, passing the same plan Input and the implementation result Input. Preserve the implementation worker id and verifier id and confirm that they differ. The verifier message explicitly prohibits source, configuration, and documentation edits; it only reruns the plan's minimum mandatory commands and records evidence. When candidate content changes, reuse the same verifier through `followup_task`, once per remediation round. Session separation supports independence but is not a containment guarantee.
+Pass the completed planner Output as an explicit read-only Input to every implementation worker generation. Each worker self-verifies its candidate with the plan's minimum mandatory commands and records exact command evidence in its own `work.md`. Do not create a separate verification-only worker. Reviewers inspect the immutable candidate and its latest self-verification evidence; the main session adjudicates failed or missing mandatory checks together with review findings.
 
 Review only an immutable integrated result. When required, run at most one active `adversarial-review` and one active `constructive-feedback`; they may run concurrently against the same result. Reviewers report `review-state=<clear|findings|needs-user-decision>` plus identifiers/count. Neither reviewer may decide acceptance or rejection, scope expansion, remediation execution, user questions, or task termination.
 
@@ -159,29 +159,29 @@ Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic ch
 
 If parent creation, permission, or any pre-leaf step blocks the run, the coordinator still returns exactly those two lines: Path is the intended concrete Output (never `unavailable`), Summary reports the block without claiming an artifact exists, and no blank line or other prose is added.
 
-Reviewer payload uses `review-state=<clear|findings|needs-user-decision>`; verification payload uses `verification-state=<passed|failed|blocked>`. Only `completed` advances. A Path alone is not completion. A leaf, reviewer, or verifier cannot declare task completion.
+Reviewer payload uses `review-state=<clear|findings|needs-user-decision>`; implementation-worker payload uses `verification-state=<passed|failed|blocked>` for its self-check. Only `completed` advances. A Path alone is not completion. A leaf or reviewer cannot declare task completion.
 
 ## State machine, remediation, and terminal result
 
-Normal order is `gated → implementing → self-verified → independently-verifying → reviewing-immutable-result → adjudicating`.
+Normal order is `gated → implementing → self-verified → reviewing-immutable-result → adjudicating`.
 
-If adjudication finds verifier failure or accepted findings, combine all accepted findings and the verifier's failed mandatory commands with their evidence into one ordered remediation batch. Send it only to the designated implementation worker. Allow at most three automatic remediation rounds through `remediating-<1..3> → self-reverified → independently-reverifying-<1..3> → rereviewing-<1..3> → readjudicating-<1..3>`.
+If adjudication finds failed or missing mandatory self-checks or accepted findings, combine them with their evidence into one ordered remediation batch. Send each batch to one fresh implementation worker generation. Allow at most three automatic remediation rounds through `remediating-<1..3> → self-reverified → rereviewing-<1..3> → readjudicating-<1..3>`.
 
-For each round, reuse the implementation worker and verifier identities with `followup_task`; each reviewer type gets at most one changed-input re-review per actual remediation round, capped at three; a fourth automatic remediation batch, and a fourth re-review are prohibited. Start a later round only after concrete progress, such as resolving an accepted finding or narrowing a verifier cause with new evidence. If a same-cause finding or the same verifier failure remains twice consecutively without new evidence, block early even if rounds remain. Remediation counts are independent of intent-gate correction counts.
+For each round, spawn the implementation worker and each required reviewer as fresh sessions with unique workItemIds and Outputs. Each reviewer type gets at most one changed-input re-review per actual remediation round, capped at three; a fourth automatic remediation batch and a fourth re-review are prohibited. Start a later round only after concrete progress, such as resolving an accepted finding or narrowing a failed self-check cause with new evidence. If a same-cause finding or the same self-check failure remains twice consecutively without new evidence, block early even if rounds remain. Remediation counts are independent of intent-gate correction counts.
 
-If any adjudication is clean, end without consuming remaining remediation rounds. Complete only when the final implementation self-check and independent mandatory verification pass, required reviews are terminal, and no `accepted` or `needs-user-decision` remains. If verifier failure or an `accepted` finding remains after the third readjudication, block with evidence and the remaining decision.
+If any adjudication is clean, end without consuming remaining remediation rounds. Complete only when the final implementation self-check passes, required reviews are terminal, and no `accepted` or `needs-user-decision` remains. If a mandatory self-check failure or an `accepted` finding remains after the third readjudication, block with evidence and the remaining decision.
 
-Respect an explicit user stop point. In a later explicitly approved iteration, gate the follow-up, preserve the designated worker, then perform the authorized verifier/review/adjudication/remediation sequence; do not treat approval as authority for any new objective or external effect.
+Respect an explicit user stop point. In a later explicitly approved iteration, gate the follow-up, then use fresh worker and reviewer sessions for the authorized implementation/self-verification/review/adjudication/remediation sequence; do not treat approval as authority for any new objective or external effect.
 
 ## Agent cardinality and scheduling
 
 - Exactly one logical coordinator owns the task, and every leaf is forbidden to spawn/redelegate.
-- `intent-checker`, `planner`, and `idea-generator` have at most one active instance per phase/round. Each reviewer type has at most one active instance; both may run together on one immutable result.
+- `intent-checker`, `code-explorer`, `research`, `planner`, and `idea-generator` are fresh for each distinct input snapshot or revision and have at most one active instance per phase/round. Each reviewer type is fresh for each immutable candidate and has at most one active instance; both may run together on one immutable result.
 - Default to one worker, researcher, or explorer. Parallelize only when at least two ready items have unique goals, bounded disjoint scope/ownership, concrete outputs/criteria/unique workItemIds, no dependencies, and available capacity. Never spawn merely to fill capacity.
 - Multiple implementation workers require disjoint files, APIs/schemas, generated files, lockfiles, migrations, and mutable state. Serialize whenever one result changes another baseline; duplicate implementations are forbidden unless explicitly requested as prototypes.
 - Split exploration only by independent package/call-flow/hypothesis and research only by independent evidence domain. More search terms do not justify another agent.
-- Every spawn records one reason: independent work, independent corroboration, transient-failure replacement, or changed-input re-review. A transient harness/tool failure may be replaced once; a second same-cause failure blocks. Do not repeat an unchanged instruction after genuine completion failure.
-- Wait for every required branch. Route concrete paths to one downstream planner, designated worker, or reviewer; never merge bodies in the coordinator.
+- Every spawn records one reason: independent work, fresh changed-input generation, independent corroboration, transient-failure replacement, or changed-input re-review. A transient harness/tool failure may be replaced once; a second same-cause failure blocks. Do not repeat an unchanged instruction after genuine completion failure.
+- Wait for every required branch. Route concrete paths to one downstream planner, the current implementation worker generation, or a reviewer; never merge bodies in the coordinator.
 - Cardinality, scheduling, failure replacement, immutable-review, leaf no-spawn, and redelegation limits are prompt-level coordination requirements, not runtime-enforced guarantees.
 
 ## Paths-only Handoff and SSOT
