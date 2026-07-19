@@ -52,15 +52,20 @@ test("Claude Code leaf definitions preserve the eight-agent runtime contract", (
     const { fields, body } = readFrontmatter(path.join(agentsDirectory, `${name}.md`));
     assert.equal(fields.name, name);
     assert.ok(fields.description?.length > 0);
-    assert.ok(fields.tools?.length > 0);
     assert.ok(fields.permissionMode?.length > 0);
     assert.equal(fields.model, undefined, `${name} must inherit the caller model`);
-    assert.equal(fields.tools.includes("Agent"), false, `${name} must not redelegate`);
-    assert.match(versions[name], /^0\.1\.1$/);
+    assert.match(versions[name], /^0\.1\.2$/);
     if (name === "intent-checker") {
+      assert.ok(fields.tools?.length > 0);
+      assert.equal(fields.tools.includes("Agent"), false, `${name} must not redelegate`);
+      assert.equal(fields.disallowedTools, undefined);
       assert.match(body, /Return exactly one line/);
       assert.match(body, /Do not write artifacts, edit files, redelegate/);
     } else {
+      assert.equal(fields.tools, undefined, `${name} must inherit personal MCP tools`);
+      assert.ok(fields.disallowedTools?.split(/,\s*/).includes("Agent"), `${name} must not redelegate`);
+      assert.ok(fields.disallowedTools?.split(/,\s*/).includes("Skill"), `${name} must not invoke skills`);
+      assert.equal(fields.disallowedTools.includes("mcp__"), false, `${name} must not block personal MCP tools`);
       assert.match(body, /Validate the received `taskId`, unique `workItemId`, and exact Output/);
       assert.match(body, /Inputs and historical Outputs are read-only/);
       assert.match(body, /`task\.md` is coordinator-owned/);
@@ -125,7 +130,7 @@ test("orchestrator uses only the official Agent allowlist and equivalent flow", 
 
 test("package exposes dependency-free static and opt-in execution checks", () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"));
-  assert.equal(packageJson.version, "0.1.1");
+  assert.equal(packageJson.version, "0.1.2");
   assert.equal(packageJson.scripts.test, "node --test test/*.test.mjs");
   assert.equal(packageJson.scripts["test:exec-smoke"], "node test/exec-smoke.mjs");
   assert.equal(packageJson.dependencies, undefined);

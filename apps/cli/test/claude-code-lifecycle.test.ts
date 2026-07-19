@@ -61,7 +61,7 @@ describe("Claude Code 수명주기 artifact 전파", () => {
     ) as { schemaVersion: number; target: string; version: string; files: Array<{ path: string }> };
     expect(state.schemaVersion).toBe(2);
     expect(state.target).toBe("claude-code");
-    expect(state.version).toBe("0.1.1");
+    expect(state.version).toBe("0.1.2");
     expect(state.files.map((file) => file.path)).toHaveLength(expectedRelativePaths.length);
     expect(fs.readFileSync(unrelatedPath, "utf8")).toBe("# user-owned\n");
 
