@@ -64,7 +64,7 @@ test("Claude Code leaf definitions preserve the eight-agent runtime contract", (
     } else {
       assert.equal(fields.tools, undefined, `${name} must inherit personal MCP tools`);
       assert.ok(fields.disallowedTools?.split(/,\s*/).includes("Agent"), `${name} must not redelegate`);
-      assert.ok(fields.disallowedTools?.split(/,\s*/).includes("Skill"), `${name} must not invoke skills`);
+      assert.equal(fields.disallowedTools?.split(/,\s*/).includes("Skill"), false, `${name} must inherit personal skills`);
       assert.equal(fields.disallowedTools.includes("mcp__"), false, `${name} must not block personal MCP tools`);
       assert.match(body, /Validate the received `taskId`, unique `workItemId`, and exact Output/);
       assert.match(body, /Inputs and historical Outputs are read-only/);
