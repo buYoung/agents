@@ -380,6 +380,47 @@ export function createSessionAgentMap() {
     return bound;
   }
 
+  /** OpenCode 세션 메타데이터로 확인된 직접 worker의 최초 실행 context를 결합한다. */
+  function bindRootExecutionContext(
+    sessionID: string,
+    context: ExecutionContext,
+  ): boolean {
+    const existingState = stateMap.get(sessionID);
+    if (existingState) {
+      // 같은 root session/context의 동시 최초 chat은 첫 결합이 완료된 뒤에도
+      // 정상적인 재시도로 취급한다. child 또는 다른 context가 root 권한을
+      // 재사용하는 경우에는 root ownership과 정확한 context 일치가 모두 없어
+      // fail-closed 된다.
+      return (
+        context.output.agent === "worker" &&
+        existingState.agent === "worker" &&
+        rootTaskIds.get(sessionID) === context.output.taskId &&
+        taskRootOwners.get(context.output.taskId) === sessionID &&
+        sameExecutionContext(context, {
+          output: existingState.activeAssignment,
+          inputs: [...existingState.readableInputs.values()],
+          protocol: context.protocol,
+        })
+      );
+    }
+    if (
+      context.output.agent !== "worker" ||
+      !canUseRootTask(sessionID, context.output.taskId)
+    ) {
+      return false;
+    }
+    const bound = activateExecutionContext(
+      sessionID,
+      context,
+      false,
+      undefined,
+      sessionID,
+    );
+    if (bound) rootTaskIds.set(sessionID, context.output.taskId);
+    if (bound) taskRootOwners.set(context.output.taskId, sessionID);
+    return bound;
+  }
+
   function canRegisterDelegation(input: DelegationRegistration): boolean {
     if (deletedSessions.has(input.parentSessionID)) return false;
     if (!hasDistinctContextWorkItems(input.context)) return false;
@@ -602,6 +643,7 @@ export function createSessionAgentMap() {
     bindSessionAssignment,
     bindSessionExecutionContext,
     bindRootAssignment,
+    bindRootExecutionContext,
     canRegisterDelegation,
     registerDelegation,
     completeDelegation,

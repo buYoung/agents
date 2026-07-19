@@ -110,7 +110,10 @@ export const PERMISSION_POLICY: readonly PermissionPolicy[] = [
     paths: {
       sourceRead: "workspace-or-temp",
       sourceEdit: "workspace-or-temp",
-      bash: "workspace-or-temp",
+      // worker는 구현·빌드·검증을 수행하는 신뢰 실행 역할이다. bash를
+      // 읽기 명령 분류기로 다시 좁히지 않고, 위험한 외부 효과는 worker의
+      // 사용자 확인 계약과 OpenCode 실행 환경이 맡는다.
+      bash: "any",
     },
   },
   {

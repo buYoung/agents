@@ -9,6 +9,11 @@ export const RUNTIME_READ_TOOL_IDS = [
   "codesearch",
 ] as const;
 
+/**
+ * OpenCode V2 registry binds `apply_patch` to the shared `edit` permission.
+ * The fixed 1.17.13 plugin adapter forwards the exact tool ID and raw args to
+ * `tool.execute.before`, so this policy layer validates its hunk targets here.
+ */
 export const RUNTIME_EDIT_TOOL_IDS = ["edit", "write", "apply_patch"] as const;
 
 export const RUNTIME_BASH_TOOL_IDS = ["bash"] as const;

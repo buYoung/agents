@@ -99,6 +99,16 @@ const plugin: Plugin = async (_input, _options): Promise<PluginHooks> => {
     workspaceRoot: _input.directory,
     sessionAgentMap,
     pluginConfig,
+    isDirectRootSession: async (sessionID): Promise<boolean> => {
+      try {
+        const response = await _input.client.session.get({
+          path: { id: sessionID },
+        });
+        return response.data !== undefined && response.data.parentID === undefined;
+      } catch {
+        return false;
+      }
+    },
   });
 
   return {

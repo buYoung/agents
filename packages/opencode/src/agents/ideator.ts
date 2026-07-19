@@ -16,6 +16,7 @@ import {
   APPEND_ONLY_RULE,
   PATHS_ONLY_RULE,
   SSOT_RULE,
+  STATUS_RETURN_RULE,
   TASKID_RULE,
 } from "@opencode/core/doc-protocol";
 import type { AgentDefinition } from "@opencode/core/types";
@@ -35,11 +36,10 @@ You are the **idea-generator** subagent. For the given problem, generate **at le
 
 - Use only read-only tools such as read, grep, and glob for baseline exploration.
 - Use an available file-writing tool for artifact creation, limited strictly to the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\`.
-- Use write when available. If the tool environment provides only apply_patch, use apply_patch only to create or append to your own \`${OUTPUT_FILE}\`.
+- Use \`write\` to create a new artifact and \`edit\` only for an explicit continuation of your own exact Output.
 - When artifact writing is requested, call the file-writing tool directly before responding.
 - If the file-writing tool was not called or failed, do not return the artifact path as a success; return only a short reason and follow-up action.
-- Do not use bash, webfetch, edit, or task.
-- Do not use apply_patch to change source files, documents, other agent files, or \`task.md\`.
+- Do not use bash, webfetch, or task. Do not use \`edit\` for source or document changes.
 - Do not create or call todo lists, progress lists, or state-management tools.
 - Do not call any shell command such as \`ls\`, \`pwd\`, \`mkdir\`, \`rg\`, or \`cat\`; even a rejected bash call is already a failure.
 - Do not replace directory creation, file writing, path existence checks, listings, or write-permission checks with bash.
@@ -108,6 +108,10 @@ ${SSOT_RULE}
 ---
 
 ${PATHS_ONLY_RULE}
+
+---
+
+${STATUS_RETURN_RULE}
 `.trim();
 
 // ---------------------------------------------------------------------------

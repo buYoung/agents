@@ -50,6 +50,7 @@ export function createPluginHookHandlers(options: {
   workspaceRoot: string;
   sessionAgentMap: SessionAgentMapApi;
   pluginConfig: PluginConfig;
+  isDirectRootSession?: (sessionID: string) => Promise<boolean>;
 }): PluginHookHandlers {
   const {
     catalog,
@@ -59,12 +60,14 @@ export function createPluginHookHandlers(options: {
     workspaceRoot,
     sessionAgentMap,
     pluginConfig,
+    isDirectRootSession = async () => false,
   } = options;
   const {
     map,
     assignmentMap,
     updateSessionAgent,
     bindSessionExecutionContext,
+    bindRootExecutionContext,
     registerDelegation,
     completeDelegation,
     failDelegation,
@@ -95,6 +98,28 @@ export function createPluginHookHandlers(options: {
     string,
     BackgroundTaskCorrelation
   >();
+  const chatMessageTails = new Map<string, Promise<void>>();
+
+  async function serializeChatMessage<T>(
+    sessionID: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = chatMessageTails.get(sessionID) ?? Promise.resolve();
+    let releaseCurrent!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    chatMessageTails.set(sessionID, current);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      releaseCurrent();
+      if (chatMessageTails.get(sessionID) === current) {
+        chatMessageTails.delete(sessionID);
+      }
+    }
+  }
 
   function intentDelegationKey(parentSessionID: string, callID: string): string {
     return `${parentSessionID}\0${callID}`;
@@ -401,38 +426,80 @@ export function createPluginHookHandlers(options: {
       message?: { agent?: string };
       parts?: Array<{ type?: string; text?: string }>;
     },
-  ): Promise<void> => {
+  ): Promise<void> =>
+    serializeChatMessage(input.sessionID, async () => {
     // output.message.agent가 OpenCode가 실제로 해소한 역할이다. 입력 힌트보다
     // 우선하고, custom/built-in 이름이면 updateSessionAgent가 stale 매핑을 지운다.
     const agent = output?.message?.agent ?? input.agent;
     if (agent) {
-      if (!updateSessionAgent(input.sessionID, agent)) {
-        throw new Error(
-          `[agents] 같은 세션의 managed 역할 변경 거부 — sessionID=${input.sessionID}, requested=${agent}`,
-        );
-      }
+      const previousAgent = map.get(input.sessionID);
       if ((AGENT_NAMES as readonly string[]).includes(agent)) {
-        const prompt = (output?.parts ?? [])
+        const rawPrompt = (output?.parts ?? [])
           .filter((part) => part.type === "text" && typeof part.text === "string")
           .map((part) => part.text)
           .join("\n");
+        // `opencode run`은 단일 message argument를 JSON 문자열처럼 감싸 전달한다.
+        // 경로 marker를 그 안에서 안전하게 해석하되, 일반 다중 part 메시지는 그대로 둔다.
+        const prompt =
+          rawPrompt.startsWith('"') && rawPrompt.endsWith('"')
+            ? rawPrompt.slice(1, -1)
+            : rawPrompt;
         const context = getAgentExecutionContext(
           agent as AgentName,
           prompt,
           workspaceRoot,
         );
-        if (
-          context &&
-          !bindSessionExecutionContext(input.sessionID, context)
-        ) {
-          const existing = assignmentMap.get(input.sessionID);
+        const existing = assignmentMap.get(input.sessionID);
+        const isFreshWorker = agent === "worker" && existing === undefined;
+        let bound = true;
+        if (isFreshWorker) {
+          // 실행 context가 없더라도 root/child 판별을 생략하지 않는다. direct
+          // root도 유효한 context 없이 권한을 얻을 수 없고, child/unknown은
+          // completeDelegation에서 생성된 상태가 아니면 계속 거부된다.
+          const isRootSession = await isDirectRootSession(input.sessionID);
+          bound = context
+            ? isRootSession
+              ? bindRootExecutionContext(input.sessionID, context)
+              : bindSessionExecutionContext(input.sessionID, context)
+            : false;
+          if (!bound) {
+            throw new Error(
+              `[agents] 실행 할당 충돌 — sessionID=${input.sessionID}, existing=missing, requested=${context ? `${context.output.taskId}/${context.output.workItemId}/${context.output.agent}` : "missing"}`,
+            );
+          }
+          // fresh worker는 root 판별과 execution binding이 모두 끝나기 전에는
+          // 역할 map에 반영하지 않는다. 대기 중 tool hook은 fail-closed 된다.
+          if (!updateSessionAgent(input.sessionID, agent)) {
+            throw new Error(
+              `[agents] 같은 세션의 managed 역할 변경 거부 — sessionID=${input.sessionID}, requested=${agent}`,
+            );
+          }
+          return;
+        }
+        if (!updateSessionAgent(input.sessionID, agent)) {
           throw new Error(
-            `[agents] 실행 할당 충돌 — sessionID=${input.sessionID}, existing=${existing?.taskId}/${existing?.workItemId}/${existing?.agent}, requested=${context.output.taskId}/${context.output.workItemId}/${context.output.agent}`,
+            `[agents] 같은 세션의 managed 역할 변경 거부 — sessionID=${input.sessionID}, requested=${agent}`,
           );
         }
+        if (context) {
+          bound = bindSessionExecutionContext(input.sessionID, context);
+        }
+        if (!bound) {
+          // chat binding 실패가 tool hook까지 worker 권한으로 남지 않게, 이
+          // message 이전의 역할 매핑으로 되돌린다.
+          if (previousAgent) map.set(input.sessionID, previousAgent);
+          else map.delete(input.sessionID);
+          throw new Error(
+            `[agents] 실행 할당 충돌 — sessionID=${input.sessionID}, existing=${existing?.taskId}/${existing?.workItemId}/${existing?.agent}, requested=${context ? `${context.output.taskId}/${context.output.workItemId}/${context.output.agent}` : "missing"}`,
+          );
+        }
+      } else if (!updateSessionAgent(input.sessionID, agent)) {
+        throw new Error(
+          `[agents] 같은 세션의 managed 역할 변경 거부 — sessionID=${input.sessionID}, requested=${agent}`,
+        );
       }
     }
-  };
+    });
 
   const event = async (input: {
     event: { type: string; properties?: unknown };

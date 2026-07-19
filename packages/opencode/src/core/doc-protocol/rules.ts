@@ -24,7 +24,7 @@ Example return format:
 `.trim();
 
 /**
- * (b) Append-only / never-Edit rule.
+ * (b) Append-only / continuation-edit rule.
  *
  * Each agent appends exclusively to its own file.
  * The orchestrator's index file (`task.md`) is orchestrator-only.
@@ -57,8 +57,8 @@ Assignment lines:
 
 Rules:
 1. Require both a valid taskId and the exact assigned Output before writing. Never invent or normalize either identifier.
-2. Create your file if absent; append only when the same active Output was explicitly provided for continuation.
-3. Never overwrite or replace existing handoff content.
+2. Create a new artifact with \`write\`. Use \`edit\` only when the same active Output was explicitly provided for continuation.
+3. A continuation edit is append-only: use the OpenCode \`edit(filePath, oldString, newString)\` contract with the artifact's complete current content as \`oldString\`, \`newString\` beginning with that exact \`oldString\`, and \`replaceAll\` omitted or \`false\`. Never overwrite, replace, delete, or reorder existing handoff content.
 4. Never write an Input, historical assignment, another agent's mapped filename, or another work item's file. \`task.md\` is orchestrator-owned; all other agents treat it as read-only.
 5. Reading run files is allowed only when they are the active Output, same-session history, or an explicit concrete Input and the role/read policy also allows it.
 `.trim();
@@ -111,7 +111,26 @@ Rules:
 - Do not assume today's date is the taskId date.
 - Every new artifact-writing work item must receive a kebab-case workItemId, such as \`planner-01\` or \`worker-parse-fix-02\`. It is unique across all roles and sessions within the taskId. A continuation of the same logical work item reuses the same workItemId; a new work item never does.
 - If either identifier is missing or invalid, stop before writing and request the missing identity. Do not substitute an absolute path, path separator, \`..\`, or another task's identifier.
-- Do not hard-code or derive a different handoff path. Use \`runDocPath(taskId, workItemId, agentName)\` to resolve \`.agents/orchestration/<taskId>/<workItemId>/<your-file>.md\`.
+- Do not hard-code or derive a different handoff path. Use the exact assigned \`Output:\` path as received.
 - Return the exact concrete path so downstream agents do not need directory discovery.
 - All run files stay under the canonical workspace \`.agents/orchestration/<taskId>/<workItemId>/\` scope.
+`.trim();
+
+/** Shared terminal return contract for artifact-writing leaf agents. */
+export const STATUS_RETURN_RULE = `
+## Return Contract
+
+Always return exactly these two lines, including when an assigned artifact cannot
+be written:
+  Path: <exact assigned output path>
+  Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <one-line core result>
+
+Workers also include \`verification-state=<passed|failed|blocked>\` in Summary.
+Reviewers also include \`review-state=<clear|findings|needs-user-decision>\` in Summary.
+
+Never introduce \`Path: None\` or substitute a discovered path. If writing is
+forbidden, return the received concrete Output path with \`status=blocked\` and
+state that the artifact was not created. If a worker creates a separately requested
+user artifact, record that path in its assigned \`work.md\` and still return the
+assigned \`work.md\` path.
 `.trim();

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 2,
+  "target": "opencode",
+  "scope": "project",
+  "version": "0.1.0",
+  "installedAt": "2026-07-19T04:42:12.348Z",
+  "updatedAt": "2026-07-19T04:42:12.348Z",
+  "files": [
+    {
+      "path": "/Users/buyong/workspace/private/buyong-agents/.opencode/agents/plugin/plugin.ts",
+      "sha256": "8fee2ff12f8358eb8411c8b03141aad15b9ee306c2702225176ae1b3730e4ad2"
+    },
+    {
+      "path": "/Users/buyong/workspace/private/buyong-agents/.opencode/agents/catalog.toml",
+      "sha256": "e608197c8cbe31eff87ecf929e68125ebf92eb1eaa06e4c6d096ca02d455b2bb"
+    }
+  ],
+  "managedPaths": [
+    "/Users/buyong/workspace/private/buyong-agents/.opencode/agents/plugin",
+    "/Users/buyong/workspace/private/buyong-agents/.opencode/agents/catalog.toml",
+    "/Users/buyong/workspace/private/buyong-agents/opencode.json"
+  ],
+  "userPaths": [
+    "/Users/buyong/workspace/private/buyong-agents/.opencode/agents.toml"
+  ],
+  "nativeConfig": {
+    "path": "/Users/buyong/workspace/private/buyong-agents/opencode.json",
+    "pluginEntry": "file:///Users/buyong/workspace/private/buyong-agents/.opencode/agents/plugin/plugin.ts",
+    "providerId": "ollama-cloud",
+    "pluginAdded": true,
+    "providerAdded": true
+  }
+}

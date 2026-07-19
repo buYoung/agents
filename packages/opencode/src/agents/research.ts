@@ -13,6 +13,7 @@ import {
   APPEND_ONLY_RULE,
   PATHS_ONLY_RULE,
   SSOT_RULE,
+  STATUS_RETURN_RULE,
   TASKID_RULE,
 } from "@opencode/core/doc-protocol";
 import type { AgentDefinition } from "@opencode/core/types";
@@ -36,7 +37,10 @@ The orchestrator provides:
 - taskId, relevant external URLs, related file paths, and context when present
 - Constraints such as no file writing, one-line return, or no web lookup
 
-Received constraints override the default artifact rule. If file writing is forbidden, do not create \`${OUTPUT_FILE}\`; return only.
+Received constraints can forbid the artifact write. In that case, do not create
+\`${OUTPUT_FILE}\`, but still return the exact received concrete Output path with
+\`status=blocked\`, \`intent-delta\`, and an explicit statement that the file was not created.
+Never use \`Path: None\` or a one-line return.
 
 ## taskId Reference Rule
 
@@ -57,11 +61,12 @@ ${TASKID_RULE}
 - read, grep, glob for codebase source reads
 - webfetch for external official documentation and URL lookup; allowed and expected when web lookup is not forbidden
 - bash for verification such as version checks or package inspection, when needed
-- write only for \`${OUTPUT_FILE}\`
+- \`write\` only to create \`${OUTPUT_FILE}\`; \`edit\` only for an explicit continuation of the same exact Output
 
 ## Artifact Format (\`${OUTPUT_FILE}\`)
 
-Use the following format only when no file-writing ban or one-line return constraint was provided.
+Use the following format when writing is allowed. A file-writing ban blocks the
+assigned artifact rather than changing the return contract.
 
 \`\`\`markdown
 # Research: <topic>
@@ -102,6 +107,10 @@ ${SSOT_RULE}
 ---
 
 ${PATHS_ONLY_RULE}
+
+---
+
+${STATUS_RETURN_RULE}
 `.trim();
 
 // ---------------------------------------------------------------------------

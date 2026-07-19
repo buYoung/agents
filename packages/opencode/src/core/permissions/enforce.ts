@@ -77,10 +77,9 @@ export interface EnforcePermissionOptions {
   configuredMcpPolicy?: ConfiguredMcpPolicy;
 }
 
-// Hook에는 custom/plugin/MCP 도구의 provenance나 효과 metadata가 오지 않는다.
-// 따라서 exact ID는 builtin 출처 증명이 아니라 지원 환경의 분류 키일 뿐이다.
-// 아래 ID와 충돌하는 custom tool이 등록된 환경은 명시적으로 지원하지 않으며,
-// namespace suffix나 다른 문자열 형태로 출처/효과를 추론하지 않는다.
+  // Hook에는 custom/plugin/MCP 도구의 provenance나 효과 metadata가 오지 않는다.
+  // 실제 MCP catalog key 집합이 없으면 configured server prefix만으로 MCP를
+  // 추론하지 않고 builtin/unknown fail-safe 경로를 유지한다.
 const READ_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_READ_TOOL_IDS);
 const EDIT_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_EDIT_TOOL_IDS);
 const BASH_TOOL_IDS: ReadonlySet<string> = new Set(RUNTIME_BASH_TOOL_IDS);
@@ -129,10 +128,13 @@ export function enforcePermission(
 ): EnforcementResult {
   const rawToolName = input.tool;
   const toolName = rawToolName.toLowerCase();
-  const toolKind = resolveToolKind(rawToolName);
-  const configuredMcpTool = toolKind
+  const configuredMcpTool = matchConfiguredMcpTool(
+    options?.configuredMcpPolicy,
+    rawToolName,
+  );
+  const toolKind = configuredMcpTool
     ? undefined
-    : matchConfiguredMcpTool(options?.configuredMcpPolicy, rawToolName);
+    : resolveToolKind(rawToolName);
   const agent = resolveAgent(input.sessionID, sessionAgentMap);
   const allowedSubagentNames = options?.subagentNames ?? SUBAGENT_NAMES;
   const tempRoots = options?.tempRoots ?? getDefaultTempRoots();
@@ -144,10 +146,22 @@ export function enforcePermission(
   const isTaskTool = toolKind === "task";
   const isMcpResourceTool = toolKind === "mcp-resource";
 
-  // 로컬 경로 해석은 exact builtin/resource ID에만 적용한다. configured MCP의
-  // 인자는 서버 고유 schema이므로 builtin path 규칙으로 추론하지 않는다.
+  const patchTargets =
+    !configuredMcpTool && rawToolName === "apply_patch"
+      ? extractApplyPatchTargetPaths(input.args)
+      : undefined;
+  if (patchTargets && !patchTargets.valid) {
+    return {
+      allowed: false,
+      reason: `[baseline] apply_patch hunk 대상 검증 실패 — ${patchTargets.reason}`,
+    };
+  }
+
+  // 로컬 경로 해석은 exact builtin/resource ID에만 적용한다. 실제 MCP catalog
+  // key로 provenance가 확인된 MCP 인자는 서버 고유 schema이므로 builtin path
+  // 규칙으로 추론하지 않는다.
   const targetPaths = toolKind
-    ? extractTargetPaths(input.args, toolName)
+    ? (patchTargets?.paths ?? extractTargetPaths(input.args, rawToolName))
     : [];
   const targetPath = targetPaths[0];
   const inspectedPaths = targetPaths.map((pathValue) => ({
@@ -270,21 +284,6 @@ export function enforcePermission(
     const artifactPaths = inspectedPaths.filter(
       ({ inspection }) => inspection.category === "agents",
     );
-    const patchOperations = extractPatchOperations(input.args);
-    const deletesArtifact = patchOperations.some(
-      (operation) =>
-        operation.kind === "delete" &&
-        inspectPath(operation.path, options?.workspaceRoot).category === "agents",
-    );
-    const movesArtifact =
-      patchOperations.some((operation) => operation.kind === "move") &&
-      artifactPaths.length > 0;
-    if (deletesArtifact || movesArtifact) {
-      return {
-        allowed: false,
-        reason: `[baseline] 산출물 patch Delete/Move 거부 — tool=${toolName}`,
-      };
-    }
     for (const artifactPath of artifactPaths) {
       const identity = getRunArtifactIdentity(
         artifactPath.pathValue,
@@ -375,14 +374,28 @@ export function enforcePermission(
           };
         }
       }
+      if (isEditTool && rawToolName === "apply_patch") {
+        return {
+          allowed: false,
+          reason: `[baseline] 산출물 apply_patch 거부 — 새 산출물은 write, 명시 continuation은 append-only edit 사용: path=${artifactPath.pathValue}`,
+        };
+      }
+      if (isEditTool && rawToolName === "edit") {
+        const appendOnlyResult = enforceAppendOnlyArtifactEdit(
+          input.args,
+          artifactPath.inspection.canonicalPath,
+          artifactPath.pathValue,
+        );
+        if (appendOnlyResult) return appendOnlyResult;
+      }
       if (
         isEditTool &&
-        toolName === "write" &&
+        rawToolName === "write" &&
         fs.existsSync(artifactPath.inspection.canonicalPath)
       ) {
         return {
           allowed: false,
-          reason: `[baseline] 기존 산출물 write 덮어쓰기 거부 — continuation은 edit/apply_patch 사용: path=${artifactPath.pathValue}`,
+          reason: `[baseline] 기존 산출물 write 덮어쓰기 거부 — continuation은 edit 사용: path=${artifactPath.pathValue}`,
         };
       }
     }
@@ -689,10 +702,6 @@ function extractTargetPaths(
       : [];
   }
 
-  if (toolName === "apply_patch") {
-    return [...new Set(extractPatchOperations(args).map(({ path }) => path))];
-  }
-
   const pathKeys = [
     "path",
     "filePath",
@@ -725,36 +734,88 @@ function extractTargetPaths(
   return [...new Set(paths)];
 }
 
-interface PatchOperation {
-  kind: "add" | "update" | "delete" | "move";
-  path: string;
-}
+/** OpenCode V2 parsePatchHeader와 같은 add/update/delete hunk 대상을 해석한다. */
+function extractApplyPatchTargetPaths(args: Record<string, unknown>):
+  | { valid: true; paths: string[] }
+  | { valid: false; reason: string } {
+  const patchText = args["patchText"];
+  if (typeof patchText !== "string" || patchText.trim() === "") {
+    return { valid: false, reason: "patchText가 없거나 비어 있음" };
+  }
 
-function extractPatchOperations(
-  args: Record<string, unknown>,
-): PatchOperation[] {
-  const input = args["input"] ?? args["patchText"];
-  if (typeof input !== "string") return [];
+  const lines = patchText.replaceAll("\r\n", "\n").split("\n");
+  if (lines[0] !== "*** Begin Patch" || !lines.includes("*** End Patch")) {
+    return { valid: false, reason: "Begin/End Patch envelope 누락" };
+  }
 
-  const operations: PatchOperation[] = [];
-  const patterns: Array<{
-    kind: PatchOperation["kind"];
-    pattern: RegExp;
-  }> = [
-    { kind: "add", pattern: /^\*\*\* Add File: (.+)$/gm },
-    { kind: "update", pattern: /^\*\*\* Update File: (.+)$/gm },
-    { kind: "delete", pattern: /^\*\*\* Delete File: (.+)$/gm },
-    { kind: "move", pattern: /^\*\*\* Move to: (.+)$/gm },
-    { kind: "delete", pattern: /^--- a\/(.+)\r?\n\+\+\+ \/dev\/null$/gm },
-    { kind: "update", pattern: /^--- a\/(.+)$/gm },
-    { kind: "update", pattern: /^\+\+\+ b\/(.+)$/gm },
-  ];
-
-  for (const { kind, pattern } of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(input)) !== null) {
-      if (match[1]) operations.push({ kind, path: match[1].trim() });
+  const paths: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("*** Move to:")) {
+      return { valid: false, reason: "move hunk는 지원하지 않음" };
+    }
+    const prefix = ["*** Add File:", "*** Update File:", "*** Delete File:"]
+      .find((candidate) => line.startsWith(candidate));
+    if (prefix) {
+      const targetPath = line.slice(prefix.length).trim();
+      if (!targetPath) return { valid: false, reason: "빈 hunk 대상 경로" };
+      paths.push(targetPath);
     }
   }
-  return operations;
+  if (paths.length === 0) {
+    return { valid: false, reason: "add/update/delete hunk 없음" };
+  }
+  return { valid: true, paths: [...new Set(paths)] };
+}
+
+/**
+ * 실제 OpenCode edit 입력은 filePath/oldString/newString/replaceAll을 사용한다.
+ * artifact continuation은 현 파일 전체 뒤에 새 텍스트를 붙이는 경우만 허용한다.
+ * OpenCode가 CRLF/LF 입력을 파일의 기존 줄바꿈으로 정규화하므로, 이 훅도
+ * 줄바꿈 의미가 같은 전체 내용과 엄격한 append를 같은 방식으로 판정한다.
+ */
+function enforceAppendOnlyArtifactEdit(
+  args: Record<string, unknown>,
+  canonicalPath: string,
+  requestedPath: string,
+): EnforcementResult | undefined {
+  const oldString = args["oldString"];
+  const newString = args["newString"];
+  if (typeof oldString !== "string" || typeof newString !== "string") {
+    return {
+      allowed: false,
+      reason: `[baseline] 산출물 continuation edit 입력 거부 — oldString/newString이 모두 문자열이어야 함: path=${requestedPath}`,
+    };
+  }
+  if (args["replaceAll"] === true) {
+    return {
+      allowed: false,
+      reason: `[baseline] 산출물 continuation edit의 replaceAll 거부 — append-only여야 함: path=${requestedPath}`,
+    };
+  }
+
+  let currentContent: string;
+  try {
+    currentContent = fs.readFileSync(canonicalPath, "utf8");
+  } catch {
+    return {
+      allowed: false,
+      reason: `[baseline] 기존 산출물 continuation edit 거부 — 현재 내용을 읽을 수 없음: path=${requestedPath}`,
+    };
+  }
+  const normalizeLineEndings = (value: string): string =>
+    value.replaceAll("\r\n", "\n");
+  const normalizedCurrentContent = normalizeLineEndings(currentContent);
+  const normalizedOldString = normalizeLineEndings(oldString);
+  const normalizedNewString = normalizeLineEndings(newString);
+  if (
+    normalizedOldString !== normalizedCurrentContent ||
+    !normalizedNewString.startsWith(normalizedOldString) ||
+    normalizedNewString.length <= normalizedOldString.length
+  ) {
+    return {
+      allowed: false,
+      reason: `[baseline] 산출물 continuation edit 거부 — 현재 전체 내용을 보존한 append-only 변경이 아님: path=${requestedPath}`,
+    };
+  }
+  return undefined;
 }

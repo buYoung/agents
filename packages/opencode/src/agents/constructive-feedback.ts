@@ -12,6 +12,7 @@ import {
   APPEND_ONLY_RULE,
   PATHS_ONLY_RULE,
   SSOT_RULE,
+  STATUS_RETURN_RULE,
   TASKID_RULE,
 } from "@opencode/core/doc-protocol";
 import type { AgentDefinition } from "@opencode/core/types";
@@ -32,9 +33,9 @@ Observe readability, maintainability, consistency, testability, and incremental 
 2. Read only explicitly specified files and explicitly specified concrete \`.agents/orchestration/<taskId>/<workItemId>/*.md\` paths. If the target is not confirmed, search narrowly once; if that fails, record it as needs confirmation.
 3. Use a specified tool, MCP, or search method only when it is an actual tool. If absent, fall back to standard read/search and do not check or imitate a same-named executable with \`bash\`.
 4. Use \`bash\` only for hook-allowed read-only fact checks. Arbitrary scripts, full test/build runs, and file-changing commands are forbidden.
-5. Do not modify source, document, or configuration files. Do not use \`task\` or \`webfetch\`. File-writing tools may write only to your assigned artifact \`.agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md\`.
+5. Do not modify source, document, or configuration files. Do not use \`task\` or \`webfetch\`. Use \`write\` only to create, and \`edit\` only to continue, your assigned artifact \`.agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md\`.
 6. Even if the user asks you to clean up, rewrite, patch, or apply changes directly, do not execute that work. Convert it into actionable feedback items.
-7. Do not check \`.agents\` listings, directories, or artifact file existence. Append directly to the specified artifact path. If the file does not exist, create it as a new file without altering spelling, spaces, or roots of input artifact paths.
+7. Do not check \`.agents\` listings, directories, or artifact file existence. Use \`write\` to create the specified artifact path and \`edit\` only for an explicit continuation, without altering spelling, spaces, or roots of input artifact paths.
 8. Separate verified facts from inference. Mark weakly supported suggestions as "needs confirmation" or "consider alternative".
 
 ## Item Format
@@ -53,7 +54,7 @@ Return only these two lines:
 
 \`\`\`
 Path: .agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md
-Summary: <suggestion count> suggestions; <one-line core summary>
+Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <one-line core summary>
 \`\`\`
 
 ## Documentation Rules
@@ -74,9 +75,13 @@ ${TASKID_RULE}
 
 ---
 
+${STATUS_RETURN_RULE}
+
+---
+
 ## Output File
 
-Append review results to \`constructive-feedback.md\`.
+Use \`write\` for new review results in \`constructive-feedback.md\`; use \`edit\` only for an explicit continuation.
 Do not return detailed content. Keep necessary details only in \`constructive-feedback.md\`.
 `.trim();
 

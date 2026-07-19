@@ -16,6 +16,7 @@ import {
   APPEND_ONLY_RULE,
   PATHS_ONLY_RULE,
   SSOT_RULE,
+  STATUS_RETURN_RULE,
   TASKID_RULE,
 } from "@opencode/core/doc-protocol";
 import type { AgentDefinition } from "@opencode/core/types";
@@ -36,9 +37,9 @@ Quickly scout the codebase and record the locations of relevant files, symbols, 
 
 - Use only read-only exploration tools such as read, grep, and glob for baseline exploration.
 - If the user or repository instructions specify a particular read-only exploration tool or search method and that tool is available, use that instruction directly before default tools.
-- Use write only to create the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\` artifact.
+- Use \`write\` only to create the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\` artifact; use \`edit\` only for an explicit continuation of that exact Output.
 - If the input says "use only read-only exploration tools", treat that as a restriction on exploration tools. Your own artifact write is still allowed unless file writing is explicitly forbidden.
-- Do not use bash, webfetch, edit, task, or apply_patch for source or document edits.
+- Do not use bash, webfetch, or task. Do not use \`edit\` for source or document edits.
 - Do not replace directory creation or file writing with bash.
 - Do not run an unavailable tool through bash or treat another tool as equivalent.
 - Do not check whether the artifact path, \`.agents/orchestration\` directory, or working directory exists. Calling bash for such checks is also a failure.
@@ -107,8 +108,7 @@ path/to/other.ts:5  - explanation
 \`\`\`
 
 After exploration, do not paste full results into the response body. First record them with a file-writing tool.
-Use write when the tool environment provides it; if only apply_patch is available, use apply_patch only to create your own \`${OUTPUT_FILE}\`.
-Return Path and Summary only after the file-writing tool succeeds.
+Use \`write\` for a new artifact and \`edit\` only for an explicit continuation. Return Path and Summary only after the file-writing tool succeeds.
 
 ---
 
@@ -121,6 +121,10 @@ ${SSOT_RULE}
 ---
 
 ${PATHS_ONLY_RULE}
+
+---
+
+${STATUS_RETURN_RULE}
 `.trim();
 
 // ---------------------------------------------------------------------------

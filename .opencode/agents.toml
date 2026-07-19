@@ -1,0 +1,111 @@
+# agents.example.toml
+#
+# agents 플러그인 설정 예시 파일.
+# 실제 적용하려면 이 파일을 복사하고 이름을 바꾸세요:
+#
+#   프로젝트 범위: <project>/.opencode/agents.toml
+#   사용자 범위:   ~/.config/opencode/agents.toml
+#                 (또는 $XDG_CONFIG_HOME/opencode/agents.toml)
+#
+# 설정 파일이 없으면 플러그인은 기본값으로 동작합니다.
+# 프로젝트 범위 설정이 사용자 범위 설정보다 우선합니다.
+#
+# 환경 변수로 preset을 강제 지정할 수 있습니다:
+#   AGENTS_PRESET=performance
+
+# ---------------------------------------------------------------------------
+# preset: 적용할 사전 정의 프로파일 이름 (선택)
+# presets 섹션에 정의된 이름 중 하나를 지정합니다.
+# AGENTS_PRESET 환경 변수가 이 값을 덮어씁니다.
+# ---------------------------------------------------------------------------
+
+# preset = "performance"
+
+# ---------------------------------------------------------------------------
+# [agents.<name>] — 에이전트별 오버라이드 (선택)
+#
+# 지원 필드:
+#   model            = "ollama-cloud/<model-id>"  # 사용할 모델 (bundled catalog 참조)
+#   reasoning_effort = "high"|"max"  # catalog의 모델별 허용값 참조
+#   prompt_append    = "추가할 프롬프트 문자열"   # 기존 프롬프트 끝에 덧붙임
+#   enable           = false  # 이 에이전트를 비활성화 (기본값: true)
+#   disabled_mcp     = ["server-key"]  # native MCP 서버 도구를 역할별로 추가 거부
+#
+# 사용 가능한 모델과 reasoning_effort 허용 값은 bundled TOML catalog가 기준입니다:
+#   packages/opencode/src/core/catalog/catalog.toml
+#
+# 현재 bundled catalog의 모델:
+#   ollama-cloud/glm-5.2          — Z.AI GLM-5.2 (오케스트레이터/ideator/adversarial-review 기본값)
+#                                   reasoning_effort: high|max
+#   ollama-cloud/minimax-m3       — MiniMax M3 (vision, tools)
+#                                   reasoning_effort: 미지원
+#   ollama-cloud/deepseek-v4-pro  — DeepSeek V4 Pro (worker/constructive-feedback 기본값)
+#                                   reasoning_effort: none|high|max
+#   ollama-cloud/deepseek-v4-flash — DeepSeek V4 Flash (planner 기본값)
+#                                   reasoning_effort: none|high|max
+#   ollama-cloud/kimi-k2.7-code   — Moonshot Kimi K2.7 Code (research 기본값, vision)
+#                                   reasoning_effort: 미지원
+#   ollama-cloud/kimi-k2.6        — Moonshot Kimi K2.6 (code-explorer 기본값, vision)
+#                                   reasoning_effort: 미지원
+#
+# catalog에 없는 model id는 validate/doctor에서 오류로 보고됩니다.
+# reasoning_effort 미지원 모델에 설정하거나 허용 값이 아닌 값을 넣으면 경고 후 무시됩니다.
+# 새 모델 metadata는 config.ts가 아니라 bundled catalog에 추가하세요.
+# ---------------------------------------------------------------------------
+
+# 예: orchestrator에 최대 추론 노력 적용
+# [agents.orchestrator]
+# model = "ollama-cloud/glm-5.2"
+# reasoning_effort = "max"
+
+# 예: worker에 높은 추론 노력 적용
+# [agents.worker]
+# reasoning_effort = "high"
+# disabled_mcp = ["browser"]  # 서버 키는 대소문자를 구분
+
+# 모든 구성 MCP 서버 도구 거부. 배열은 병합되지 않고 통째로 교체되므로
+# root 설정의 []는 preset에서 상속한 추가 거부를 비웁니다.
+# [agents.research]
+# disabled_mcp = ["*"]
+
+# 예: minimax-m3에 reasoning_effort 설정 → 경고 후 무시됨
+# [agents.code-explorer]
+# model = "ollama-cloud/minimax-m3"
+# reasoning_effort = "high"  # minimax-m3는 미지원 — 무시됨
+
+# 예: code-explorer 에이전트에 추가 지시 덧붙이기
+# [agents.code-explorer]
+# prompt_append = """
+# 탐색 시 항상 파일 확장자별로 결과를 그룹화하여 보고하라.
+# """
+
+# 예: idea-generator 비활성화 (창의적 설계 워크플로우 불필요 시)
+# [agents.idea-generator]
+# enable = false
+
+# ---------------------------------------------------------------------------
+# [presets.<preset-name>.<agent-name>] — 사전 정의 프로파일
+#
+# preset 키에 이름을 지정하거나 AGENTS_PRESET 환경 변수로 선택합니다.
+# preset의 에이전트 설정과 root [agents.*] 설정이 겹치면 root가 우선합니다.
+# ---------------------------------------------------------------------------
+
+# 예: "performance" 프리셋 — 모든 에이전트에 높은 추론 노력 적용
+# [presets.performance.orchestrator]
+# reasoning_effort = "high"
+#
+# [presets.performance.worker]
+# reasoning_effort = "high"
+#
+# [presets.performance.planner]
+# reasoning_effort = "medium"
+
+# 예: "minimal" 프리셋 — 핵심 에이전트만 활성화
+# [presets.minimal.idea-generator]
+# enable = false
+#
+# [presets.minimal.adversarial-review]
+# enable = false
+#
+# [presets.minimal.constructive-feedback]
+# enable = false

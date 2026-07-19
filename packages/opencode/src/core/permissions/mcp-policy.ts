@@ -9,10 +9,7 @@
 
 import type { AgentName } from "@opencode/core/doc-protocol";
 import type { PluginConfig } from "@opencode/core/config";
-import {
-  RESERVED_RUNTIME_TOOL_IDS,
-  RESERVED_RUNTIME_TOOL_ID_SET,
-} from "./runtime-tool-ids";
+import { RESERVED_RUNTIME_TOOL_ID_SET } from "./runtime-tool-ids";
 
 export interface ConfiguredMcpServerPolicy {
   /** native `mcp` 객체의 원래 서버 키. `disabled_mcp`와 대소문자까지 비교한다. */
@@ -28,6 +25,12 @@ export interface ConfiguredMcpServerPolicy {
 export interface ConfiguredMcpPolicy {
   servers: readonly ConfiguredMcpServerPolicy[];
   disabledByAgent: ReadonlyMap<AgentName, ReadonlySet<string>>;
+  /**
+   * OpenCode가 실제 MCP catalog에서 조립한 최종 tool key 집합이다.
+   * 구성 서버 접두사는 후보를 찾는 데만 쓰고, 이 집합에 없는 key는
+   * builtin 또는 미확인 도구로 fail-safe 처리한다.
+   */
+  mcpCatalogToolIds?: ReadonlySet<string>;
 }
 
 export interface ConfiguredMcpToolMatch {
@@ -78,14 +81,9 @@ export function compileConfiguredMcpPolicy(
       }
       const sanitizedServerKey = sanitizeMcpServerKey(serverKey);
       const toolPrefix = `${sanitizedServerKey}_`;
-      const reservedToolId = RESERVED_RUNTIME_TOOL_IDS.find((toolId) =>
-        toolId.startsWith(toolPrefix),
-      );
-      if (reservedToolId) {
-        throw new Error(
-          `[agents] MCP 서버 도구 접두사 예약 충돌 — "${serverKey}"(${toolPrefix})가 예약 runtime 도구 "${reservedToolId}"와 충돌합니다.`,
-        );
-      }
+      // 구성 서버 키만으로는 실제 MCP catalog가 같은 최종 도구 ID를
+      // 등록했는지 증명할 수 없다. builtin exact ID의 우선순위는
+      // matchConfiguredMcpTool에서 보수적으로 처리한다.
       return {
         serverKey,
         sanitizedServerKey,
@@ -139,7 +137,17 @@ export function matchConfiguredMcpTool(
   policy: ConfiguredMcpPolicy | undefined,
   rawToolId: string,
 ): ConfiguredMcpToolMatch | undefined {
-  if (!policy || RESERVED_RUNTIME_TOOL_ID_SET.has(rawToolId)) return undefined;
+  if (!policy) return undefined;
+  // OpenCode는 builtin/generic resource 도구를 먼저 등록한 뒤 MCP catalog
+  // key로 덮어쓴다. builtin과 충돌할 수 있는 exact ID는 실제 MCP catalog
+  // key로 확인될 때만 승격한다. 충돌하지 않는 ID는 접두사가 유일한 서버
+  // 범위를 가리키므로 기존 native wildcard 정책과 같은 범위로 처리한다.
+  if (
+    RESERVED_RUNTIME_TOOL_ID_SET.has(rawToolId) &&
+    !policy.mcpCatalogToolIds?.has(rawToolId)
+  ) {
+    return undefined;
+  }
   const server = policy.servers.find(
     ({ toolPrefix }) =>
       rawToolId.startsWith(toolPrefix) && rawToolId.length > toolPrefix.length,

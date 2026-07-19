@@ -3,6 +3,9 @@
  */
 
 import { describe, test, expect } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   classifyPath,
   compileConfiguredMcpPolicy,
@@ -536,9 +539,33 @@ describe("추가 정책 spot-check", () => {
     };
     expect(
       enforcePermission(
-        { tool: "apply_patch", sessionID: "s-planner", args: {} },
+        {
+          tool: "apply_patch",
+          sessionID: "s-planner",
+          args: {
+            patchText:
+              "*** Begin Patch\n*** Update File: packages/opencode/src/index.ts\n@@\n-old\n+new\n*** End Patch",
+          },
+        },
         fullMap,
         { configuredMcpPolicy: reservedCollisionPolicy },
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "apply_patch",
+          sessionID: "s-planner",
+          args: {
+            patchText:
+              "*** Begin Patch\n*** Update File: .agents/orchestration/20260707-test/planner-01/plan.md\n@@\n-old\n+new\n*** End Patch",
+          },
+        },
+        fullMap,
+        {
+          configuredMcpPolicy: reservedCollisionPolicy,
+          sessionAssignments: fullAssignments,
+        },
       ).allowed,
     ).toBe(false);
     for (const tool of [
@@ -551,9 +578,64 @@ describe("추가 정책 spot-check", () => {
           { tool, sessionID: "s-planner", args: {} },
           fullMap,
           { configuredMcpPolicy: reservedCollisionPolicy },
-        ).allowed,
-      ).toBe(false);
+      ).allowed,
+    ).toBe(false);
     }
+    const actualCollisionPolicy: ConfiguredMcpPolicy = {
+      ...reservedCollisionPolicy,
+      mcpCatalogToolIds: new Set(["apply_patch"]),
+    };
+    expect(
+      enforcePermission(
+        {
+          tool: "apply_patch",
+          sessionID: "s-planner",
+          args: { operation: "server-defined MCP input" },
+        },
+        fullMap,
+        { configuredMcpPolicy: actualCollisionPolicy },
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "apply_patch",
+          sessionID: "s-worker",
+          args: {
+            patchText:
+              "*** Begin Patch\n*** Update File: packages/opencode/src/index.ts\n@@\n-old\n+new\n*** End Patch",
+          },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(true);
+    expect(
+      enforcePermission(
+        {
+          tool: "apply_patch",
+          sessionID: "s-worker",
+          args: {
+            patchText:
+              "*** Begin Patch\n*** Update File: ../../outside.ts\n@@\n-old\n+new\n*** End Patch",
+          },
+        },
+        fullMap,
+      ).allowed,
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "apply_patch",
+          sessionID: "s-worker",
+          args: {
+            patchText:
+              "*** Begin Patch\n*** Update File: packages/opencode/src/index.ts\n@@\n-old\n+new\n*** Update File:.agents/orchestration/20260707-test/planner-01/plan.md\n@@\n-old\n+new\n*** End Patch",
+          },
+        },
+        fullMap,
+        { sessionAssignments: fullAssignments },
+      ).allowed,
+    ).toBe(false);
     const unmanagedRolePolicy = compileConfiguredMcpPolicy(
       { "Code.Map": { type: "local", command: ["codemap-search", "mcp"] } },
       {},
@@ -756,7 +838,7 @@ describe("추가 정책 spot-check", () => {
     ).toBe(false);
   });
 
-  test("worker: 직접 조회 명령만 허용하고 외부 접근·실행 래퍼 거부", () => {
+  test("worker: 실제 구현·빌드·검증을 위한 일반 bash 실행 허용", () => {
     const options = {
       workspaceRoot: "/repo/project",
       tempRoots: ["/tmp"],
@@ -771,7 +853,7 @@ describe("추가 정책 spot-check", () => {
         },
         fullMap,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -813,7 +895,7 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -827,7 +909,7 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     for (const command of [
       "date -s 2030-01-01",
       "diff src/a.ts src/b.ts --output=src/result.diff",
@@ -843,7 +925,7 @@ describe("추가 정책 spot-check", () => {
           options,
         ).allowed,
         command,
-      ).toBe(false);
+      ).toBe(true);
     }
     expect(
       enforcePermission(
@@ -858,7 +940,7 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -872,7 +954,7 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -886,7 +968,7 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       enforcePermission(
         {
@@ -900,10 +982,10 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         options,
       ).allowed,
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  test("planner: 자기 work-item 산출물 continuation edit/write 허용", () => {
+  test("planner: 자기 work-item 산출물 continuation은 완전한 append-only edit만 허용", () => {
     expect(
       enforcePermission(
         {
@@ -916,7 +998,70 @@ describe("추가 정책 spot-check", () => {
         fullMap,
         { sessionAssignments: fullAssignments },
       ).allowed,
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      enforcePermission(
+        {
+          tool: "edit",
+          sessionID: "s-planner",
+          args: {
+            path: ".agents/orchestration/20260707-test/planner-01/plan.md",
+            oldString: "existing plan",
+          },
+        },
+        fullMap,
+        { sessionAssignments: fullAssignments },
+      ).allowed,
+    ).toBe(false);
+    const temporaryWorkspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), "opencode-append-only-"),
+    );
+    const artifactPath = path.join(
+      temporaryWorkspace,
+      ".agents/orchestration/20260707-test/planner-01/plan.md",
+    );
+    fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
+    fs.writeFileSync(artifactPath, "existing plan\r\n");
+    try {
+      expect(
+        enforcePermission(
+          {
+            tool: "edit",
+            sessionID: "s-planner",
+            args: {
+              filePath: artifactPath,
+              oldString: "existing plan\n",
+              newString: "existing plan\n\ncontinuation entry\n",
+            },
+          },
+          fullMap,
+          {
+            workspaceRoot: temporaryWorkspace,
+            sessionAssignments: fullAssignments,
+          },
+        ).allowed,
+      ).toBe(true);
+      expect(
+        enforcePermission(
+          {
+            tool: "edit",
+            sessionID: "s-planner",
+            args: {
+              filePath: artifactPath,
+              oldString: "existing plan\n",
+              newString: "replacement plan",
+            },
+          },
+          fullMap,
+          {
+            workspaceRoot: temporaryWorkspace,
+            sessionAssignments: fullAssignments,
+          },
+        ).allowed,
+      ).toBe(false);
+    } finally {
+      fs.rmSync(temporaryWorkspace, { recursive: true, force: true });
+    }
     expect(
       enforcePermission(
         {
@@ -956,6 +1101,60 @@ describe("추가 정책 spot-check", () => {
     ).toBe(false);
     expect(
       lifecycle.bindSessionExecutionContext("planner-child", firstContext),
+    ).toBe(false);
+    const directWorker = createSessionAgentMap();
+    expect(directWorker.updateSessionAgent("direct-worker", "worker")).toBe(
+      true,
+    );
+    const directWorkerContext = getTaskExecutionContext(
+      artifactTaskArgs("worker", "direct-worker-01", "work.md"),
+    );
+    if (!directWorkerContext) throw new Error("direct worker context must parse");
+    expect(
+      directWorker.bindSessionExecutionContext("direct-worker", directWorkerContext),
+    ).toBe(false);
+    expect(
+      directWorker.bindRootExecutionContext("direct-worker", directWorkerContext),
+    ).toBe(true);
+    expect(
+      directWorker.bindRootExecutionContext("direct-worker", directWorkerContext),
+    ).toBe(true);
+    expect(directWorker.assignmentMap.get("direct-worker")).toEqual(
+      directWorkerContext.output,
+    );
+    expect(
+      enforcePermission(
+        {
+          tool: "write",
+          sessionID: "direct-worker",
+          args: { path: directWorkerContext.output.artifactPath },
+        },
+        directWorker.map,
+        {
+          sessionAssignments: directWorker.assignmentMap,
+          sessionExecution: directWorker,
+        },
+      ).allowed,
+    ).toBe(true);
+    const nonWorkerRoot = createSessionAgentMap();
+    const plannerRootContext = getTaskExecutionContext(
+      artifactTaskArgs("planner", "planner-root-01", "plan.md"),
+    );
+    if (!plannerRootContext) throw new Error("planner root context must parse");
+    expect(
+      nonWorkerRoot.bindRootExecutionContext("planner-root", plannerRootContext),
+    ).toBe(false);
+    const differentTaskContext = {
+      ...directWorkerContext,
+      output: executionAssignment(
+        "worker",
+        "20260703-other",
+        "direct-worker-02",
+        "work.md",
+      ),
+    };
+    expect(
+      directWorker.bindRootExecutionContext("direct-worker", differentTaskContext),
     ).toBe(false);
     expect(
       lifecycle.completeDelegation({
@@ -1144,7 +1343,7 @@ describe("추가 정책 spot-check", () => {
         lifecycle.map,
         lifecycleOptions,
       ).allowed,
-    ).toBe(true);
+    ).toBe(false);
 
     const roleChangeContext = getTaskExecutionContext(
       artifactTaskArgs("worker", "worker-session-03", "work.md"),

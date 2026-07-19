@@ -1,0 +1,150 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "file:///Users/buyong/workspace/private/buyong-agents/.opencode/agents/plugin/plugin.ts"
+  ],
+  "provider": {
+    "ollama-cloud": {
+      "id": "ollama-cloud",
+      "name": "Ollama Cloud",
+      "npm": "@ai-sdk/openai-compatible",
+      "api": "openai-compatible",
+      "env": [
+        "OLLAMA_API_KEY"
+      ],
+      "options": {
+        "baseURL": "https://ollama.com/v1"
+      },
+      "models": {
+        "glm-5.2": {
+          "id": "glm-5.2",
+          "name": "GLM-5.2",
+          "status": "active",
+          "reasoning": true,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": [
+              "high",
+              "max"
+            ]
+          }
+        },
+        "minimax-m3": {
+          "id": "minimax-m3",
+          "name": "MiniMax M3",
+          "status": "active",
+          "reasoning": false,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": []
+          }
+        },
+        "deepseek-v4-pro": {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "status": "active",
+          "reasoning": true,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": [
+              "none",
+              "high",
+              "max"
+            ]
+          }
+        },
+        "deepseek-v4-flash": {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "status": "active",
+          "reasoning": true,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": [
+              "none",
+              "high",
+              "max"
+            ]
+          }
+        },
+        "kimi-k2.7-code": {
+          "id": "kimi-k2.7-code",
+          "name": "Kimi K2.7 Code",
+          "status": "active",
+          "reasoning": false,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": []
+          }
+        },
+        "kimi-k2.6": {
+          "id": "kimi-k2.6",
+          "name": "Kimi K2.6",
+          "status": "active",
+          "reasoning": false,
+          "temperature": true,
+          "tool_call": true,
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoning_efforts": []
+          }
+        }
+      }
+    }
+  }
+}

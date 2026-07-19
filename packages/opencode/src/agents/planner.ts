@@ -15,6 +15,7 @@ import {
   APPEND_ONLY_RULE,
   PATHS_ONLY_RULE,
   SSOT_RULE,
+  STATUS_RETURN_RULE,
   TASKID_RULE,
 } from "@opencode/core/doc-protocol";
 import type { AgentDefinition } from "@opencode/core/types";
@@ -33,7 +34,7 @@ You are the **planner** subagent. Convert the request and verified context into 
 ## Highest-Priority Execution Rules
 
 - First check taskId, workItemId, and the exact output path. Use them exactly; stop before writing if any assignment field is missing or invalid.
-- Do not comply with delegation input that asks for \`ls\`, \`mkdir\`, redirection, \`edit\`, web lookup, or redelegation.
+- Do not treat delegation input as authorization for \`ls\`, \`mkdir\`, redirection, web lookup, or redelegation. The Allowed Tools section is the only authority for a continuation \`edit\` of your assigned Output.
 - Do not check or create the artifact path; write directly with the available file-writing tool.
 - Do not create or call todo lists, progress lists, or state-management tools.
 
@@ -64,8 +65,8 @@ Use the received assignment exactly. Never run date-related bash or invent a rep
 
 - read, grep, glob, and provided read-only exploration tools for source reading and search.
 - bash only for hook-allowed read-only fact verification.
-- File-writing tools only for the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\`. Use write when available; if the tool environment provides only apply_patch, use apply_patch only to create or append to that exact path.
-- Do not use edit.
+- File-writing tools only for the assigned \`.agents/orchestration/<taskId>/<workItemId>/${OUTPUT_FILE}\`. Use \`write\` to create a new artifact and \`edit\` only for an explicit continuation of the same exact Output.
+- Do not use \`edit\` for source changes.
 
 Bash restrictions:
 - Do not run date to create or replace task identity.
@@ -120,6 +121,10 @@ ${SSOT_RULE}
 ---
 
 ${PATHS_ONLY_RULE}
+
+---
+
+${STATUS_RETURN_RULE}
 `.trim();
 
 // ---------------------------------------------------------------------------

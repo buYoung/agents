@@ -74,41 +74,41 @@ describe("플러그인 로드", () => {
       "Stateless first gate",
     );
     expect(agentRecord["intent-checker"]?.description).toContain(
-      "evidenced constraints",
+      "scope, constraints, and decisions",
     );
     expect(agentRecord["orchestrator"]?.description).toContain(
       "first leaf for every classifiable request",
     );
     for (const marker of [
       "Original user request",
-      "Request classification",
       "Normalized objective",
       "Included scope",
       "Excluded scope",
-      "Added constraints",
-      "Delegation plan",
+      "User constraints",
+      "Material assumptions and decisions",
       "User confirmation response",
-      "`PROCEED: <reason>`",
-      "`RECLASSIFY: <reason>`",
-      "`CONFIRMATION_NEEDED: <one decision>`",
+      "`PROCEED: status=completed; intent-delta=<none|brief semantic change>; <reason>`",
+      "`RECLASSIFY: status=blocked; intent-delta=<none|brief semantic change>; <reason>`",
+      "`CONFIRMATION_NEEDED: status=blocked; intent-delta=<none|brief semantic change>; <one decision>`",
       "continuing approval for its normal follow-up stages",
       "new authority grant, external change, scope expansion, irreversible choice",
-      "A provenance label alone is not evidence",
+      "Do not use repository state, system instructions, tool availability or permission mechanics",
     ]) {
       expect(intentCheckerPrompt).toContain(marker);
     }
     for (const marker of [
       "## Intent-Preservation Gate",
-      "call @intent-checker as the first leaf",
+      "invoke `intent-checker` with `task` as the first leaf",
       "`plan-finalized` checkpoint",
       "semantic revision",
       "one format-only retry",
-      "one designated worker",
+      "fresh worker generation",
       "lane is classifiable but a result-changing material decision is unresolved",
       "approved-iteration-follow-up",
-      "quote only the applicable trusted main-session instruction",
-      "fresh one-turn stateless @intent-checker task at every checkpoint",
-      "continue same-scope remediation through the existing `task_id`",
+      "Do not pass repository facts, system instructions, tool availability or permission mechanics",
+      "fresh one-turn stateless `intent-checker` task at every checkpoint",
+      "Continue only unchanged-input same-scope remediation through the existing `task_id`",
+      "subagent_type`, `description`, and `prompt`",
     ]) {
       expect(orchestratorPrompt).toContain(marker);
     }
@@ -262,7 +262,85 @@ describe("플러그인 로드", () => {
   });
 
   test("훅 존재와 config/task/child lifecycle 결합", async () => {
-    const hooks = await pluginFactory(stubInput, {});
+    type SessionLookupResponse = {
+      data?: { parentID?: string };
+      error?: { message: string };
+    };
+    type DeferredSessionResponse = {
+      promise: Promise<SessionLookupResponse>;
+      resolve: (response: SessionLookupResponse) => void;
+    };
+    const deferredSessionResponses = new Map<
+      string,
+      DeferredSessionResponse[]
+    >();
+    const sessionLookupCounts = new Map<string, number>();
+    const sessionLookupWaiters = new Map<string, Array<() => void>>();
+    const deferSessionResponse = (sessionID: string) => {
+      let resolveResponse!: (response: SessionLookupResponse) => void;
+      const response: DeferredSessionResponse = {
+        promise: new Promise<SessionLookupResponse>((resolve) => {
+          resolveResponse = resolve;
+        }),
+        resolve: (value) => resolveResponse(value),
+      };
+      const queue = deferredSessionResponses.get(sessionID) ?? [];
+      queue.push(response);
+      deferredSessionResponses.set(sessionID, queue);
+      return response.resolve;
+    };
+    const waitForSessionLookup = async (sessionID: string, count: number) => {
+      if ((sessionLookupCounts.get(sessionID) ?? 0) >= count) return;
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if ((sessionLookupCounts.get(sessionID) ?? 0) >= count) {
+            resolve();
+            return;
+          }
+          const waiters = sessionLookupWaiters.get(sessionID) ?? [];
+          waiters.push(check);
+          sessionLookupWaiters.set(sessionID, waiters);
+        };
+        check();
+      });
+    };
+    const hooks = await pluginFactory(
+      {
+        ...stubInput,
+        client: {
+          session: {
+            get: async ({ path }: { path: { id: string } }) => {
+              sessionLookupCounts.set(
+                path.id,
+                (sessionLookupCounts.get(path.id) ?? 0) + 1,
+              );
+              const waiters = sessionLookupWaiters.get(path.id) ?? [];
+              sessionLookupWaiters.delete(path.id);
+              for (const waiter of waiters) waiter();
+              const deferred = deferredSessionResponses.get(path.id)?.shift();
+              if (deferred) return deferred.promise;
+              if (
+                path.id === "direct-root-worker" ||
+                path.id === "quoted-direct-root-worker"
+              ) {
+                return { data: { parentID: undefined } };
+              }
+              if (
+                path.id === "worker-child" ||
+                path.id === "worker-child-no-context"
+              ) {
+                return { data: { parentID: "lifecycle-root" } };
+              }
+              if (path.id === "concurrent-direct-root-worker") {
+                return { data: { parentID: undefined } };
+              }
+              return { data: undefined, error: { message: "not found" } };
+            },
+          },
+        } as never,
+      },
+      {},
+    );
     expect(typeof (hooks as unknown as Record<string, unknown>).config).toBe(
       "function",
     );
@@ -306,6 +384,227 @@ describe("플러그인 로드", () => {
       },
     };
     await configHook(runtimeConfig);
+    const directWorkerPrompt = [
+      "taskId=20260710-direct-root workItemId=direct-worker-01",
+      "Output: .agents/orchestration/20260710-direct-root/direct-worker-01/work.md",
+    ].join("\n");
+    await chatHook(
+      { sessionID: "direct-root-worker" },
+      {
+        message: { agent: "worker" },
+        parts: [{ type: "text", text: directWorkerPrompt }],
+      },
+    );
+    await beforeHook(
+      {
+        tool: "write",
+        sessionID: "direct-root-worker",
+        callID: "direct-worker-write",
+      },
+      {
+        args: {
+          path: ".agents/orchestration/20260710-direct-root/direct-worker-01/work.md",
+        },
+      },
+    );
+    const quotedDirectWorkerPrompt = [
+      '"taskId=20260710-runtime-direct-root workItemId=direct-worker-01',
+      "Output: .agents/orchestration/20260710-runtime-direct-root/direct-worker-01/work.md\"",
+    ].join("\n");
+    await chatHook(
+      { sessionID: "quoted-direct-root-worker" },
+      {
+        message: { agent: "worker" },
+        parts: [{ type: "text", text: quotedDirectWorkerPrompt }],
+      },
+    );
+    await beforeHook(
+      {
+        tool: "write",
+        sessionID: "quoted-direct-root-worker",
+        callID: "quoted-direct-worker-write",
+      },
+      {
+        args: {
+          path: ".agents/orchestration/20260710-runtime-direct-root/direct-worker-01/work.md",
+        },
+      },
+    );
+    for (const sessionID of ["worker-child", "worker-session-unknown"]) {
+      await expect(
+        chatHook(
+          { sessionID },
+          {
+            message: { agent: "worker" },
+            parts: [{ type: "text", text: directWorkerPrompt }],
+          },
+        ),
+      ).rejects.toThrow("실행 할당 충돌");
+    }
+    await expect(
+      beforeHook(
+        {
+          tool: "edit",
+          sessionID: "worker-child",
+          callID: "rejected-child-source-edit",
+        },
+        {
+          args: {
+            path: "src/rejected-child.ts",
+            oldString: "",
+            newString: "unsafe",
+          },
+        },
+      ),
+    ).rejects.toThrow("에이전트 미확인");
+    for (const sessionID of [
+      "worker-child-no-context",
+      "worker-session-unknown-no-context",
+    ]) {
+      await expect(
+        chatHook(
+          { sessionID },
+          {
+            message: { agent: "worker" },
+            parts: [{ type: "text", text: "worker without execution context" }],
+          },
+        ),
+      ).rejects.toThrow("실행 할당 충돌");
+      await expect(
+        beforeHook(
+          {
+            tool: "edit",
+            sessionID,
+            callID: `${sessionID}-source-edit`,
+          },
+          {
+            args: {
+              path: "src/unbound-worker.ts",
+              oldString: "",
+              newString: "unsafe",
+            },
+          },
+        ),
+      ).rejects.toThrow("에이전트 미확인");
+    }
+    const expectPendingWorkerSourceEditDenied = async (
+      sessionID: string,
+      response: SessionLookupResponse,
+    ) => {
+      const resolveSession = deferSessionResponse(sessionID);
+      const pendingChat = chatHook(
+        { sessionID },
+        {
+          message: { agent: "worker" },
+          parts: [{ type: "text", text: directWorkerPrompt }],
+        },
+      );
+      await waitForSessionLookup(sessionID, 1);
+      await expect(
+        beforeHook(
+          {
+            tool: "edit",
+            sessionID,
+            callID: `${sessionID}-pending-source-edit`,
+          },
+          {
+            args: {
+              path: "src/pending-unbound-worker.ts",
+              oldString: "",
+              newString: "unsafe",
+            },
+          },
+        ),
+      ).rejects.toThrow("에이전트 미확인");
+      resolveSession(response);
+      await expect(pendingChat).rejects.toThrow("실행 할당 충돌");
+    };
+    await expectPendingWorkerSourceEditDenied("pending-rejected-child", {
+      data: { parentID: "lifecycle-root" },
+    });
+    await expectPendingWorkerSourceEditDenied("pending-rejected-unknown", {
+      data: undefined,
+      error: { message: "not found" },
+    });
+    const concurrentRejectedWorkerPrompt = [
+      "taskId=20260710-rejected-worker workItemId=worker-01",
+      "Output: .agents/orchestration/20260710-rejected-worker/worker-01/work.md",
+    ].join("\n");
+    const expectConcurrentRejectedWorker = async (
+      sessionID: string,
+      response: SessionLookupResponse,
+    ) => {
+      const resolveFirst = deferSessionResponse(sessionID);
+      const resolveSecond = deferSessionResponse(sessionID);
+      const rejection = expect(
+        Promise.all([
+          chatHook(
+            { sessionID },
+            {
+              message: { agent: "worker" },
+              parts: [{ type: "text", text: concurrentRejectedWorkerPrompt }],
+            },
+          ),
+          chatHook(
+            { sessionID },
+            {
+              message: { agent: "worker" },
+              parts: [{ type: "text", text: concurrentRejectedWorkerPrompt }],
+            },
+          ),
+        ]),
+      ).rejects.toThrow("실행 할당 충돌");
+      await waitForSessionLookup(sessionID, 1);
+      resolveFirst(response);
+      await waitForSessionLookup(sessionID, 2);
+      resolveSecond(response);
+      await rejection;
+      await expect(
+        beforeHook(
+          {
+            tool: "edit",
+            sessionID,
+            callID: `${sessionID}-concurrent-source-edit`,
+          },
+          {
+            args: {
+              path: "src/concurrent-unbound-worker.ts",
+              oldString: "",
+              newString: "unsafe",
+            },
+          },
+        ),
+      ).rejects.toThrow("에이전트 미확인");
+    };
+    await expectConcurrentRejectedWorker("concurrent-rejected-child", {
+      data: { parentID: "lifecycle-root" },
+    });
+    await expectConcurrentRejectedWorker("concurrent-rejected-unknown", {
+      data: undefined,
+      error: { message: "not found" },
+    });
+    const concurrentRootPrompt = [
+      "taskId=20260710-concurrent-root workItemId=direct-worker-01",
+      "Output: .agents/orchestration/20260710-concurrent-root/direct-worker-01/work.md",
+    ].join("\n");
+    await expect(
+      Promise.all([
+        chatHook(
+          { sessionID: "concurrent-direct-root-worker" },
+          {
+            message: { agent: "worker" },
+            parts: [{ type: "text", text: concurrentRootPrompt }],
+          },
+        ),
+        chatHook(
+          { sessionID: "concurrent-direct-root-worker" },
+          {
+            message: { agent: "worker" },
+            parts: [{ type: "text", text: concurrentRootPrompt }],
+          },
+        ),
+      ]),
+    ).resolves.toEqual([undefined, undefined]);
     await chatHook(
       { sessionID: "lifecycle-root" },
       {
@@ -448,18 +747,20 @@ describe("플러그인 로드", () => {
         },
       ),
     ).rejects.toThrow("다른 실행 할당의 산출물 쓰기 거부");
-    await beforeHook(
-      {
-        tool: "edit",
-        sessionID: "lifecycle-child",
-        callID: "active-write",
-      },
-      {
-        args: {
-          path: ".agents/orchestration/20260710-hook/planner-02/plan.md",
+    await expect(
+      beforeHook(
+        {
+          tool: "edit",
+          sessionID: "lifecycle-child",
+          callID: "active-write",
         },
-      },
-    );
+        {
+          args: {
+            path: ".agents/orchestration/20260710-hook/planner-02/plan.md",
+          },
+        },
+      ),
+    ).rejects.toThrow("oldString/newString");
     await expect(
       beforeHook(
         {
@@ -479,18 +780,20 @@ describe("플러그인 로드", () => {
       ),
     ).rejects.toThrow("task 실행 할당/예약 충돌");
 
-    await beforeHook(
-      {
-        tool: "edit",
-        sessionID: "lifecycle-root",
-        callID: "root-index",
-      },
-      {
-        args: {
-          path: ".agents/orchestration/20260710-hook/orchestrator-index/task.md",
+    await expect(
+      beforeHook(
+        {
+          tool: "edit",
+          sessionID: "lifecycle-root",
+          callID: "root-index",
         },
-      },
-    );
+        {
+          args: {
+            path: ".agents/orchestration/20260710-hook/orchestrator-index/task.md",
+          },
+        },
+      ),
+    ).rejects.toThrow("oldString/newString");
     await expect(
       beforeHook(
         {
@@ -663,14 +966,14 @@ describe("config 훅", () => {
         },
       }),
     ).rejects.toThrow("MCP 서버 도구 접두사 모호성");
-    for (const serverKey of ["apply", "list", "read"]) {
+    for (const serverKey of ["list", "read", "apply"]) {
       await expect(
         configHook({
           mcp: {
             [serverKey]: { type: "local", command: ["reserved-collision"] },
           },
         }),
-      ).rejects.toThrow("MCP 서버 도구 접두사 예약 충돌");
+      ).resolves.toBeUndefined();
     }
   });
 
