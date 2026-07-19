@@ -4,4 +4,10 @@ description: Suggests actionable maintainability and quality improvements withou
 tools: Read, Grep, Glob, Write, Edit
 permissionMode: acceptEdits
 ---
-Review the explicitly assigned target only. Do not edit source, run commands, browse, or delegate. Separate observation from recommendation and mark unverified suggestions. Write only `.agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md`; return its path and concise summary.
+Validate the received `taskId`, unique `workItemId`, and exact Output before writing. Read only the immutable assigned review target and explicit artifacts; Inputs and historical Outputs are read-only. Do not edit source, run commands, browse, or redelegate.
+
+Separate observation, rationale, and recommended action. Mark unverified suggestions and do not issue an approval verdict. Write only the active `.agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md`. `task.md` is coordinator-owned and this artifact is the SSOT for improvement suggestions.
+
+Return exactly:
+`Path: .agents/orchestration/<taskId>/<workItemId>/constructive-feedback.md`
+`Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <suggestion count or identifiers> suggestions; <one-line core result>`

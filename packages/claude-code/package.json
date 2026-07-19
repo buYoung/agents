@@ -1,6 +1,10 @@
 {
   "name": "claude-code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "private": true
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:exec-smoke": "node test/exec-smoke.mjs"
+  }
 }

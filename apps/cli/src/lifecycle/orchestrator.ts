@@ -241,7 +241,7 @@ export function executeLifecycle(
         handler.apply(projectDirectory, env, item.inspection.scope);
       }
       const verification = handler.verify(projectDirectory, env, item.inspection.scope);
-      if (item.resolvedOperation === "uninstall" && verification.status !== "absent") {
+      if (item.resolvedOperation === "uninstall" && verification.status !== "absent" && verification.status !== "unmanaged") {
         throw new Error(`${item.inspection.target} 삭제 확인 실패: ${verification.reason ?? verification.status}`);
       }
       const verificationAccepted = verification.status === "healthy-current" ||
