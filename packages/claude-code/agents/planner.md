@@ -1,6 +1,7 @@
 ---
 name: planner
 description: Creates a convergent implementation plan from explicit evidence and assigned artifacts.
+model: claude-opus-4-8
 disallowedTools: Agent, Bash, Edit, NotebookEdit, WebSearch, WebFetch
 permissionMode: acceptEdits
 ---

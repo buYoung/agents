@@ -1,6 +1,7 @@
 ---
 name: worker
 description: Implements a confirmed, scoped change and records changed files and verification truthfully.
+model: claude-sonnet-5
 disallowedTools: Agent
 permissionMode: acceptEdits
 ---

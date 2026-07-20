@@ -22,6 +22,16 @@ const expectedAgents = [
   "research",
   "worker",
 ];
+const expectedModels = {
+  "adversarial-review": "claude-opus-4-8",
+  "code-explorer": "claude-sonnet-5",
+  "constructive-feedback": "claude-sonnet-5",
+  "idea-generator": "claude-sonnet-5",
+  "intent-checker": "claude-sonnet-5",
+  "planner": "claude-opus-4-8",
+  "research": "claude-sonnet-5",
+  "worker": "claude-sonnet-5",
+};
 
 function readFrontmatter(filePath) {
   const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
@@ -53,7 +63,7 @@ test("Claude Code leaf definitions preserve the eight-agent runtime contract", (
     assert.equal(fields.name, name);
     assert.ok(fields.description?.length > 0);
     assert.ok(fields.permissionMode?.length > 0);
-    assert.equal(fields.model, undefined, `${name} must inherit the caller model`);
+    assert.equal(fields.model, expectedModels[name], `${name} must use its assigned model`);
     assert.match(versions[name], /^0\.1\.2$/);
     if (name === "intent-checker") {
       assert.ok(fields.tools?.length > 0);

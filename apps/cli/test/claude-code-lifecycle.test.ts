@@ -14,6 +14,16 @@ const claudeAgentNames = [
   "research",
   "worker",
 ];
+const claudeAgentModels: Record<string, string> = {
+  "adversarial-review": "claude-opus-4-8",
+  "code-explorer": "claude-sonnet-5",
+  "constructive-feedback": "claude-sonnet-5",
+  "idea-generator": "claude-sonnet-5",
+  "intent-checker": "claude-sonnet-5",
+  "planner": "claude-opus-4-8",
+  "research": "claude-sonnet-5",
+  "worker": "claude-sonnet-5",
+};
 
 describe("Claude Code 수명주기 artifact 전파", () => {
   const temporaryDirectories: string[] = [];
@@ -55,7 +65,9 @@ describe("Claude Code 수명주기 artifact 전파", () => {
         fs.readFileSync(path.join(sourceRoot, relativePath), "utf8"),
       );
     }
-    expect(fs.readFileSync(path.join(claudeConfigDirectory, "agents", "worker.md"), "utf8")).not.toContain("model:");
+    for (const [name, model] of Object.entries(claudeAgentModels)) {
+      expect(fs.readFileSync(path.join(claudeConfigDirectory, "agents", `${name}.md`), "utf8")).toContain(`model: ${model}`);
+    }
     const state = JSON.parse(
       fs.readFileSync(path.join(claudeConfigDirectory, ".agents-lifecycle", "claude-code.json"), "utf8"),
     ) as { schemaVersion: number; target: string; version: string; files: Array<{ path: string }> };

@@ -1,6 +1,7 @@
 ---
 name: adversarial-review
 description: Finds concrete defect, regression, security, and compatibility risks without an approval verdict.
+model: claude-opus-4-8
 disallowedTools: Agent, Bash, Edit, NotebookEdit, WebSearch, WebFetch
 permissionMode: acceptEdits
 ---

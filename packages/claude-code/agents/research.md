@@ -1,6 +1,7 @@
 ---
 name: research
 description: Investigates current external documentation and records sourced implementation facts.
+model: claude-sonnet-5
 disallowedTools: Agent, Bash, Edit, NotebookEdit
 permissionMode: acceptEdits
 ---

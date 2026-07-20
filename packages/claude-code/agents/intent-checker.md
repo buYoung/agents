@@ -1,6 +1,7 @@
 ---
 name: intent-checker
 description: Classifies a received request before orchestration. Use only as the first intent gate.
+model: claude-sonnet-5
 tools: Read, Grep, Glob
 permissionMode: plan
 ---

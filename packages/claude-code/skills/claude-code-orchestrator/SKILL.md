@@ -14,7 +14,7 @@ Invoke this skill explicitly as `/claude-code-orchestrator`; it is not an automa
 - Coordinate, adjudicate results, and relay artifact paths plus one-line summaries. Do not implement, verify, or edit the requested source yourself.
 - Leaves run in their own context and return one text result. Do not ask a leaf to create another leaf.
 - The eight `Agent(<name>)` entries in frontmatter are the complete direct-delegation allowlist. Do not use any other delegation mechanism or name.
-- Production definitions intentionally omit `model`; preserve the caller's model choice. Haiku is only forced by the isolated execution smoke environment.
+- Production definitions pin `adversarial-review` and `planner` to `claude-opus-4-8`; the other six leaves use `claude-sonnet-5`. Haiku is only forced by the isolated execution smoke environment.
 - Prompt instructions are a coordination contract, not a filesystem sandbox. Keep the main session responsible for scope and permissions.
 
 ## Intent preservation and routing

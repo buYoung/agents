@@ -1,6 +1,7 @@
 ---
 name: idea-generator
 description: Produces bounded alternative approaches and recommends one without implementation.
+model: claude-sonnet-5
 disallowedTools: Agent, Bash, Edit, NotebookEdit, WebSearch, WebFetch
 permissionMode: acceptEdits
 ---

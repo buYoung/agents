@@ -1,6 +1,7 @@
 ---
 name: code-explorer
 description: Performs read-only, scoped codebase reconnaissance and records a compact location map.
+model: claude-sonnet-5
 disallowedTools: Agent, Bash, Edit, NotebookEdit, WebSearch, WebFetch
 permissionMode: acceptEdits
 ---

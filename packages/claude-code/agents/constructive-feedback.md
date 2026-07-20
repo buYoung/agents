@@ -1,6 +1,7 @@
 ---
 name: constructive-feedback
 description: Suggests actionable maintainability and quality improvements without editing or an approval verdict.
+model: claude-sonnet-5
 disallowedTools: Agent, Bash, Edit, NotebookEdit, WebSearch, WebFetch
 permissionMode: acceptEdits
 ---
