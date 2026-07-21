@@ -98,11 +98,27 @@ describe("Codex custom agent TOML", () => {
           "Map every mandatory constraint and expected outcome",
           "[verified] path - stable symbol/heading/token",
           "## Completion Contract",
+          "## Execution Checklist",
+          "## Review Policy",
+          "Required reviewers: <none|adversarial-review|constructive-feedback|both>",
           "Minimum verification:",
+          "review-policy=<none|adversarial-review|constructive-feedback|both>",
           "decision-needed=<one concise decision>",
         ]) {
           expect(parsed.developer_instructions as string).toContain(marker);
         }
+        expect(codexAgentVersions["planner"]).toBe("0.1.6");
+      }
+      if (agentName === "worker") {
+        for (const marker of [
+          "### Plan Conformance",
+          "conformance-state=<passed|deviated|blocked|not-applicable>",
+          "review-escalation=<none|adversarial-review|constructive-feedback|both>",
+          "Treat the planner's review policy as a floor.",
+        ]) {
+          expect(parsed.developer_instructions as string).toContain(marker);
+        }
+        expect(codexAgentVersions["worker"]).toBe("0.1.8");
       }
       expect(Array.isArray(parsed.nickname_candidates)).toBe(true);
       expect((parsed.nickname_candidates as unknown[]).length).toBeGreaterThan(0);
@@ -118,8 +134,10 @@ describe("Codex custom agent TOML", () => {
 
   test("deployment leaf summaries match the orchestrator terminal schema", () => {
     const summaryContractByAgent = {
+      planner:
+        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-policy=<none|adversarial-review|constructive-feedback|both>; <one-line planning result or decision-needed=one concise decision>",
       worker:
-        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <changed file count> files changed or verification-state=<passed|failed|blocked>; <one-line core result>",
+        "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; verification-state=<passed|failed|blocked>; conformance-state=<passed|deviated|blocked|not-applicable>; review-escalation=<none|adversarial-review|constructive-feedback|both>; <changed file count> files changed; <one-line core result>",
       "adversarial-review":
         "Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; review-state=<clear|findings|needs-user-decision>; <finding count or identifiers> risk candidates; <one-line core summary>",
       "constructive-feedback":
@@ -219,6 +237,12 @@ describe("Codex custom agent TOML", () => {
       "After planner returns `status=completed`",
       "Never invoke a worker for a blocked or failed plan.",
       "Pass the completed planner Output as an explicit read-only Input to every implementation worker generation.",
+      "review-policy=<none|adversarial-review|constructive-feedback|both>",
+      "conformance-state=<passed|deviated|blocked|not-applicable>",
+      "review-escalation=<none|adversarial-review|constructive-feedback|both>",
+      "compute the required reviewer set as the union",
+      "complete without spawning a reviewer",
+      "Do not add the other reviewer type merely because remediation occurred.",
       "Do not create a separate verification-only worker.",
       "intent-delta: none",
       "format-only retry",
@@ -239,13 +263,14 @@ describe("Codex custom agent TOML", () => {
       "Each worker self-verifies its candidate with the plan's minimum mandatory commands",
       "one fresh implementation worker generation",
       "one ordered remediation batch",
-      "failed or missing mandatory self-checks or accepted findings",
+      "failed or missing mandatory self-checks or blocked conformance",
+      "Do not spawn reviewers for a failed or blocked candidate.",
       "at most three automatic remediation rounds",
       "a fourth automatic remediation batch and a fourth re-review are prohibited.",
       "If a same-cause finding or the same self-check failure remains twice consecutively without new evidence",
-      "`gated → implementing → self-verified → reviewing-immutable-result → adjudicating`",
+      "`gated → implementing → self-verified → selecting-reviews → (reviewing-immutable-result → adjudicating | complete-without-review)`",
       "`remediating-<1..3> → self-reverified → rereviewing-<1..3> → readjudicating-<1..3>`",
-      "If any adjudication is clean, end without consuming remaining remediation rounds.",
+      "If review runs and adjudication is clean, end without consuming remaining remediation rounds.",
       "If a mandatory self-check failure or an `accepted` finding remains after the third readjudication",
       "A leaf or reviewer cannot declare task completion.",
     ]) {

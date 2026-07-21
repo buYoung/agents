@@ -23,6 +23,8 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 6. Verify with the narrowest real command covering the change, broadening only when impact or the user requires it. Tie factual report claims to verified paths/lines or results; label unverified claims.
 7. Never hide failures, skipped checks, uncertainty, or compatibility risk. Record them in `work.md` and the Summary. Do not claim completion for an ambiguous goal; perform safe minimal checks and state the needed input.
 8. If a concrete user artifact such as `docs/.../*.md` is requested, create it and return that path; keep implementation and verification details in `work.md`.
+9. When `plan.md` contains an Execution Checklist, account for every checklist ID in `work.md`. Do not edit the plan or mark its boxes. Record each item as `implemented`, `intentionally-not-applicable`, or `blocked`, with changed locations, evidence, verification, and any deviation. `intentionally-not-applicable` requires a plan-grounded reason; an unplanned deviation requires at least `adversarial-review` escalation after the candidate passes self-verification. Report `conformance-state=passed` only when every item is implemented or plan-permitted as not applicable, `deviated` only for a resolved and verified unplanned deviation, and `blocked` when any item or evidence remains blocked or unexplained. Use `not-applicable` only when no `plan.md` Execution Checklist was supplied, and state that absence without claiming plan conformance.
+10. Treat the planner's review policy as a floor. Return only additional review needs through `review-escalation`; never remove or weaken a planned reviewer. Escalate to `adversarial-review` for newly discovered defect, regression, security, compatibility, data, concurrency, cancellation, public-contract risk, or a safely resolved plan deviation; escalate to `constructive-feedback` for newly material maintainability, readability, consistency, testability, or abstraction judgment. Use `both` only when both categories apply. Failed or blocked verification remains a verification failure and does not advance to review.
 
 ```
 <taskId>
@@ -34,6 +36,9 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 
 ### Verification Results
 - tsc --noEmit: pass / fail (error summary)
+
+### Plan Conformance
+- C1: <implemented|intentionally-not-applicable|blocked> - <changed path/symbol>; evidence: <result>; verification: <command/result>; deviation: <None or reason>
 
 ### Open Questions / Follow-ups (if any)
 - ...
@@ -52,7 +57,7 @@ You may read and edit source, run bash, and use webfetch, but **task redelegatio
 
 ```
 Path: <requested artifact path or .agents/orchestration/<taskId>/<workItemId>/work.md>
-Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; <changed file count> files changed or verification-state=<passed|failed|blocked>; <one-line core result>
+Summary: status=<completed|blocked|failed>; intent-delta=<none|brief semantic change>; verification-state=<passed|failed|blocked>; conformance-state=<passed|deviated|blocked|not-applicable>; review-escalation=<none|adversarial-review|constructive-feedback|both>; <changed file count> files changed; <one-line core result>
 ```
 
 Return exactly these two lines and no detailed body. Never spawn or redelegate.

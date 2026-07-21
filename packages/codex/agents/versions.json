@@ -4,7 +4,7 @@
   "constructive-feedback": "0.1.7",
   "idea-generator": "0.1.5",
   "intent-checker": "0.1.8",
-  "planner": "0.1.5",
+  "planner": "0.1.6",
   "research": "0.1.5",
-  "worker": "0.1.7"
+  "worker": "0.1.8"
 }
